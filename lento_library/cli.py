@@ -15,11 +15,13 @@
       MuseScore itself (found automatically, or give --musescore). Those exports are exact, and redone when the
       MuseScore file changes.
 
-  lento-library watch [--root FOLDER] [--interval SECONDS] [--install | --uninstall]
+  lento-library watch [--root FOLDER] [--interval SECONDS] [--tray] [--install [--no-tray] | --uninstall]
       Keeps running and converts PDFs as soon as they are queued from the app, whenever this PC is on, and
       exports MuseScore files as soon as they appear in the library.
-      Writes requests/_status.json so the app can show what the PC is doing. --install starts it hidden
-      at every Windows sign-in (Startup folder); --uninstall removes that.
+      Writes requests/_status.json so the app can show what the PC is doing. --tray adds a system tray icon
+      that turns amber while homr converts, shows the piece on hover, and pops a notification as each one
+      finishes. --install starts it hidden at every Windows sign-in (Startup folder), with the tray icon
+      unless --no-tray; --uninstall removes that.
 
   lento-library organize plan | status | apply BATCH | undo BATCH [--root FOLDER]
       Files an existing, unorganized score folder into pieces/, one batch (top folder) at a time. "plan" writes
@@ -44,6 +46,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from lento_library.library import Library
@@ -70,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--once", action="store_true", help="look once, convert what is queued, and stop")
             p.add_argument("--install", action="store_true", help="start the watcher at every Windows sign-in")
             p.add_argument("--uninstall", action="store_true", help="stop starting it at sign-in")
+            p.add_argument("--tray", action="store_true", help="show a system tray icon while it runs (Windows)")
+            p.add_argument("--no-tray", action="store_true", help="--install: start it at sign-in without the tray icon")
         if name == "organize":
             p.add_argument("step", choices=["plan", "status", "apply", "undo"])
             p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo, or all")
@@ -96,8 +101,10 @@ def main(argv: list[str] | None = None) -> int:
             from lento_library import watch
 
             if args.install or args.uninstall:
-                print(watch.install(lib.root, args.interval) if args.install else watch.uninstall())
+                print(watch.install(lib.root, args.interval, not args.no_tray) if args.install else watch.uninstall())
                 return 0
+            if args.tray and not args.once:
+                return watch.run_with_tray(lib, converter_cmd(args), args.gpu, args.interval, musescore=args.musescore)
             return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
         if args.cmd == "organize":
             return organize(lib, args.step, args.batch, args.fresh)
@@ -192,9 +199,19 @@ def _echo(line: str) -> None:
         print(line.encode("ascii", "replace").decode("ascii"), flush=True)
 
 
-def run_converter(args: list[str], on_line=None, on_tick=None, tick: float = 10) -> int:
+def end_tree(proc: subprocess.Popen) -> None:
+    """Stops the converter and homr, which it runs as a program of its own (on Windows, ending only the converter
+    would leave homr busy on the GPU)."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    else:
+        proc.terminate()
+
+
+def run_converter(args: list[str], on_line=None, on_tick=None, tick: float = 10, stop: threading.Event | None = None) -> int:
     """Runs the converter, echoing its output, calling on_line(pdf_name, status, seconds) for each PDF it reports
-    and on_tick() every `tick` seconds while it works (the watcher's heartbeat)."""
+    and on_tick() every `tick` seconds while it works (the watcher's heartbeat). Setting `stop` ends it early."""
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, encoding="utf-8", errors="replace")
 
@@ -209,24 +226,30 @@ def run_converter(args: list[str], on_line=None, on_tick=None, tick: float = 10)
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
+    last = time.monotonic()
     while True:
         try:
-            code = proc.wait(timeout=tick)
+            code = proc.wait(timeout=tick if stop is None else min(tick, 1))
             break
         except subprocess.TimeoutExpired:
-            if on_tick:
+            if stop is not None and stop.is_set():
+                end_tree(proc)
+                code = proc.wait()
+                break
+            if on_tick and (stop is None or time.monotonic() - last >= tick):
+                last = time.monotonic()
                 on_tick()
     reader.join(timeout=5)
     return code
 
 
 def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_folder=None, on_line=None, on_tick=None,
-                 requested_only: bool = False, on_removed=None) -> list[str]:
+                 requested_only: bool = False, on_removed=None, stop: threading.Event | None = None) -> list[str]:
     """Converts the PDFs' folders one at a time (the converter skips PDFs that already have MusicXML), clears the
     requests that worked, sets failed ones aside, and rebuilds library.json. Returns the names that failed.
     on_folder(i, n, folder, pdfs_here) is called as each folder starts; on_line and on_tick as in run_converter.
     With requested_only, a PDF whose request was removed (from the app) before its turn is skipped, and
-    on_removed(names) is told."""
+    on_removed(names) is told. Setting `stop` ends it early, leaving the unfinished requests queued."""
     folders = sorted({p.parent for p in pdfs})
     failed: list[str] = []
     for i, folder in enumerate(folders, 1):
@@ -243,13 +266,16 @@ def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_fo
         if on_folder:
             on_folder(i, len(folders), folder, here)
         print(f"[{i}/{len(folders)}] {folder.name}: converting…", flush=True)
-        run_converter([*cmd, str(folder), "--no-recursive", "--gpu", gpu], on_line, on_tick)
+        run_converter([*cmd, str(folder), "--no-recursive", "--gpu", gpu], on_line, on_tick, stop=stop)
+        stopped = stop is not None and stop.is_set()
         for pdf in here:
             if any((folder / f"{pdf.stem}{ext}").is_file() for ext in (".musicxml", ".mxl", ".xml")):
                 lib.clear_request(pdf.stem)
-            else:
+            elif not stopped:  # one cut short stays queued for next time
                 lib.fail_request(pdf.stem)
                 failed.append(pdf.name)
+        if stopped:
+            break
     return failed
 
 

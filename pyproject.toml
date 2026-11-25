@@ -10,6 +10,7 @@ dependencies = [
     "pypdfium2>=4.30.0",
     "pillow>=10.0.0",
     "requests>=2.31.0",
+    "pystray>=0.19; sys_platform == 'win32'",  # the watcher's tray icon
 ]
 
 [project.optional-dependencies]
