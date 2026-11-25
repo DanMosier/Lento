@@ -51,6 +51,15 @@ tries once more. `--install` starts the watcher hidden at every Windows sign-in 
 logging to `requests/_watch.log`); `--uninstall` removes it. Run `--install` from the library folder, with the same
 Python that has Lento_ConvertPDF installed.
 
+**The tray icon.** On Windows the installed watcher shows a small round icon with a note in the system tray (next to
+the clock; Windows may tuck it under the ^ arrow, and you can drag it out to keep it in view). It is teal while the
+watcher waits and amber while homr converts (or MuseScore exports). Hovering shows the piece being converted, how far
+the batch is and about how long is left, and a notification pops up as each piece finishes or fails. Its menu opens
+the library folder, the log and the app; **Quit watcher** stops the watcher, ending a conversion under way (that PDF
+stays queued and converts the next time the watcher starts). The icon is fed the watcher's status directly, so it
+reads no files and does no work between updates. Run `lento-library watch --tray` to get it in a window you started
+yourself, or `--install --no-tray` to start at sign-in without it.
+
 **MuseScore files.** Put a MuseScore file (`.mscz`, or the older `.mscx`) in a piece folder, named like the others
 (`<piece_id>__<variant>.mscz`; `lento-library add` files it from the inbox too). `convert` and the watcher export it to
 a MusicXML and a PDF of the same name beside it, using MuseScore itself without opening its window, add a catalog row

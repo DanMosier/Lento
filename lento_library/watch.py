@@ -14,8 +14,10 @@ import json
 import os
 import platform
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from lento_library.library import REQUESTS, Library
 
@@ -35,8 +37,9 @@ class Status:
     seconds per PDF, for the app's time estimate). The heartbeat is renewed every few seconds during a conversion.
     """
 
-    def __init__(self, lib: Library, interval: float):
+    def __init__(self, lib: Library, interval: float, on_save: Callable[[dict], None] | None = None):
         self.path = lib.root / REQUESTS / STATUS
+        self.on_save = on_save  # the tray icon, fed the same data as the file
         self.data: dict = {"format": "lento-watch", "version": 2, "pc": platform.node(), "interval_s": interval, "results": []}
         try:  # keep earlier results across restarts
             old = json.loads(self.path.read_text(encoding="utf-8"))
@@ -64,6 +67,11 @@ class Status:
             tmp.replace(self.path)
         except OSError as e:  # Drive for Desktop can hold the file for a moment; the next write catches up
             print(f"couldn't write {self.path.name}: {e}", flush=True)
+        if self.on_save:
+            try:
+                self.on_save(self.data)
+            except Exception as e:  # the icon must never stop a conversion
+                print(f"tray icon: {e}", flush=True)
 
     def result(self, pdf: str, ok: bool, seconds: float | None = None) -> None:
         r: dict = {"pdf": pdf, "ok": ok, "at": now()}
@@ -100,9 +108,11 @@ class Batch:
         self.write()
 
     def line(self, name: str, state: str, seconds: float) -> None:
-        """The converter reported one PDF; requested ones are marked done (its siblings are ignored)."""
+        """The converter reported one PDF; requested ones are marked done (its siblings are ignored) and added to
+        the results right away, so the app's Recent list and the tray's notification don't wait for the batch."""
         if name in self.current and name not in self.done:
             self.done[name] = (state == "converted", seconds)
+            self.status.result(name, state == "converted", seconds)
             self.started, self.started_at = now(), time.monotonic()  # the next PDF in the folder starts now
             self.write()
 
@@ -110,16 +120,26 @@ class Batch:
         self.status.beat()
 
     def finish(self, failed: set[str]) -> None:
+        """Adds a result for each PDF the converter didn't report, and corrects one it called converted that has
+        no MusicXML after all."""
         for name in self.order:
             ok = name not in failed
-            seconds = self.done.get(name, (ok, None))[1]
-            self.status.result(name, ok, seconds)
+            if name not in self.done:
+                self.status.result(name, ok)
+            elif self.done[name][0] != ok:
+                for r in reversed(self.status.data["results"]):
+                    if r["pdf"] == name:
+                        r["ok"] = ok
+                        break
 
 
-def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False, musescore: str | None = None) -> int:
+def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False, musescore: str | None = None,
+        stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None) -> int:
+    """Watches until Ctrl+C or until `stop` is set (the tray's Quit, which also ends a conversion under way; its
+    requests stay queued for next time). on_status gets every status update."""
     from lento_library.cli import convert_pdfs, export_musescore
 
-    status = Status(lib, interval)
+    status = Status(lib, interval, on_status)
     tried: dict[Path, float] = {}  # MuseScore file -> its modified time when last exported or tried
     built: tuple | None = None  # the library's fingerprint when library.json was last written
     print(f"watching {lib.root / REQUESTS} every {interval:g} s (Ctrl+C to stop)", flush=True)
@@ -152,7 +172,9 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 pdfs.sort(key=lambda p: (str(p.parent), p.name))  # the order convert_pdfs works in
                 print(f"{len(pdfs)} PDF(s) queued", flush=True)
                 batch = Batch(status, pdfs)
-                failed = set(convert_pdfs(lib, pdfs, cmd, gpu, batch.folder, batch.line, batch.tick))
+                failed = set(convert_pdfs(lib, pdfs, cmd, gpu, batch.folder, batch.line, batch.tick, stop))
+                if stop and stop.is_set():
+                    break
                 batch.finish(failed)
                 lib.write_index()
                 wrote = True
@@ -166,11 +188,30 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
             status.write("idle", [])
             if once:
                 return 0
-            time.sleep(interval)
+            if stop:
+                if stop.wait(interval):
+                    break
+            else:
+                time.sleep(interval)
     except KeyboardInterrupt:
-        status.write("stopped", [])
-        print("stopped")
-        return 0
+        pass
+    status.write("stopped", [])
+    print("stopped", flush=True)
+    return 0
+
+
+def run_with_tray(lib: Library, cmd: list[str], gpu: str, interval: float = 30, musescore: str | None = None) -> int:
+    """Runs the watcher with a tray icon (Windows), or without one when pystray isn't there."""
+    from lento_library import tray
+
+    if not tray.available():
+        print("no tray icon (pystray isn't installed): watching without one", flush=True)
+        return run(lib, cmd, gpu, interval, musescore=musescore)
+    stop = threading.Event()
+    log = tray.log_path(lib.root)
+    icon = tray.Tray(lib.root, log if log.exists() else None, stop.set)
+    icon.run(lambda: run(lib, cmd, gpu, interval, musescore=musescore, stop=stop, on_status=icon.update))
+    return 0
 
 
 def startup_file() -> Path:
@@ -180,17 +221,20 @@ def startup_file() -> Path:
     return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Lento library watcher.vbs"
 
 
-def install(root: Path, interval: float = 30) -> str:
-    """Starts the watcher hidden at every Windows sign-in, logging to <library>/requests/_watch.log."""
+def install(root: Path, interval: float = 30, tray: bool = True) -> str:
+    """Starts the watcher hidden at every Windows sign-in (with its tray icon unless tray=False), logging to
+    <library>/requests/_watch.log."""
     exe = Path(sys.executable)
     pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
     log = root.resolve() / REQUESTS / "_watch.log"
+    flag = " --tray" if tray else ""
     log.parent.mkdir(exist_ok=True)  # cmd opens the log before Python starts, so the folder must exist
-    cmd = f'cmd /c ""{pyw}" -m lento_library watch --root "{root.resolve()}" --interval {interval:g} >> "{log}" 2>&1"'
+    cmd = f'cmd /c ""{pyw}" -m lento_library watch --root "{root.resolve()}" --interval {interval:g}{flag} >> "{log}" 2>&1"'
     vbs = 'CreateObject("WScript.Shell").Run "' + cmd.replace('"', '""') + '", 0, False\n'
     f = startup_file()
     f.write_text(vbs, encoding="utf-8")
-    return f"installed: the watcher starts at sign-in ({f}). Log: {log}. Start it now by signing out and in, or by running that file."
+    icon = ", with its tray icon," if tray else ""
+    return f"installed: the watcher starts at sign-in{icon} ({f}). Log: {log}. Start it now by signing out and in, or by running that file."
 
 
 def uninstall() -> str:
