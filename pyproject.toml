@@ -1,0 +1,29 @@
+[project]
+name = "PDF_to_MusicXML"
+version = "1.0.0"
+description = "Batch convert sheet music PDFs into MusicXML using homr, with a full GUI and open-source VST MusicXML preview player."
+requires-python = ">=3.11"
+dependencies = [
+    "pypdf>=5.0.0",
+    "pypdfium2>=4.30.0",
+    "pillow>=10.0.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "music21", "verovio", "pyinstaller"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["PDF_to_MusicXML*"]
+
+[project.scripts]
+pdf-to-musicxml = "PDF_to_MusicXML.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+testpaths = ["tests"]
+markers = ["homr_gpu: runs the real homr on the GPU (slow)"]

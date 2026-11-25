@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+# 1.4 GB of sample libraries
+open_source_vsts/
+# third-party sheet music used as test fixtures; do not publish
+tests/fixtures/homr/

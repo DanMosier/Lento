@@ -1,0 +1,9 @@
+{
+    "synthetic_waltz": { "pitch_f1": 0.99, "strict_f1": 0.99 },
+    "merry-go-round-of-life": { "pitch_f1": 0.99, "strict_f1": 0.99 },
+    "moonlight-sonata-3rd-movement": { "pitch_f1": 0.93, "strict_f1": 0.89 },
+    "synthetic_ensemble": { "pitch_f1": 0.97, "strict_f1": 0.96, "placed_pitch_f1": 0.97, "placed_strict_f1": 0.95 },
+    "piano-concerto-no-2-opus-18-1st-movement-rachmaninoff": {
+        "pitch_f1": 0.95, "strict_f1": 0.78, "placed_pitch_f1": 0.95, "placed_strict_f1": 0.78
+    }
+}
