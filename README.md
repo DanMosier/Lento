@@ -1,4 +1,17 @@
-# PDF to MusicXML Batch Converter & Open-Source VST Player
+# Lento
+
+Tools for practicing music, starting with cello. Each tool stands on its own:
+
+| Folder | What it is |
+| --- | --- |
+| `lento_convertpdf/` | **Lento_ConvertPDF**: Windows desktop app that turns sheet music PDFs into MusicXML (needs a GPU) |
+| `lento_core/` | Shared code: reads a MusicXML score into a list of notes |
+| `lento_practice/` | Python practice analyzer: compares a recording with the score |
+| `app/` | The Lento app for PC, phone and tablet, one tab per feature: Practice, Tuner ([live](https://danmosier.github.io/Lento/)) |
+| `tests/convertpdf/`, `tests/practice/` | Tests for each tool (`tests/fixtures/` holds the converter's test scores) |
+| `docs/` | Accuracy notes for the converter and the practice analyzer |
+
+## Lento_ConvertPDF
 
 A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` files using **[homr](https://github.com/liebharc/homr)**, and preview the converted scores with an integrated **MusicXML Player** powered by the most popular open-source `.vst` / `.vst3` instrument plugins.
 
@@ -25,11 +38,12 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
      - **Percussion & Timpani**: *Geonkick Percussion & Timpani Synthesizer VST3*
      - **Universal Synth**: *Surge XT Open-Source Hybrid Synthesizer VST3*
 
-## Practice web app
+## Lento app (PC, phone and tablet)
 
-`web/` is the practice app for PC, phone and tablet: slowed playback with loops, count-in and metronome,
-recording, note-by-note intonation and timing feedback, and a tuner, all in the browser. Live at
-https://danmosier.github.io/Lento/. See [web/README.md](web/README.md).
+`app/` is the app that every feature goes into, each as its own tab and folder. **Practice**: slowed playback with
+loops, count-in and metronome, recording, and note-by-note intonation and timing feedback. **Tuner**: live note and
+cents with C G D A reference tones. Everything runs in the browser. Live at https://danmosier.github.io/Lento/.
+See [app/README.md](app/README.md).
 
 ## Practice feedback
 
@@ -69,8 +83,9 @@ No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN librarie
 ## Running
 
 ```powershell
-.venv\Scripts\python.exe convert_pdfs.py                                   # GUI
-.venv\Scripts\pdf-to-musicxml.exe "C:\path\to\pdfs" --output-dir "C:\out"  # command line
+.venv\Scripts\python.exe -m lento_convertpdf                              # GUI
+.venv\Scripts\Lento_ConvertPDF.exe "C:\path\to\pdfs" --output-dir "C:\out"  # command line
+.venv\Scripts\python.exe -m lento_convertpdf.build_exe                    # build dist\Lento_ConvertPDF.exe
 ```
 
 `--gpu force` (default) fails unless CUDA is really in use. `--gpu auto` and `--gpu no` allow the CPU.
@@ -80,10 +95,10 @@ No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN librarie
 ```powershell
 .venv\Scripts\python.exe -m pytest -m "not homr_gpu"                 # fast
 .venv\Scripts\python.exe -m pytest -m homr_gpu -s -W ignore          # real homr, prints accuracy
-.venv\Scripts\python.exe tests\compare_musicxml.py reference.mxl output.musicxml
+.venv\Scripts\python.exe tests\convertpdf\compare_musicxml.py reference.mxl output.musicxml
 ```
 
 Any `name.pdf` with a matching `name.mxl` or `name.musicxml` under `tests/fixtures` becomes an accuracy test.
-Export flags, measured accuracy and orchestral limits are described in [docs/accuracy.md](docs/accuracy.md).
+Export flags, measured accuracy and orchestral limits are described in [docs/convertpdf-accuracy.md](docs/convertpdf-accuracy.md).
 Minimum scores go in `tests/fixtures/baselines.json`, for example `{"name": {"pitch_f1": 0.9, "strict_f1": 0.85}}`.
 Scores without a baseline are measured and printed, then skipped.
