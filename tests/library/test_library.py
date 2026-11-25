@@ -264,3 +264,54 @@ def test_runs_as_a_module(tmp_path: Path) -> None:
                          cwd=Path(__file__).parents[2])
     assert out.returncode == 0, out.stderr
     assert (tmp_path / "library.json").exists()
+
+
+def test_run_converter_reports_each_pdf_and_ticks(tmp_path: Path) -> None:
+    import sys as _sys
+
+    from lento_library.cli import run_converter
+
+    fake = tmp_path / "fake.py"
+    fake.write_text(
+        "import time\n"
+        "print('Found 2 PDF file(s)', flush=True)\n"
+        "time.sleep(0.3)\n"
+        "print('[1/2] CONVERTED: a__x.pdf -> a__x.musicxml (12.5s)', flush=True)\n"
+        "print('      quality: good \\u266f', flush=True)\n"
+        "print('[2/2] FAILED: b__x.pdf -> homr could not read page 1 (3.0s)', flush=True)\n"
+    )
+    lines, ticks = [], []
+    code = run_converter([_sys.executable, str(fake)], lambda *a: lines.append(a), lambda: ticks.append(1), tick=0.1)
+    assert code == 0
+    assert lines == [("a__x.pdf", "converted", 12.5), ("b__x.pdf", "failed", 3.0)]
+    assert ticks  # the heartbeat kept going while it worked
+
+
+def test_batch_status_shows_current_next_and_progress(tmp_path: Path) -> None:
+    from lento_library import watch
+
+    make_library(tmp_path)
+    status = watch.Status(Library(tmp_path), 30)
+    pdfs = [tmp_path / "pieces" / f / f"{f}__x.pdf" for f in ("a", "a", "b")]
+    pdfs[1] = pdfs[1].with_name("a__y.pdf")
+    batch = watch.Batch(status, pdfs)
+    def read() -> dict:
+        return json.loads(status.path.read_text(encoding="utf-8"))
+
+    batch.folder(1, 2, pdfs[0].parent, pdfs[:2])
+    s = read()
+    assert s["state"] == "converting" and s["current_files"] == ["a__x.pdf", "a__y.pdf"] and s["queue"] == ["b__x.pdf"]
+    assert s["batch"]["total"] == 3 and s["batch"]["done"] == 0 and s["started"]
+    batch.line("a__x.pdf", "converted", 40.0)
+    batch.line("other__z.pdf", "converted", 5.0)  # a sibling nobody asked for doesn't count
+    s = read()
+    assert s["current_files"] == ["a__y.pdf"] and s["batch"]["done"] == 1
+    batch.line("a__y.pdf", "converted", 60.0)
+    batch.folder(2, 2, pdfs[2].parent, pdfs[2:])
+    assert read()["queue"] == [] and read()["current_files"] == ["b__x.pdf"]
+    batch.finish({"b__x.pdf"})
+    status.write("idle", [])
+    s = read()
+    assert "batch" not in s and "current_files" not in s
+    assert [(r["pdf"], r["ok"], r.get("seconds")) for r in s["results"]] == [("a__x.pdf", True, 40.0), ("a__y.pdf", True, 60.0), ("b__x.pdf", False, None)]
+    assert s["avg_s"] == 60.0  # median of the converted ones

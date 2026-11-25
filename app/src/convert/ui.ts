@@ -7,6 +7,7 @@ import { $ } from "../core/app";
 import { library, libraryChanged, onLibraryChanged, requestedHere } from "../core/library/connection";
 import type { LibraryFile, LibraryIndex, Piece } from "../core/library/model";
 import { fold, musicxmlOf, pcOnline, requestName, type PcStatus } from "../core/library/model";
+import { buildQueue, duration, item, namesOf, type Names, type QueueItem } from "./queue";
 
 const SHOWN = 200;
 
@@ -21,14 +22,27 @@ const ui = {
   none: $<HTMLButtonElement>("cv-none"),
   go: $<HTMLButtonElement>("cv-go"),
   todo: $<HTMLUListElement>("cv-todo"),
-  waiting: $<HTMLUListElement>("cv-waiting"),
-  waitingBox: $<HTMLDetailsElement>("cv-waiting-box"),
+  tabPick: $<HTMLButtonElement>("cv-tab-pick"),
+  tabQueue: $<HTMLButtonElement>("cv-tab-queue"),
+  pick: $("cv-pick"),
+  queue: $("cv-queue"),
+  qBatch: $("cv-q-batch"),
+  qBatchText: $("cv-q-batch-text"),
+  qEta: $("cv-q-eta"),
+  qBatchBar: $<HTMLProgressElement>("cv-q-batch-bar"),
+  qNow: $<HTMLUListElement>("cv-q-now"),
+  qNext: $<HTMLOListElement>("cv-q-next"),
+  qPickupBox: $("cv-q-pickup-box"),
+  qPickup: $<HTMLUListElement>("cv-q-pickup"),
+  qRecent: $<HTMLUListElement>("cv-q-recent"),
   review: $<HTMLUListElement>("cv-review"),
   reviewBox: $<HTMLDetailsElement>("cv-review-box"),
 };
 
 type Item = { piece: Piece; file: LibraryFile };
 let index: LibraryIndex | null = null;
+let names: Names = new Map();
+let pc: PcStatus | null = null; // the watcher's last status
 const selected = new Map<string, Item>(); // by request file name
 
 function status(text: string, kind: "info" | "error" = "info"): void {
@@ -97,8 +111,7 @@ function render(): void {
   );
   if (shown.length > SHOWN) ui.todo.append(li(`…and ${shown.length - SHOWN} more. Search to narrow the list.`));
   if (!todo.length) ui.todo.append(li("Every PDF in the library has MusicXML."));
-  ui.waitingBox.hidden = !waiting.length;
-  ui.waiting.replaceChildren(...waiting.map((it) => li(...label(it))));
+  ui.tabQueue.textContent = waiting.length ? `Queue (${waiting.length})` : "Queue";
   ui.reviewBox.hidden = !review.length;
   ui.review.replaceChildren(
     ...review.map((it) => li(label(it)[0], it.file.quality === "REVIEW" ? "some measures may be wrong" : "probably wrong in many places")),
@@ -130,6 +143,8 @@ function ago(iso: string): string {
 }
 
 function showPc(s: PcStatus | null): void {
+  pc = s;
+  renderQueue();
   ui.pc.replaceChildren();
   const line = (text: string, cls = "") => {
     const p = document.createElement("p");
@@ -146,12 +161,15 @@ function showPc(s: PcStatus | null): void {
   const online = pcOnline(s);
   ui.pc.dataset.state = online ? s.state : "offline";
   if (!online) line(`${s.pc || "Your PC"} is off or not watching (last seen ${ago(s.heartbeat)}). Queued PDFs convert when it's back.`);
-  else if (s.state === "converting") line(`${s.pc || "Your PC"} is converting ${s.current}${s.queue.length ? `, ${s.queue.length} more after that` : ""}.`);
+  else if (s.state === "converting") {
+    const now = (s.current_files ?? (s.current ? s.current.split(", ") : [])).map((n) => item(n, names).title).join(", ");
+    line(`${s.pc || "Your PC"} is converting ${now}${s.queue.length ? `, ${s.queue.length} more after that` : ""}.`);
+  }
   else if (s.state === "exporting") line(`${s.pc || "Your PC"} is exporting ${s.current} from MuseScore.`);
   else line(`${s.pc || "Your PC"} is on and watching (checked ${ago(s.heartbeat)}). New requests start within ${Math.round(s.interval_s || 30)} s.`);
   if (s.musescore === false) line("There are MuseScore files in the library, but MuseScore isn't installed on the PC. Install MuseScore 4 there and they'll be exported.", "hint");
   const recent = [...s.results].reverse().slice(0, 5);
-  if (recent.length) line("Recent: " + recent.map((r) => `${r.pdf.replace(/\.(pdf|mscz|mscx)$/, "")} ${r.ok ? "✓" : "failed"}`).join(" · "), "hint");
+  if (recent.length && ui.queue.hidden) line("Recent: " + recent.map((r) => `${item(r.pdf, names).title} ${r.ok ? "✓" : "failed"}`).join(" · "), "hint");
 }
 
 async function loadPc(): Promise<void> {
@@ -176,6 +194,7 @@ async function load(fromDrive: boolean): Promise<void> {
   try {
     if (fromDrive) status("Loading the library from Google Drive…");
     index = fromDrive ? await lib.loadIndex() : await lib.cachedIndex();
+    names = namesOf(index);
     if (!index) status("Press Refresh to load your library from Google Drive.");
     else {
       status(index.generated ? `Library index from ${new Date(index.generated).toLocaleString()}.` : "");
@@ -214,6 +233,111 @@ async function queue(): Promise<void> {
   }
 }
 
+// ---- the Queue tab ----
+
+function queueRow(it: QueueItem, extra?: string): HTMLLIElement {
+  return li(it.title, [it.sub, extra].filter(Boolean).join(" · "));
+}
+
+let nowBars: { bar: HTMLProgressElement; time: HTMLElement; base: number; avg: number | null; at: number }[] = [];
+
+function renderQueue(): void {
+  if (ui.queue.hidden) return; // nothing to draw while the list tab is showing
+  const v = buildQueue(pc, index, names, requestedHere.all());
+  const online = !!pc && pcOnline(pc);
+  ui.qBatch.hidden = !v.batch;
+  if (v.batch) {
+    ui.qBatchText.textContent = `${v.batch.done} of ${v.batch.total} done`;
+    ui.qEta.textContent = v.batch.left_s != null ? `${duration(v.batch.left_s)} left` : "";
+    ui.qBatchBar.value = v.batch.total ? v.batch.done / v.batch.total : 0;
+  }
+  nowBars = [];
+  const t = performance.now();
+  ui.qNow.replaceChildren(
+    ...v.now.map((it, i) => {
+      const row = queueRow(it);
+      if (i === 0) {
+        const bar = document.createElement("progress");
+        bar.max = 1;
+        bar.setAttribute("aria-label", `Converting ${it.title}`);
+        const time = document.createElement("small");
+        time.className = "cv-now-time";
+        row.append(bar, time);
+        nowBars.push({ bar, time, base: it.elapsed_s, avg: it.left_s != null ? it.elapsed_s + it.left_s : null, at: t });
+      } else row.append(Object.assign(document.createElement("small"), { textContent: "next, same folder" }));
+      return row;
+    }),
+  );
+  if (!v.now.length) ui.qNow.append(li(online ? "Nothing right now." : "Nothing: your PC is off or not watching."));
+  tick();
+  ui.qNext.replaceChildren(...v.next.map((it) => queueRow(it)));
+  if (!v.next.length) ui.qNext.append(Object.assign(li("Nothing else in this batch."), { className: "hint" }));
+  ui.qPickupBox.hidden = !v.pickup.length;
+  ui.qPickup.replaceChildren(...v.pickup.map((it) => queueRow(it)));
+  ui.qRecent.replaceChildren(
+    ...v.recent.map((r) => {
+      const row = queueRow(r, `${ago(r.at)}${r.seconds ? `, took ${duration(r.seconds).replace("about ", "")}` : ""}`);
+      const mark = document.createElement("span");
+      mark.className = r.ok ? "cv-ok" : "cv-bad";
+      mark.textContent = r.ok ? " ✓" : " failed";
+      row.firstElementChild?.append(mark);
+      return row;
+    }),
+  );
+  if (!v.recent.length) ui.qRecent.append(li("Nothing yet."));
+}
+
+/** Moves the progress bar of the PDF converting now along; touches only that bar and one line of text. */
+function tick(): void {
+  for (const b of nowBars) {
+    const e = b.base + (performance.now() - b.at) / 1000;
+    if (b.avg) {
+      b.bar.value = Math.min(0.95, e / b.avg);
+      b.time.textContent = e < b.avg ? `${duration(e).replace("about ", "")} in, ${duration(b.avg - e)} left` : `${duration(e).replace("about ", "")} in, taking longer than usual`;
+    } else {
+      b.bar.removeAttribute("value"); // no timings yet: an animated bar
+      b.time.textContent = `${duration(e).replace("about ", "")} in`;
+    }
+  }
+}
+
+let poll = 0;
+let ticker = 0;
+function queueVisible(): boolean {
+  return !ui.queue.hidden && !$("view-convert").hidden && document.visibilityState === "visible";
+}
+/** While the Queue tab is on screen: check the PC every 15 s and move the bar every second. Otherwise nothing runs. */
+function updateTimers(): void {
+  const on = queueVisible();
+  if (on && !poll) {
+    poll = window.setInterval(() => void loadPc(), 15_000);
+    ticker = window.setInterval(() => (queueVisible() ? tick() : updateTimers()), 1000);
+  } else if (!on && poll) {
+    clearInterval(poll);
+    clearInterval(ticker);
+    poll = ticker = 0;
+  }
+}
+
+function showTab(queue: boolean): void {
+  ui.pick.hidden = queue;
+  ui.queue.hidden = !queue;
+  ui.search.hidden = queue;
+  ui.tabPick.setAttribute("aria-selected", String(!queue));
+  ui.tabQueue.setAttribute("aria-selected", String(queue));
+  if (queue) {
+    renderQueue();
+    void loadPc();
+  }
+  updateTimers();
+}
+ui.tabPick.addEventListener("click", () => showTab(false));
+ui.tabQueue.addEventListener("click", () => showTab(true));
+document.addEventListener("visibilitychange", () => {
+  updateTimers();
+  if (queueVisible()) void loadPc();
+});
+
 ui.refresh.addEventListener("click", () => void load(true));
 ui.go.addEventListener("click", () => void queue());
 ui.all.addEventListener("click", () => {
@@ -236,6 +360,8 @@ onLibraryChanged(() => {
 let stale = true;
 /** Called when the screen opens: show the saved index straight away (works offline). */
 export function enterConvert(): void {
+  updateTimers();
+  if (queueVisible() && !stale) void loadPc();
   if (!stale) return;
   stale = false;
   void load(false);

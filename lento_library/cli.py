@@ -33,9 +33,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
+import re
 import shlex
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from lento_library.library import Library
@@ -166,17 +169,56 @@ def converter_cmd(args: argparse.Namespace) -> list[str]:
     return shlex.split(args.converter, posix=sys.platform != "win32") if args.converter else [sys.executable, "-m", "lento_convertpdf"]
 
 
-def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_folder=None) -> list[str]:
+_LINE = re.compile(r"^\[\d+/\d+\] (\w+): (.+?\.pdf) -> .*\(([\d.]+)s\)\s*$", re.IGNORECASE)
+
+
+def _echo(line: str) -> None:
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:  # a log or console that can't show note symbols
+        print(line.encode("ascii", "replace").decode("ascii"), flush=True)
+
+
+def run_converter(args: list[str], on_line=None, on_tick=None, tick: float = 10) -> int:
+    """Runs the converter, echoing its output, calling on_line(pdf_name, status, seconds) for each PDF it reports
+    and on_tick() every `tick` seconds while it works (the watcher's heartbeat)."""
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, encoding="utf-8", errors="replace")
+
+    def read() -> None:
+        assert proc.stdout
+        for raw in proc.stdout:
+            line = raw.rstrip("\r\n")
+            _echo(line)
+            m = _LINE.match(line.strip())
+            if m and on_line:
+                on_line(Path(m.group(2)).name, m.group(1).lower(), float(m.group(3)))
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    while True:
+        try:
+            code = proc.wait(timeout=tick)
+            break
+        except subprocess.TimeoutExpired:
+            if on_tick:
+                on_tick()
+    reader.join(timeout=5)
+    return code
+
+
+def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_folder=None, on_line=None, on_tick=None) -> list[str]:
     """Converts the PDFs' folders one at a time (the converter skips PDFs that already have MusicXML), clears the
-    requests that worked, sets failed ones aside, and rebuilds library.json. Returns the names that failed."""
+    requests that worked, sets failed ones aside, and rebuilds library.json. Returns the names that failed.
+    on_folder(i, n, folder, pdfs_here) is called as each folder starts; on_line and on_tick as in run_converter."""
     folders = sorted({p.parent for p in pdfs})
     failed: list[str] = []
     for i, folder in enumerate(folders, 1):
-        here = [p for p in pdfs if p.parent == folder]
+        here = sorted((p for p in pdfs if p.parent == folder), key=lambda p: p.name)
         if on_folder:
             on_folder(i, len(folders), folder, here)
         print(f"[{i}/{len(folders)}] {folder.name}: converting…", flush=True)
-        subprocess.run([*cmd, str(folder), "--no-recursive", "--gpu", gpu], check=False)
+        run_converter([*cmd, str(folder), "--no-recursive", "--gpu", gpu], on_line, on_tick)
         for pdf in here:
             if any((folder / f"{pdf.stem}{ext}").is_file() for ext in (".musicxml", ".mxl", ".xml")):
                 lib.clear_request(pdf.stem)
