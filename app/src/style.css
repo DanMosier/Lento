@@ -127,6 +127,13 @@ input[type="number"] { width: 5.5em; padding: 6px 8px; min-height: 36px; }
 .parts-row input { width: 22px; height: 22px; accent-color: var(--accent); }
 .parts-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .parts-actions .spacer { flex: 1; }
+.trainer p { flex-basis: 100%; margin: 4px 0; }
+.trainer label { margin-right: 10px; }
+#tr-go.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tr-log { flex-basis: 100%; margin: 4px 0; padding-left: 1.6em; font-variant-numeric: tabular-nums; }
+.tr-log li { margin: 2px 0; }
+.tr-log .clean { color: var(--in_tune); }
+.tr-log .miss { color: var(--muted); }
 .delay { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 16px 6px 0; }
 .delay > label { font-weight: 600; }
 #av-delay { width: 180px; accent-color: var(--accent); }
