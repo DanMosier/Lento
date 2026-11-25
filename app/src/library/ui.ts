@@ -150,7 +150,7 @@ async function openFile(p: Piece, f: LibraryFile, button: HTMLButtonElement): Pr
       return;
     }
     offlineKeys.add(fileKey(p, f));
-    requestOpenScore({ name: f.name, data: got.data! });
+    requestOpenScore({ name: f.name, data: got.data!, pieceId: p.id });
     status(got.offline ? `${p.title}: opened the copy saved on this device (Drive not reachable).` : `${p.title}: opened in Practice.`);
     render();
   } catch (e) {

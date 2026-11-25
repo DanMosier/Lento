@@ -11,12 +11,13 @@ Lento Library/                      the folder you connect in the app
   catalog.csv                       one row per PDF: composer, title, edition, technique tags (edit in Excel)
   tags.md                           the allowed technique tags
   inbox/                            new downloads waiting to be filed
-  requests/                         "Make MusicXML" requests left by the app (the app's only writes)
+  requests/                         "Make MusicXML" requests left by the app
   pieces/
     bach_cello-suite-1-prelude_bwv1007/
       bach_cello-suite-1-prelude_bwv1007__barenreiter.pdf
       bach_cello-suite-1-prelude_bwv1007__barenreiter.musicxml        same name as its PDF
       bach_cello-suite-1-prelude_bwv1007__barenreiter.quality.json    Lento_ConvertPDF's rating, if converted
+      bach_cello-suite-1-prelude_bwv1007__barenreiter.marks.json      your fingerings, bowings and notes (made by the app)
 ```
 
 - **piece_id** (the folder name): `composer_short-title[_catalog]`, lowercase, hyphens inside a part,
@@ -64,8 +65,12 @@ Drive**. After that, **Refresh** in the Library or Convert PDF screen picks up a
 - **Convert PDF** (from the home screen) lists every PDF without MusicXML with a checkbox, **Select all shown**
   (follows the search) and **Queue for my PC**. It also shows the watcher's status and what is waiting.
 - Scores you have opened are saved on the device (✓) and open offline. The last index is saved too.
-- The app reads your Drive and can only create its own request files (the `drive.file` permission does not let it
-  open or change anything it did not create).
+- **Marks** in Practice (fingerings, bowings, string numbers, lifts, circles and short notes) are saved beside the
+  MusicXML as `<name>.marks.json`, so they follow you between PC, phone and tablet. The score file itself is never
+  changed. Offline, marks are kept on the device and uploaded the next time that score opens online; if two
+  devices both changed them, the most recent change wins.
+- The app reads your Drive and can only create and change its own files, the request files and marks files (the
+  `drive.file` permission does not let it open or change anything it did not create).
 
 ## One-time setup: a Google client ID (about 5 minutes)
 

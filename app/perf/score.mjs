@@ -39,9 +39,11 @@ try {
   const now = () => page.evaluate(() => performance.now());
   const longest = (from, to = Infinity) => page.evaluate(([a, b]) => Math.max(0, ...window.__long.filter(([s]) => s >= a && s < b).map(([, d]) => d)), [from, to]);
 
+  const waitForMark = (n) => page.waitForFunction((n) => performance.getEntriesByName(`lento:${n}`).length > 0, n);
   await page.goto("http://localhost:4180/");
   await waitFor("ready", 1);
   await page.click('.home-card[data-go="practice"]');
+  await waitForMark("entered-practice");
 
   // In the part picker: tick the practised part (and optionally others), then press Open
   const choose = async (practise, show) => {

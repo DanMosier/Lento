@@ -1,6 +1,6 @@
 /** The Practice tab: slowed playback, loops, metronome, recording and note-by-note feedback. */
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
-import { $, onOpenScore, sharedAudio, store } from "../core/app";
+import { $, sharedAudio, store, takeOpenScore } from "../core/app";
 import { timed } from "../core/perf";
 import { LiveMic, type MicFrame } from "../core/live-pitch";
 import { defaultPart, midiName, parseScore, partXml, quickPartList, scoreText, type Score } from "../core/score";
@@ -15,11 +15,15 @@ import { reportedDelay, TapTest } from "./latency";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";
 import { celloWhere, stepName, WaitJudge, waitSteps } from "./wait";
+import { clearNote, emptyMarks, marksIn, newer, parseMarks, toggleMark, type MarkKind, type MarkSet } from "./marks";
+import { drawMarks, nearestNote, notePlaces, type NotePlace } from "./marks-view";
+import { library } from "../core/library/connection";
 import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
 
 const ui = {
   scoreFile: $<HTMLInputElement>("score-file"),
   partsBtn: $<HTMLButtonElement>("parts-btn"),
+  marksBtn: $<HTMLButtonElement>("marks-btn"),
   title: $("title"),
   controls: $("controls"),
   tempo: $<HTMLInputElement>("tempo"),
@@ -53,6 +57,7 @@ let fullDoc: Document | null = null; // the whole file, parsed once and reused w
 let choice: PartChoice | null = null;
 let accompParts: Score[] | null = null; // the other shown parts, parsed the first time they are played
 let fileName = "";
+let pieceId: string | null = null; // the library piece the score came from, if any
 let score: Score | null = null;
 let ctx: AudioContext | null = null;
 let player: Player | null = null;
@@ -120,6 +125,7 @@ async function render(text: string): Promise<void> {
     await timed("load-sheet", () => sheet.load(text));
     timed("draw-sheet", () => sheet.render());
   });
+  drawScoreMarks();
 }
 
 async function openScore(name: string, text: string, picked?: PartChoice): Promise<void> {
@@ -141,7 +147,7 @@ function loadSounds(): void {
 }
 
 /** Opens a file the user just picked: for a score with several parts, asks which parts first. */
-async function openFile(name: string, text: string): Promise<void> {
+async function openFile(name: string, text: string, from: string | null = null): Promise<void> {
   const parts = quickPartList(text);
   let picked: PartChoice | undefined;
   if (parts.length > 1) {
@@ -154,6 +160,7 @@ async function openFile(name: string, text: string): Promise<void> {
     }
     picked = c;
   }
+  pieceId = from;
   await openScore(name, text, picked);
 }
 
@@ -175,6 +182,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   ui.controls.hidden = false;
   ui.title.textContent = s.title;
   ui.partsBtn.hidden = s.parts.length < 2;
+  ui.marksBtn.hidden = false;
   ui.partsBtn.textContent = choiceLabel(s.parts, choice);
   ui.accompLabel.hidden = choice.shown.length < 2;
   const opts = () => s.measures.map((m, i) => new Option(m, String(i)));
@@ -186,6 +194,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   await render(plainXml);
   loadSounds();
   showBest();
+  void loadMarks();
   status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.` : "This part has no notes.");
   if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
@@ -204,13 +213,13 @@ ui.scoreFile.addEventListener("change", async () => {
   ui.scoreFile.value = "";
 });
 
-onOpenScore(async ({ name, data }) => {
+takeOpenScore(async ({ name, data, pieceId: from }) => {
   if (training()) stopTrainer();
   if (player?.playing) stopPlayback();
   if (waiting()) stopWait();
   try {
     status(`Opening ${name}…`);
-    await openFile(name, scoreText(name, data));
+    await openFile(name, scoreText(name, data), from ?? null);
   } catch (e) {
     status(`Could not open ${name}: ${(e as Error).message}`, "error");
   }
@@ -865,6 +874,145 @@ for (const sel of [tr.start, tr.target, tr.step, tr.need]) sel.addEventListener(
 ui.from.addEventListener("change", showBest);
 ui.to.addEventListener("change", showBest);
 
+// ---- score marks: fingerings, bowings and notes on top of the score, saved beside it ----
+
+const mk = {
+  btn: $<HTMLButtonElement>("marks-btn"),
+  bar: $("marks-bar"),
+  text: $<HTMLInputElement>("marks-text"),
+  show: $<HTMLInputElement>("marks-show"),
+  saved: $("marks-saved"),
+  tools: [...document.querySelectorAll<HTMLButtonElement>("#marks-bar [data-kind]")],
+};
+let marks: MarkSet | null = null;
+let places = new Map<string, NotePlace>();
+let tool: { kind: MarkKind | "erase"; value?: string } | null = null;
+let marking = false;
+let pushTimer = 0;
+let lastTouched: string | null = null;
+
+const sidecarName = () => `${fileName.replace(/\.[^.]+$/, "")}.marks.json`;
+const localKey = () => `marks:${pieceId ?? "device"}:${fileName}`;
+
+/** Loads this score's marks: this device's copy and the library's, whichever was changed last. */
+async function loadMarks(): Promise<void> {
+  const name = fileName;
+  const local = store.get<MarkSet & { pending?: boolean }>(localKey());
+  marks = local ?? emptyMarks(name);
+  drawScoreMarks();
+  const lib = pieceId ? library() : null;
+  if (!lib || !pieceId) return;
+  try {
+    const remote = parseMarks(JSON.stringify(await lib.readSidecar(pieceId, sidecarName())));
+    if (name !== fileName) return; // another score was opened meanwhile
+    const best = newer(local, remote) ?? emptyMarks(name);
+    marks = best;
+    store.set(localKey(), best);
+    drawScoreMarks();
+    if (local?.pending || (local && best === local && remote && local.updated !== remote.updated)) pushMarks(0);
+  } catch {
+    /* offline and never synced: this device's copy is all there is */
+  }
+}
+
+/** Saves on this device now, and to the library a moment later (so a run of taps is one upload). */
+function saveMarks(): void {
+  if (!marks) return;
+  store.set(localKey(), { ...marks, pending: !!pieceId });
+  pushMarks(1500);
+}
+
+function pushMarks(delay: number): void {
+  clearTimeout(pushTimer);
+  const lib = pieceId ? library() : null;
+  if (!lib || !pieceId || !marks) {
+    mk.saved.textContent = marks?.marks.length ? "Saved on this device." : "";
+    return;
+  }
+  const [id, set, key] = [pieceId, marks, localKey()];
+  pushTimer = window.setTimeout(async () => {
+    try {
+      const { pending: _, ...clean } = set as MarkSet & { pending?: boolean };
+      await lib.writeSidecar(id, sidecarName(), clean);
+      if (store.get<MarkSet>(key)?.updated === set.updated) store.set(key, clean);
+      mk.saved.textContent = "Saved to your library.";
+    } catch {
+      mk.saved.textContent = "Saved on this device. It goes to your library the next time this score opens online.";
+    }
+  }, delay);
+}
+
+/** Redraws the marks over the score; call after every render. */
+function drawScoreMarks(): void {
+  if (!osmd || !score || !choice || ui.sheet.hidden) return;
+  if (!marking && !marks?.marks.length) {
+    // nothing to draw: skip finding every note on the page (it takes a moment on a big score)
+    ui.sheet.querySelector(".marks-layer")?.replaceChildren();
+    return;
+  }
+  places = notePlaces(osmd, ui.sheet, score, Math.max(0, choice.shown.indexOf(choice.practise)));
+  drawMarks(ui.sheet, places, marks ? marksIn(marks, score) : new Map(), marking ? lastTouched : null);
+  ui.sheet.querySelector(".marks-layer")?.classList.toggle("off", !mk.show.checked);
+}
+
+function setMarking(on: boolean): void {
+  marking = on && !!score;
+  mk.bar.hidden = !marking;
+  ui.controls.hidden = marking || !score; // more room for the score while marking
+  mk.btn.setAttribute("aria-pressed", String(marking));
+  ui.sheet.classList.toggle("marking", marking);
+  lastTouched = null;
+  if (marking) {
+    if (!mk.show.checked) mk.show.checked = true;
+    status(tool ? "Tap notes to mark them. Tap again to take a mark off." : "Pick a mark, then tap notes.");
+  }
+  drawScoreMarks();
+}
+
+for (const b of mk.tools)
+  b.addEventListener("click", () => {
+    const kind = b.dataset.kind as MarkKind | "erase";
+    const same = tool && tool.kind === kind && tool.value === b.dataset.value;
+    tool = same ? null : { kind, value: b.dataset.value };
+    for (const x of mk.tools) x.setAttribute("aria-pressed", String(x === b && !same));
+    mk.text.hidden = tool?.kind !== "text";
+    if (tool?.kind === "text") mk.text.focus();
+    status(tool ? "Tap notes to mark them. Tap again to take a mark off." : "Pick a mark, then tap notes.");
+  });
+
+ui.sheet.addEventListener("click", (e) => {
+  if (!marking || !marks || !score) return;
+  const c = ui.sheet.getBoundingClientRect();
+  const hit = nearestNote(places, e.clientX - c.left + ui.sheet.scrollLeft, e.clientY - c.top + ui.sheet.scrollTop);
+  if (!hit) return;
+  lastTouched = hit.key;
+  if (!tool) return status("Pick a mark first.");
+  if (tool.kind === "erase") marks = clearNote(marks, hit.key);
+  else if (tool.kind === "text") {
+    const v = mk.text.value.trim();
+    if (!v) return status("Type the text first, then tap a note.");
+    marks = toggleMark(marks, { note: hit.key, kind: "text", value: v });
+  } else marks = toggleMark(marks, { note: hit.key, kind: tool.kind, value: tool.value });
+  saveMarks();
+  drawScoreMarks();
+});
+
+mk.btn.addEventListener("click", () => setMarking(!marking));
+$("marks-done").addEventListener("click", () => setMarking(false));
+mk.show.addEventListener("change", () => {
+  store.set("marks.show", mk.show.checked);
+  drawScoreMarks();
+});
+mk.show.checked = store.get<boolean>("marks.show") ?? true;
+{
+  // the score is redrawn to fit when the window changes size; put the marks back on it afterwards
+  let t = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(t);
+    t = window.setTimeout(drawScoreMarks, 700);
+  });
+}
+
 // ---- restore the last session ----
 
 for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timingStrict, "timing"], [ui.click, "click"]] as const) {
@@ -916,6 +1064,11 @@ export function closeScore(): void {
   ui.feedback.replaceChildren();
   ui.controls.hidden = true;
   ui.partsBtn.hidden = true;
+  ui.marksBtn.hidden = true;
+  setMarking(false);
+  marks = null;
+  pieceId = null;
+  ui.sheet.querySelector(".marks-layer")?.replaceChildren();
   ui.title.textContent = "";
   ui.welcome.hidden = false;
   status("Open a score to start.");

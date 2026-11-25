@@ -60,6 +60,7 @@ try {
   const now = () => page.evaluate(() => performance.now());
 
   // 1. Startup: navigation start to the app being usable
+  const waitForMark = (n) => page.waitForFunction((n) => performance.getEntriesByName(`lento:${n}`).length > 0, n);
   await page.goto("http://localhost:4179/");
   await waitFor("ready");
   results["startup-ms"] = await page.evaluate(() => performance.getEntriesByName("lento:ready")[0].startTime);
@@ -79,6 +80,8 @@ try {
 
   // 3. Opening a 3-minute score, then a 400-measure score
   await page.click('.home-card[data-go="practice"]');
+  await waitForMark("entered-practice");
+  results["first-open-practice-ms"] = (await measure("load-practice"))[0]; // its code loads the first time
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
   await waitFor("open-score", 1);
   results["open-score-ms"] = (await measure("open-score"))[0];
