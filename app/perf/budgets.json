@@ -8,5 +8,6 @@
   "start-playback-ms": 250,
   "check-3min-ms": 10000,
   "check-3min-longest-block-ms": 3500,
-  "track-pitch-ms": 8000
+  "track-pitch-ms": 8000,
+  "wait-mode-longest-block-ms": 150
 }

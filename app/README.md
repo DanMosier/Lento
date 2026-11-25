@@ -5,6 +5,10 @@ The Lento app for a PC, phone or tablet. Each feature is a tab.
 **Practice:** practise with your own sheet music. Open a MusicXML score, play it back slowly with loops and a
 count-in and a metronome (whole notes down to 16ths) and a moving cursor that can allow for headphone delay, record yourself, and see every note colored by intonation and
 timing, judged as strictly as you choose (pitch and timing separately).
+**Wait mode** is for learning the notes: the cursor stops on each note (showing its name and where it's played)
+and moves on only once the microphone hears it held in tune. There's no metronome. After three wrong tries it plays
+the note for you. The other shown parts can follow along, and at the end you get a tally of the notes that needed
+several tries.
 
 **Library:** browse your score library in Google Drive, open a MusicXML into Practice or a PDF in Drive's viewer, and
 queue PDFs (one or a batch) for MusicXML conversion on your PC.
@@ -31,12 +35,12 @@ Practice with a score open asks first, then closes the score). Each feature is o
 screen. Features never import each other.
 
 - `src/core/` code every feature may use: `score.ts` (MusicXML reading), `app.ts` (saved settings, one shared
-  AudioContext, the open-score hand-off), `sounds.ts` (recorded instrument sounds), `perf.ts` (timing marks), and
+  AudioContext, the open-score hand-off), `sounds.ts` (recorded instrument sounds), `live-pitch.ts` (microphone pitch for the tuner and wait mode), `perf.ts` (timing marks), and
   `library/` (the Google Drive library: `model.ts`, `drive.ts`, `library.ts`, `auth.ts`, and `connection.ts`, the one
   connection Library, Convert and Settings share).
 - `src/practice/` Practice: `pitch.ts` (YIN pitch tracking, in a worker), `align.ts` and `analyze.ts` (ports of
   `lento_practice` in Python, which stays the reference), `report.ts`, `player.ts` (playback and metronome),
-  `parts.ts` (the part picker), `recorder.ts`, `latency.ts`, `ui.ts`.
+  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `recorder.ts`, `latency.ts`, `ui.ts`.
 - `src/library/` Library: browse and open scores. It hands a score to Practice with `requestOpenScore` from core.
 - `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status.
 - `src/tuner/` Tuner. `src/settings/` Settings (library connection, tuning, headphone delay, sounds).

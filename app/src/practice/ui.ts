@@ -2,7 +2,8 @@
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $, onOpenScore, sharedAudio, store } from "../core/app";
 import { timed } from "../core/perf";
-import { defaultPart, parseScore, partXml, quickPartList, scoreText, type Score } from "../core/score";
+import { LiveMic, type MicFrame } from "../core/live-pitch";
+import { defaultPart, midiName, parseScore, partXml, quickPartList, scoreText, type Score } from "../core/score";
 import { choiceLabel, cleanChoice, pickParts, type PartChoice } from "./parts";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { type PitchTrack } from "./pitch";
@@ -12,6 +13,7 @@ import { partInstrument, Player } from "./player";
 import { reportedDelay, TapTest } from "./latency";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";
+import { celloWhere, stepName, WaitJudge, waitSteps } from "./wait";
 
 const ui = {
   scoreFile: $<HTMLInputElement>("score-file"),
@@ -29,6 +31,7 @@ const ui = {
   accompLabel: $("accomp-label"),
   play: $<HTMLButtonElement>("play"),
   record: $<HTMLButtonElement>("record"),
+  wait: $<HTMLButtonElement>("wait"),
   audioFile: $<HTMLInputElement>("audio-file"),
   a4: $<HTMLInputElement>("a4"),
   pitchStrict: $<HTMLSelectElement>("pitch-strict"),
@@ -187,6 +190,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
 ui.scoreFile.addEventListener("change", async () => {
   const f = ui.scoreFile.files?.[0];
   if (!f) return;
+  if (waiting()) stopWait();
   try {
     status(`Opening ${f.name}…`);
     await openFile(f.name, scoreText(f.name, await f.arrayBuffer()));
@@ -198,6 +202,7 @@ ui.scoreFile.addEventListener("change", async () => {
 
 onOpenScore(async ({ name, data }) => {
   if (player?.playing) stopPlayback();
+  if (waiting()) stopWait();
   try {
     status(`Opening ${name}…`);
     await openFile(name, scoreText(name, data));
@@ -209,6 +214,7 @@ onOpenScore(async ({ name, data }) => {
 ui.partsBtn.addEventListener("click", async () => {
   if (!score || !choice) return;
   if (player?.playing) stopPlayback();
+  if (waiting()) stopWait();
   const c = await pickParts(score.parts, choice);
   if (c) await openScore(fileName, xml, c).catch((e) => status((e as Error).message, "error"));
 });
@@ -245,6 +251,13 @@ function follow(): void {
   frame = requestAnimationFrame(follow);
 }
 
+/** The other shown parts, when "Play other shown parts" is ticked (parsed the first time). */
+function accompaniment(): Score[] {
+  if (!ui.accomp.checked || !choice || !fullDoc) return [];
+  accompParts ??= choice.shown.filter((id) => id !== choice!.practise).map((id) => parseScore(fullDoc!, id));
+  return accompParts;
+}
+
 async function startPlayback(mute = false): Promise<void> {
   return timed("start-playback", () => startPlaybackNow(mute));
 }
@@ -252,9 +265,7 @@ async function startPlayback(mute = false): Promise<void> {
 async function startPlaybackNow(mute = false): Promise<void> {
   if (!score) return;
   audio();
-  if (ui.accomp.checked && choice && fullDoc && !accompParts)
-    accompParts = choice.shown.filter((id) => id !== choice!.practise).map((id) => parseScore(fullDoc!, id));
-  const parts = ui.accomp.checked && accompParts ? [score, ...accompParts] : [score];
+  const parts = [score, ...accompaniment()];
   await player!.play({
     parts,
     fromMeasure: +ui.from.value,
@@ -460,13 +471,18 @@ function download(blob: Blob, name: string): void {
 }
 
 function loopSpot(sp: Spot): void {
-  ui.from.value = String(sp.fromIndex);
-  ui.to.value = String(sp.toIndex);
-  ui.loop.checked = true;
+  loopMeasures(sp.fromIndex, sp.toIndex);
   if (sp.loopBpm) ui.tempo.value = String(Math.max(30, Math.min(120, Math.round((sp.loopBpm / writtenTempo()) * 20) * 5)));
   updateTempoLabel();
+}
+
+function loopMeasures(from: number, to: number): void {
+  ui.from.value = String(from);
+  ui.to.value = String(to);
+  ui.loop.checked = true;
+  updateTempoLabel();
   ui.controls.scrollIntoView({ behavior: "smooth" });
-  status(`Looping measures ${sp.fromMeasure} to ${sp.toMeasure}. Press Play.`);
+  status(`Looping measures ${score!.measures[from]} to ${score!.measures[to]}. Press Play, or Wait mode.`);
 }
 
 function showFeedback(a: Analysis): void {
@@ -554,6 +570,172 @@ function rowOf(cells: string[], tag: "td" | "th", cls?: string): HTMLTableRowEle
   return tr;
 }
 
+// ---- wait mode: the cursor waits on each note until you play it ----
+
+const wp = {
+  panel: $("wait-panel"),
+  note: $("wait-note"),
+  where: $("wait-where"),
+  progress: $("wait-progress"),
+  heard: $("wait-heard"),
+};
+let mic: LiveMic | null = null;
+let judge: WaitJudge | null = null;
+let waitAccomp: Score[] = [];
+let waitStarted = 0;
+let quietUntil = 0; // the mic is ignored while the app plays a hint, so it doesn't hear itself
+let wrongInRow = 0;
+let heardShown = "";
+
+const waiting = (): boolean => judge !== null;
+
+async function startWait(): Promise<void> {
+  if (!score) return;
+  if (player?.playing) stopPlayback();
+  const steps = waitSteps(score, +ui.from.value, +ui.to.value);
+  if (!steps.length) return status("There are no notes in these measures.", "error");
+  const s = settings();
+  const c = audio();
+  const m = new LiveMic(c);
+  try {
+    await m.start();
+  } catch (e) {
+    return status(`Could not use the microphone: ${(e as Error).message}`, "error");
+  }
+  mic = m;
+  judge = new WaitJudge(steps, { cents: s.okCents, holdMs: 150 });
+  waitAccomp = accompaniment();
+  mic.onFrame = (f) => onMicFrame(f, s.a4);
+  waitStarted = performance.now();
+  wrongInRow = 0;
+  ui.wait.textContent = "Stop waiting";
+  ui.wait.classList.add("on");
+  ui.play.disabled = ui.record.disabled = true;
+  wp.panel.hidden = false;
+  osmd?.cursor.show();
+  osmd?.cursor.reset();
+  lastBeat = -1;
+  showStep();
+  status(
+    waitAccomp.length
+      ? "Play each note when you're ready; the other parts follow you. Use headphones so the microphone hears only you."
+      : "Play each note when you're ready. The cursor waits for you.",
+  );
+}
+
+function showStep(): void {
+  const st = judge?.current;
+  if (!st || !score) return;
+  wp.note.textContent = stepName(st);
+  wp.note.classList.remove("ok");
+  wp.where.textContent = celloWhere(Math.min(...st.midis));
+  wp.progress.textContent = `${judge!.index + 1} of ${judge!.steps.length}`;
+  moveCursorTo(st.beat);
+}
+
+function onMicFrame(f: MicFrame, a4: number): void {
+  if (!judge || f.time < quietUntil) return;
+  const midi = f.hz ? 69 + 12 * Math.log2(f.hz / a4) : null;
+  const heard = midi === null ? "" : `heard ${midiName(Math.round(midi))}`;
+  if (heard !== heardShown) {
+    wp.heard.textContent = heardShown = heard;
+    wp.heard.classList.remove("wrong");
+  }
+  const ev = judge.feed(midi, f.rms, f.time);
+  if (ev === "wrong") {
+    wp.heard.classList.add("wrong");
+    if (++wrongInRow === 3) playHint();
+  } else if (ev) advanced(ev === "done");
+}
+
+function advanced(done: boolean): void {
+  const prev = judge!.steps[judge!.index - 1];
+  wrongInRow = 0;
+  if (waitAccomp.length && score) {
+    // the other parts play from the note you just found up to your next one
+    const next = judge!.current?.beat ?? score.measureStarts[+ui.to.value + 1] ?? score.totalBeats;
+    player!.playSpan(waitAccomp, prev.beat, next, +ui.tempo.value / 100);
+  }
+  if (done) finishWait(true);
+  else showStep();
+}
+
+/** Plays the note you're looking for, at a comfortable length. */
+function playHint(): void {
+  const st = judge?.current;
+  if (!st || !score || !player) return;
+  const n = st.notes[0];
+  const secs = score.secondsAt(n.beat + n.duration) - score.secondsAt(n.beat);
+  const factor = Math.max(1, secs / 1.2);
+  player.playSpan([score], st.beat, st.beat + 1e-3, factor, 0.9);
+  quietUntil = performance.now() + (secs / factor) * 1000 + 350;
+  status(`Listen: ${stepName(st)}. Then play it.`);
+}
+
+function stopWait(): void {
+  mic?.stop();
+  mic = null;
+  judge = null;
+  player?.stop();
+  ui.wait.textContent = "Wait mode";
+  ui.wait.classList.remove("on");
+  ui.play.disabled = ui.record.disabled = false;
+  wp.panel.hidden = true;
+  osmd?.cursor.hide();
+}
+
+function finishWait(completed: boolean): void {
+  const j = judge;
+  if (!j || !score) return stopWait();
+  const secs = Math.round((performance.now() - waitStarted) / 1000);
+  stopWait();
+  if (j.index === 0) return status("Wait mode stopped.");
+  const found = j.steps.slice(0, j.index);
+  const hard = j.hardest();
+  const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const box = ui.feedback;
+  box.replaceChildren();
+  const head = el("div", undefined, "cards");
+  for (const [big, small] of [
+    [`${found.length}`, completed ? "notes found" : `of ${j.steps.length} notes found`],
+    [time, "time taken"],
+    [`${found.filter((s) => s.tries === 0).length}`, "found first time"],
+    [`${hard.length}`, "needed several tries"],
+  ]) {
+    const c = el("div", undefined, "card");
+    c.append(el("strong", big), el("span", small));
+    head.append(c);
+  }
+  box.append(el("h2", `Wait mode · Measures ${found[0].measure} to ${found[found.length - 1].measure}`), head);
+  if (hard.length) {
+    box.append(el("h3", "Notes to work on"));
+    const list = el("ol", undefined, "spots");
+    for (const st of hard.slice(0, 8)) {
+      const li = el("li");
+      li.append(el("strong", `Measure ${st.measure}, beat ${Math.floor(st.beatInMeasure) + 1}`), el("span", ` ${stepName(st)}: ${st.tries} wrong tries`));
+      const b = el("button", "Loop this measure");
+      b.type = "button";
+      b.addEventListener("click", () => loopMeasures(st.measureIndex, st.measureIndex));
+      li.append(b);
+      list.append(li);
+    }
+    box.append(list);
+  } else box.append(el("p", "Every note came within two tries.", "hint"));
+  box.hidden = false;
+  if (completed && ui.loop.checked) {
+    status("Done. Going round again; press Stop waiting to finish.");
+    void startWait();
+  } else status(completed ? "Done: you found every note. Switch to Play to bring it up to tempo." : "Wait mode stopped.");
+}
+
+ui.wait.addEventListener("click", () => (waiting() ? finishWait(false) : void startWait()));
+$("wait-stop").addEventListener("click", () => finishWait(false));
+$("wait-hint").addEventListener("click", playHint);
+$("wait-skip").addEventListener("click", () => {
+  const ev = judge?.skip(performance.now());
+  if (ev) advanced(ev === "done");
+});
+
 // ---- restore the last session ----
 
 for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timingStrict, "timing"], [ui.click, "click"]] as const) {
@@ -581,6 +763,7 @@ export function hasScore(): boolean {
 
 /** Closes the score and anything about it (playback, a recording in progress, feedback), freeing its memory. */
 export function closeScore(): void {
+  if (waiting()) stopWait();
   if (recorder?.recording) recorder.stop(); // discard: the user chose to leave
   player?.stop();
   cancelAnimationFrame(frame);
