@@ -8,6 +8,7 @@ import { choiceLabel, cleanChoice, pickParts, type PartChoice } from "./parts";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { type PitchTrack } from "./pitch";
 import { trackPitchAsync } from "./pitch-async";
+import { roomOut } from "../core/room";
 import { SoundBank } from "../core/sounds";
 import { partInstrument, Player } from "./player";
 import { reportedDelay, TapTest } from "./latency";
@@ -81,7 +82,7 @@ function audio(): AudioContext {
   if (!ctx) {
     ctx = sharedAudio();
     sounds = new SoundBank(ctx);
-    player = new Player(ctx, ctx.destination, sounds);
+    player = new Player(ctx, roomOut(ctx), sounds);
     player.onEnd = () => stopPlayback();
     recorder = new Recorder(ctx);
   }
@@ -270,6 +271,7 @@ async function startPlayback(mute = false): Promise<void> {
 async function startPlaybackNow(mute = false): Promise<void> {
   if (!score) return;
   audio();
+  roomOut(ctx!); // picks up the Room sound setting
   const parts = [score, ...accompaniment()];
   await player!.play({
     parts,

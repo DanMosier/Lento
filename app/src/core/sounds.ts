@@ -42,6 +42,13 @@ interface Pack {
   layers: Layer[]; // loudest first
 }
 
+/** How a note joins its neighbours, and a steady per-note number (0..1) for small differences between notes. */
+export interface NoteShape {
+  legatoIn?: boolean;
+  legatoOut?: boolean;
+  vary?: number;
+}
+
 export type SoundQuality = "synth" | "light" | "full";
 
 /** The sound setting from Settings, with "auto" decided by the device: phones get the light packs. */
@@ -170,9 +177,19 @@ export class SoundBank {
 
   /**
    * Schedules one note. Returns false when that instrument's pack isn't loaded (the caller then uses the synth).
-   * `level` is 0..1 (1 = the practised part, softer for accompaniment).
+   * `level` is 0..1 (1 = the practised part, softer for accompaniment). `shape` joins it smoothly to its neighbours
+   * and gives each note a slight difference, the way no two bow strokes or breaths are the same.
    */
-  play(instrument: string | null, midi: number, when: number, dur: number, level: number, out: AudioNode, track: (n: AudioScheduledSourceNode) => void): boolean {
+  play(
+    instrument: string | null,
+    midi: number,
+    when: number,
+    dur: number,
+    level: number,
+    out: AudioNode,
+    track: (n: AudioScheduledSourceNode) => void,
+    shape: NoteShape = {},
+  ): boolean {
     const pack = instrument ? this.packs.get(instrument) : undefined;
     if (!pack) return false;
     const vel = 40 + 80 * level;
@@ -180,25 +197,37 @@ export class SoundBank {
     let note = layer.notes.find((n) => midi >= n.lo && midi <= n.hi);
     if (!note) note = layer.notes.reduce((a, b) => (Math.abs(b.key - midi) < Math.abs(a.key - midi) ? b : a));
     const ctx = this.ctx;
+    const v = shape.vary ?? 0.5; // 0..1, steady per note
     const src = ctx.createBufferSource();
     src.buffer = layer.buffer;
-    src.playbackRate.value = 2 ** ((midi - note.key) / 12 + (note.tune ?? 0) / 1200);
-    const length = (note.end - note.start) / src.playbackRate.value; // seconds of sample at this pitch
-    const release = pack.loop ? 0.12 : 0.35;
+    // up to ±3 cents and ±6% loudness, so repeated notes don't sound like one copy played over and over
+    src.playbackRate.value = 2 ** ((midi - note.key) / 12 + ((note.tune ?? 0) + (v - 0.5) * 6) / 1200);
+    const sustained = pack.loop && note.loopStart !== undefined && note.loopEnd !== undefined;
+    // A note slurred from the one before skips its own attack and fades in under the previous note's tail;
+    // a note followed straight away by another rings on a little into it, so there's no gap between them.
+    const legIn = sustained && !!shape.legatoIn;
+    const legOut = sustained && !!shape.legatoOut;
+    // (bowed and blown recordings take a few tenths of a second to reach full tone, so it starts well in)
+    const offset = legIn ? Math.max(0, Math.min(0.3, note.loopStart! - note.start - 0.05)) : v * 0.01;
+    const length = (note.end - note.start - offset) / src.playbackRate.value; // seconds of sample at this pitch
+    const release = legOut ? 0.1 : pack.loop ? 0.12 : 0.35;
     let stopAt: number;
-    if (pack.loop && note.loopStart !== undefined && note.loopEnd !== undefined) {
+    if (sustained) {
       src.loop = true;
-      src.loopStart = note.loopStart;
-      src.loopEnd = note.loopEnd;
+      src.loopStart = note.loopStart!;
+      src.loopEnd = note.loopEnd!;
       stopAt = when + dur + release;
     } else stopAt = when + Math.min(length, dur + release);
     const env = ctx.createGain();
-    const peak = 0.55 * (0.45 + 0.55 * level);
-    env.gain.setValueAtTime(peak, when);
-    env.gain.setValueAtTime(peak, Math.max(when, stopAt - release));
+    const peak = 0.55 * (0.45 + 0.55 * level) * (0.94 + 0.12 * v);
+    if (legIn) {
+      env.gain.setValueAtTime(0, when);
+      env.gain.linearRampToValueAtTime(peak, when + 0.05);
+    } else env.gain.setValueAtTime(peak, when);
+    env.gain.setValueAtTime(peak, Math.max(when + (legIn ? 0.05 : 0), stopAt - release));
     env.gain.linearRampToValueAtTime(0, stopAt);
     src.connect(env).connect(out);
-    src.start(when, note.start);
+    src.start(when, note.start + offset);
     src.stop(stopAt + 0.01);
     track(src);
     return true;

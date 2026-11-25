@@ -1,10 +1,11 @@
 /**
  * The Settings screen: options shared by the whole app. Each is a saved value other screens read when they open
- * (tuning "a4", headphone delay "avDelay", instrument sounds "sound", and the Google Drive library connection).
+ * (tuning "a4", headphone delay "avDelay", instrument sounds "sound", room sound "room", and the Google Drive library connection).
  */
 import { $, store } from "../core/app";
 import { auth, clientId, library, libraryChanged, libraryFolder, saveConnection } from "../core/library/connection";
 import { SOUND_CACHE } from "../core/sounds";
+import { roomOn } from "../core/room";
 
 const ui = {
   folder: $<HTMLInputElement>("set-folder"),
@@ -16,6 +17,7 @@ const ui = {
   delay: $<HTMLInputElement>("set-delay"),
   delayOut: $<HTMLOutputElement>("set-delay-out"),
   sound: $<HTMLSelectElement>("set-sound"),
+  room: $<HTMLInputElement>("set-room"),
   clearSounds: $<HTMLButtonElement>("set-clear-sounds"),
   soundStatus: $("set-sound-status"),
 };
@@ -64,6 +66,7 @@ ui.delay.addEventListener("input", () => {
 });
 
 ui.sound.addEventListener("change", () => store.set("sound", ui.sound.value));
+ui.room.addEventListener("change", () => store.set("room", ui.room.checked));
 ui.clearSounds.addEventListener("click", async () => {
   try {
     await caches.delete(SOUND_CACHE);
@@ -82,5 +85,6 @@ export function enterSettings(): void {
   ui.delay.value = String(store.get<number>("avDelay") ?? 0);
   showDelay();
   ui.sound.value = store.get<string>("sound") ?? "auto";
+  ui.room.checked = roomOn();
   if (!ui.driveStatus.textContent) say(ui.driveStatus, library() ? "A library folder is set." : "No library folder yet.");
 }
