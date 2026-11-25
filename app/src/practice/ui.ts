@@ -513,9 +513,11 @@ if (savedTempo) ui.tempo.value = String(savedTempo);
 const saved = store.get<{ name: string; text: string; part: string }>("score");
 if (saved) openScore(saved.name, saved.text, saved.part).catch(() => status("Open a score to start."));
 else {
-  // fetch the renderer in the background so the first score opens without waiting for it
-  const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500));
-  idle(() => void sheetRenderer());
+  // Load the renderer when the user reaches for "Open score", so it loads while the file picker is open.
+  // (Loading it in the background at startup froze taps for about a quarter second on a phone.)
+  const warm = () => void sheetRenderer();
+  const opener = document.querySelector<HTMLElement>('label[for="score-file"]');
+  for (const ev of ["pointerdown", "focus", "keydown"]) opener?.addEventListener(ev, warm, { once: true });
 }
 
 /** Called when the user opens the tab: pick up a tuning change made in another tab. */
