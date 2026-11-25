@@ -2046,30 +2046,41 @@ class LentoConvertPDFApp:
 
         dlg.after(120, _run_deep_search)
 
-    def _open_multi_piece_splitter_dialog(self) -> None:
-        """Open the Multi-Piece PDF Splitter dialog with pypdf vs. Vision System auto-recognition."""
+    def _open_multi_piece_splitter_dialog(self, initial_pdf: str = "", standalone: bool = False) -> None:
+        """Open the Multi-Piece PDF Splitter dialog with pypdf vs. Vision System auto-recognition.
+
+        `standalone` is the quick side tool (Lento_SplitPDF): the main window stays hidden, closing the dialog quits,
+        and split pieces go to a new "<name> - split" folder beside the PDF instead of the converter queue."""
         dlg = tk.Toplevel(self.root)
         dlg.title("Split Multi-Piece Sheet Music PDF (Auto-Recognizes pypdf vs. Vision System)")
         dlg.geometry("1180x740")
         dlg.minsize(960, 600)
-        dlg.transient(self.root)
+        if standalone:
+            dlg.title("Lento Split PDF")
+            dlg.protocol("WM_DELETE_WINDOW", self._on_close)
+        else:
+            dlg.transient(self.root)
 
         # Pre-populate with currently highlighted PDF or active reader PDF
-        initial_pdf = ""
-        sel = self.pdf_tree.selection()
-        if sel and sel[0] in self._row_to_item:
-            initial_pdf = str(self._row_to_item[sel[0]].pdf_path)
-        elif self._current_pdf_path:
-            initial_pdf = str(self._current_pdf_path)
+        if not initial_pdf:
+            sel = self.pdf_tree.selection()
+            if sel and sel[0] in self._row_to_item:
+                initial_pdf = str(self._row_to_item[sel[0]].pdf_path)
+            elif self._current_pdf_path:
+                initial_pdf = str(self._current_pdf_path)
+
+        def _default_out(pdf: str) -> str:
+            if not pdf:
+                return self.dir_var.get() or ""
+            p = Path(pdf)
+            return str(p.parent / f"{p.stem} - split") if standalone else str(p.parent)
 
         pdf_var = tk.StringVar(value=initial_pdf)
-        out_dir_var = tk.StringVar(
-            value=str(Path(initial_pdf).parent) if initial_pdf else (self.dir_var.get() or "")
-        )
+        out_dir_var = tk.StringVar(value=_default_out(initial_pdf))
         mode_var = tk.StringVar(value="auto")
         ocr_var = tk.BooleanVar(value=True)
         llm_var = tk.BooleanVar(value=False)
-        import_after_var = tk.BooleanVar(value=True)
+        import_after_var = tk.BooleanVar(value=not standalone)
 
         recognition_badge_var = tk.StringVar(
             value="Click 'Analyze PDF' to check whether the PDF can be split easily with pypdf or requires the Vision System."
@@ -2106,8 +2117,8 @@ class LentoConvertPDFApp:
             )
             if p:
                 pdf_var.set(p)
-                if not out_dir_var.get().strip():
-                    out_dir_var.set(str(Path(p).parent))
+                if standalone or not out_dir_var.get().strip():
+                    out_dir_var.set(_default_out(p))
                 _run_analysis()
 
         ttk.Button(r1, text="Browse PDF...", command=_browse_src_pdf).pack(side=tk.LEFT, padx=(0, 8))
@@ -2491,11 +2502,12 @@ class LentoConvertPDFApp:
         bot_bar = ttk.Frame(outer)
         bot_bar.pack(fill=tk.X)
 
-        ttk.Checkbutton(
-            bot_bar,
-            text="Import split PDFs into batch MusicXML converter queue after splitting",
-            variable=import_after_var,
-        ).pack(side=tk.LEFT)
+        if not standalone:
+            ttk.Checkbutton(
+                bot_bar,
+                text="Import split PDFs into batch MusicXML converter queue after splitting",
+                variable=import_after_var,
+            ).pack(side=tk.LEFT)
 
         def _execute_split() -> None:
             rep = current_report[0]
@@ -2509,6 +2521,7 @@ class LentoConvertPDFApp:
 
             out_folder = Path(out_dir_var.get().strip()) if out_dir_var.get().strip() else rep.pdf_path.parent
             try:
+                out_folder.mkdir(parents=True, exist_ok=True)
                 created = execute_pdf_split(rep.pdf_path, rep.segments, output_dir=out_folder, prefix_index=True)
                 self.status_var.set(f"Split '{rep.pdf_path.name}' into {len(created)} separate PDF file(s) in {out_folder}.")
                 if import_after_var.get():
@@ -2523,7 +2536,7 @@ class LentoConvertPDFApp:
             except Exception as exc:
                 messagebox.showerror("Split Failed", str(exc), parent=dlg)
 
-        ttk.Button(bot_bar, text="Close", command=dlg.destroy).pack(side=tk.RIGHT)
+        ttk.Button(bot_bar, text="Close", command=self._on_close if standalone else dlg.destroy).pack(side=tk.RIGHT)
         ttk.Button(
             bot_bar,
             text="✂ Split Selected Pieces into Separate PDFs",
@@ -2537,6 +2550,16 @@ class LentoConvertPDFApp:
     def _on_close(self) -> None:
         self._stop_score()
         self.root.destroy()
+
+
+def launch_splitter(pdf: Path | None = None) -> int:
+    """The quick side tool: just the split window, for one PDF (or pick one)."""
+    root = tk.Tk()
+    app = LentoConvertPDFApp(root)
+    root.withdraw()
+    app._open_multi_piece_splitter_dialog(str(pdf.resolve()) if pdf else "", standalone=True)
+    root.mainloop()
+    return 0
 
 
 def launch_gui(initial_directory: Path | None = None) -> int:

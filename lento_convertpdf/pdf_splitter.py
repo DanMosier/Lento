@@ -996,7 +996,7 @@ def execute_pdf_split(
 
         candidate_path = dest_dir / base_name
         counter = 2
-        while candidate_path in used_paths or (candidate_path.exists() and candidate_path.resolve() == pdf_path):
+        while candidate_path in used_paths or candidate_path.exists():  # never overwrite a file already there
             candidate_path = dest_dir / f"{Path(base_name).stem} ({counter}).pdf"
             counter += 1
 

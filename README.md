@@ -39,6 +39,18 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
      - **Percussion & Timpani**: *Geonkick Percussion & Timpani Synthesizer VST3*
      - **Universal Synth**: *Surge XT Open-Source Hybrid Synthesizer VST3*
 
+## Lento_SplitPDF (quick side tool)
+
+Splits a book of pieces into one PDF per piece, with the converter's review window: it proposes the pieces (from
+bookmarks, embedded text or the page layout), you check and fix them against a page preview, and nothing is written
+until you press Split. The pieces go to a new `<name> - split` folder beside the PDF, and existing files are never
+overwritten. Treat its guesses on scanned books as a starting point; bookmarked PDFs are usually right.
+
+```
+.venv\Scripts\Lento_SplitPDF.exe "book.pdf"        # or with no file, and pick one in the window
+.venv\Scripts\Lento_SplitPDF.exe --install-sendto  # right-click a PDF > Send to > Lento Split PDF
+```
+
 ## Lento app (PC, phone and tablet)
 
 `app/` is the app that every feature goes into, each as its own tab and folder. **Practice**: slowed playback with

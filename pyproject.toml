@@ -8,6 +8,7 @@ dependencies = [
     "pypdfium2>=4.30.0",
     "pillow>=10.0.0",
     "requests>=2.31.0",
+    "cryptography>=42",  # pypdf needs it to open AES-encrypted PDFs (many IMSLP downloads)
 ]
 
 [project.optional-dependencies]
@@ -23,6 +24,7 @@ include = ["lento_convertpdf*", "lento_core*", "lento_practice*", "lento_library
 
 [project.scripts]
 Lento_ConvertPDF = "lento_convertpdf.cli:main"
+Lento_SplitPDF = "lento_convertpdf.split_tool:main"
 lento-practice = "lento_practice.cli:main"
 lento-library = "lento_library.cli:main"
 
