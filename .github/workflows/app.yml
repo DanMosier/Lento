@@ -32,9 +32,27 @@ jobs:
         with:
           path: app/dist
 
+  # Fails when the app gets slower than app/perf/budgets.json allows (CPU slowed 4x to stand in for a phone).
+  perf:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run perf
+
   # Publishes main to GitHub Pages (Settings > Pages > Source: GitHub Actions).
   deploy:
-    needs: test
+    needs: [test, perf]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:

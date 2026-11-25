@@ -1,9 +1,11 @@
 /** The Practice tab: slowed playback, loops, metronome, recording and note-by-note feedback. */
-import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $, sharedAudio, store } from "../core/app";
+import { timed } from "../core/perf";
 import { parseScore, scoreText, type Score } from "../core/score";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
-import { trackPitch, type PitchTrack } from "./pitch";
+import { type PitchTrack } from "./pitch";
+import { trackPitchAsync } from "./pitch-async";
 import { Player } from "./player";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";
@@ -44,13 +46,16 @@ let take: Float32Array | null = null; // last recording, at the analysis rate
 let track: { take: Float32Array; a4: number; pitch: PitchTrack } | null = null; // its pitch, kept so re-checks are instant
 let analysis: Analysis | null = null;
 let showingColors = false;
-const osmd = new OpenSheetMusicDisplay(ui.sheet, {
-  autoResize: true,
-  backend: "svg",
-  drawTitle: true,
-  drawPartNames: true,
-  followCursor: true,
-});
+// The score renderer is most of the app's code, so it loads only when needed (or once the app is idle).
+let osmd: OpenSheetMusicDisplay | null = null;
+let osmdLoading: Promise<OpenSheetMusicDisplay> | null = null;
+function sheetRenderer(): Promise<OpenSheetMusicDisplay> {
+  osmdLoading ??= import("opensheetmusicdisplay").then(
+    ({ OpenSheetMusicDisplay }) =>
+      (osmd = new OpenSheetMusicDisplay(ui.sheet, { autoResize: true, backend: "svg", drawTitle: true, drawPartNames: true, followCursor: true })),
+  );
+  return osmdLoading;
+}
 
 function status(text: string, kind: "info" | "error" = "info"): void {
   ui.status.textContent = text;
@@ -93,12 +98,19 @@ function settings() {
 
 async function render(text: string): Promise<void> {
   ui.sheet.hidden = false; // OSMD measures the container, so it must be visible first
-  await osmd.load(text);
-  osmd.render();
+  const sheet = await sheetRenderer();
+  await timed("render-score", async () => {
+    await sheet.load(text);
+    sheet.render();
+  });
 }
 
 async function openScore(name: string, text: string, part?: string): Promise<void> {
-  const s = parseScore(text, part, name.replace(/\.[^.]+$/, ""));
+  return timed("open-score", () => openScoreNow(name, text, part));
+}
+
+async function openScoreNow(name: string, text: string, part?: string): Promise<void> {
+  const s = await timed("parse-score", () => parseScore(text, part, name.replace(/\.[^.]+$/, "")));
   xml = text;
   fileName = name;
   score = s;
@@ -149,6 +161,7 @@ let frame = 0;
 let lastBeat = -1;
 
 function moveCursorTo(beat: number): void {
+  if (!osmd) return;
   const c = osmd.cursor;
   if (beat < lastBeat - 0.01) c.reset();
   lastBeat = beat;
@@ -167,6 +180,10 @@ function follow(): void {
 }
 
 async function startPlayback(mute = false): Promise<void> {
+  return timed("start-playback", () => startPlaybackNow(mute));
+}
+
+async function startPlaybackNow(mute = false): Promise<void> {
   if (!score) return;
   audio();
   const parts = ui.accomp.checked ? [score, ...score.parts.filter((p) => p.id !== score!.partId).map((p) => parseScore(xml, p.id))] : [score];
@@ -180,8 +197,8 @@ async function startPlayback(mute = false): Promise<void> {
     click: +ui.click.value,
     mute,
   });
-  osmd.cursor.show();
-  osmd.cursor.reset();
+  osmd?.cursor.show();
+  osmd?.cursor.reset();
   lastBeat = -1;
   moveCursorTo(score.measureStarts[+ui.from.value] ?? 0);
   cancelAnimationFrame(frame);
@@ -192,7 +209,7 @@ async function startPlayback(mute = false): Promise<void> {
 function stopPlayback(): void {
   player?.stop();
   cancelAnimationFrame(frame);
-  osmd.cursor.hide();
+  osmd?.cursor.hide();
   ui.play.textContent = "Play";
   if (recorder?.recording) void finishRecording();
 }
@@ -244,7 +261,7 @@ ui.audioFile.addEventListener("change", async () => {
   if (!f || !score) return;
   try {
     status(`Reading ${f.name}…`);
-    take = await decodeFile(audio(), await f.arrayBuffer());
+    take = await timed("decode-audio", async () => decodeFile(audio(), await f.arrayBuffer()));
     await check();
   } catch (e) {
     status(`Could not read ${f.name}: ${(e as Error).message}`, "error");
@@ -252,13 +269,24 @@ ui.audioFile.addEventListener("change", async () => {
 });
 
 async function check(): Promise<void> {
+  return timed("check", checkNow);
+}
+
+async function checkNow(): Promise<void> {
   if (!take || !score) return;
   await new Promise((r) => setTimeout(r, 30)); // let the status paint
   try {
     const fresh = parseScore(xml, score.partId, fileName.replace(/\.[^.]+$/, ""));
     const s = settings();
-    if (!track || track.take !== take || track.a4 !== s.a4) track = { take, a4: s.a4, pitch: trackPitch(take, s.a4) };
-    analysis = analyze(fresh, track.pitch, s);
+    if (!track || track.take !== take || track.a4 !== s.a4) {
+      const t = take;
+      const pitch = await timed("track-pitch", () =>
+        trackPitchAsync(t, s.a4, (done) => status(`Listening to the recording… ${Math.round(done * 100)}%`)),
+      );
+      track = { take: t, a4: s.a4, pitch };
+    }
+    const pitch = track.pitch;
+    analysis = await timed("analyze", () => analyze(fresh, pitch, s));
     await render(coloredScore(analysis));
     showingColors = true;
     showFeedback(analysis);
@@ -392,6 +420,11 @@ const savedTempo = store.get<number>("tempo");
 if (savedTempo) ui.tempo.value = String(savedTempo);
 const saved = store.get<{ name: string; text: string; part: string }>("score");
 if (saved) openScore(saved.name, saved.text, saved.part).catch(() => status("Open a score to start."));
+else {
+  // fetch the renderer in the background so the first score opens without waiting for it
+  const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500));
+  idle(() => void sheetRenderer());
+}
 
 /** Called when the user opens the tab: pick up a tuning change made in another tab. */
 export function enterPractice(): void {

@@ -50,7 +50,8 @@ export function resample(x: Float32Array, rate: number, target = SAMPLE_RATE): F
   return out;
 }
 
-export function trackPitch(input: Float32Array, a4 = 440): PitchTrack {
+/** `onProgress` (0..1) is called now and then, for a progress bar when this runs in a worker. */
+export function trackPitch(input: Float32Array, a4 = 440, onProgress?: (done: number) => void): PitchTrack {
   // normalise
   let peak = 0;
   for (const v of input) peak = Math.max(peak, Math.abs(v));
@@ -69,6 +70,7 @@ export function trackPitch(input: Float32Array, a4 = 440): PitchTrack {
   const frame = new Float32Array(span);
 
   for (let f = 0; f < nFrames; f++) {
+    if (onProgress && f % 1000 === 0) onProgress(f / nFrames);
     const centre = f * HOP;
     times[f] = centre / SAMPLE_RATE;
     const start = centre - (span >> 1);
@@ -81,9 +83,11 @@ export function trackPitch(input: Float32Array, a4 = 440): PitchTrack {
     rms[f] = Math.sqrt(e / WINDOW);
     if (rms[f] < 1e-4) continue;
 
-    // difference function and its cumulative-mean normalisation
+    // difference function and its cumulative-mean normalisation. d[tau] depends only on lags up to tau, so
+    // once the first dip under the threshold has bottomed out, the larger lags can't change the answer: stop.
     d[0] = 1;
     let running = 0;
+    let dipAt = -1;
     for (let tau = 1; tau <= tauMax + 1; tau++) {
       let s = 0;
       for (let i = 0; i < WINDOW; i++) {
@@ -92,6 +96,8 @@ export function trackPitch(input: Float32Array, a4 = 440): PitchTrack {
       }
       running += s;
       d[tau] = running > 0 ? (s * tau) / running : 1;
+      if (dipAt < 0 && tau >= tauMin && tau <= tauMax && d[tau] < THRESHOLD) dipAt = tau;
+      else if (dipAt >= 0 && d[tau] >= d[tau - 1]) break; // d[tau] is computed, so the walk below stops here
     }
     let best = -1;
     for (let tau = tauMin; tau <= tauMax; tau++) {

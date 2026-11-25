@@ -4,6 +4,7 @@
  */
 import "./style.css";
 import { $ } from "./core/app";
+import { mark } from "./core/perf";
 import { enterPractice } from "./practice/ui";
 import { enterTuner, leaveTuner } from "./tuner/ui";
 
@@ -25,3 +26,4 @@ function show(name: string): void {
 
 for (const t of tabs) t.addEventListener("click", () => show(t.dataset.tab!));
 show(location.hash === "#tuner" ? "tuner" : "practice");
+mark("ready");
