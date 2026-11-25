@@ -4,12 +4,38 @@
  * bowed-string-like synth until then. Either way, slowing down never changes pitch.
  */
 import type { Score, ScoreNote } from "../core/score";
-import { instrumentFor, type SoundBank } from "../core/sounds";
+import { instrumentFor, type NoteShape, type SoundBank } from "../core/sounds";
 
 /** The sound pack for a part: from its name, the instrument named in the file, or its MIDI program. */
 export function partInstrument(s: Score): string | null {
   const p = s.parts.find((x) => x.id === s.partId);
   return instrumentFor(`${s.partName} ${p?.instrument ?? ""}`, p?.program);
+}
+
+/**
+ * How each note of a part joins its neighbours: a note that starts the moment the previous one (same voice, a
+ * different pitch) ends is played legato. Plus a steady pseudo-random number per note for small differences.
+ */
+export function noteShapes(s: Score): Map<ScoreNote, NoteShape> {
+  const shapes = new Map<ScoreNote, NoteShape>();
+  const voices = new Map<string, ScoreNote[]>();
+  for (const n of s.notes) {
+    const x = Math.sin(n.index * 12.9898 + n.midi * 78.233) * 43758.5453;
+    shapes.set(n, { vary: x - Math.floor(x) });
+    if (!n.inChord) (voices.get(n.voice) ?? voices.set(n.voice, []).get(n.voice)!).push(n);
+  }
+  for (const v of voices.values()) {
+    v.sort((a, b) => a.beat - b.beat);
+    for (let i = 1; i < v.length; i++) {
+      const a = v[i - 1];
+      const b = v[i];
+      if (a.midi !== b.midi && Math.abs(a.beat + a.duration - b.beat) < 1e-3) {
+        shapes.get(a)!.legatoOut = true;
+        shapes.get(b)!.legatoIn = true;
+      }
+    }
+  }
+  return shapes;
 }
 
 export interface PlayOptions {
@@ -48,6 +74,7 @@ export class Player {
   private endBeat = 0;
   onEnd: (() => void) | null = null;
   private instruments = new Map<Score, string | null>();
+  private shapes = new Map<Score, Map<ScoreNote, NoteShape>>();
 
   constructor(
     readonly ctx: AudioContext,
@@ -198,13 +225,15 @@ export class Player {
   }
 
   private note(n: ScoreNote, t0: number, t1: number, level: number, part: Score): void {
-    const dur = Math.max(0.06, t1 - t0 - 0.02);
     if (!this.instruments.has(part)) this.instruments.set(part, partInstrument(part));
+    if (!this.shapes.has(part)) this.shapes.set(part, noteShapes(part));
+    const shape = this.shapes.get(part)!.get(n) ?? {};
+    const dur = Math.max(0.06, t1 - t0 - (shape.legatoOut ? 0 : 0.02));
     const track = (node: AudioScheduledSourceNode) => {
       this.nodes.add(node);
       node.onended = () => this.nodes.delete(node);
     };
-    if (this.sounds?.play(this.instruments.get(part)!, n.midi, t0, dur, level * (n.inChord ? 0.8 : 1), this.out, track)) return;
+    if (this.sounds?.play(this.instruments.get(part)!, n.midi, t0, dur, level * (n.inChord ? 0.8 : 1), this.out, track, shape)) return;
     const freq = 440 * 2 ** ((n.midi - 69) / 12);
     const ctx = this.ctx;
     const osc = ctx.createOscillator();
@@ -220,7 +249,7 @@ export class Player {
     filter.type = "lowpass";
     filter.frequency.value = Math.min(6000, freq * 8);
     const env = ctx.createGain();
-    const peak = 0.18 * level * (n.inChord ? 0.7 : 1);
+    const peak = 0.18 * level * (n.inChord ? 0.7 : 1) * (0.94 + 0.12 * (shape.vary ?? 0.5));
     env.gain.setValueAtTime(0, t0);
     env.gain.linearRampToValueAtTime(peak, t0 + 0.05);
     env.gain.setValueAtTime(peak, t0 + dur);

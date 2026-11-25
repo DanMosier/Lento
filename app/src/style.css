@@ -246,3 +246,10 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .lib-setup { margin: 16px max(16px, env(safe-area-inset-left)) 40px; max-width: 640px; }
 .lib-setup label { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-weight: 600; }
 .lib-setup input { font: inherit; font-weight: 400; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; width: 100%; }
+
+/* The playback cursor gets its own layer, so moving it doesn't make the browser repaint the whole score (a big
+   orchestral score is tens of thousands of SVG elements, and that repaint was the stutter during playback). */
+.sheet img[id^="cursorImg"] { will-change: transform; }
+/* Nothing on the score is clickable, and hit-testing tens of thousands of SVG shapes after every scroll (to update
+   hover) cost up to 90 ms a time on a phone. Its own layer means the cursor moving over it never repaints it. */
+.sheet svg { pointer-events: none; will-change: transform; }

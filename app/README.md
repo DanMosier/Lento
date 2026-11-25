@@ -57,6 +57,11 @@ semitone; the app pitch-shifts the notes between and loops a crossfaded stretch 
 download only when an open score needs them, in the background, and stay in Cache Storage for offline use; playback
 uses the synth until they arrive. Phones get one layer (about 80-460 KB per instrument), desktops two.
 
+Playback is shaped to sound less mechanical: back-to-back notes of different pitch in a sustained part are joined
+legato (the next note skips its attack and fades in under the last one's tail), every note differs very slightly in
+tuning and loudness, and a short room reverb (`core/room.ts`, generated, nothing to download) is mixed in. Room
+sound can be turned off in Settings.
+
 ## Speed
 
 Responsiveness comes first: a feature that makes the app noticeably slower gets reworked or dropped.

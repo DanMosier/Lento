@@ -28,6 +28,7 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await (await context.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: THROTTLE });
+  if (process.env.SOUND) await page.addInitScript((v) => localStorage.setItem("lento.sound", JSON.stringify(v)), process.env.SOUND);
   await page.addInitScript(() => {
     window.__long = [];
     new PerformanceObserver((l) => l.getEntries().forEach((e) => window.__long.push([e.startTime, e.duration]))).observe({ type: "longtask", buffered: true });
@@ -98,7 +99,9 @@ try {
         const gaps = [];
         let prev = performance.now();
         const end = prev + 8000;
+        const t0 = prev;
         const tick = (ts) => {
+          if (ts - prev > 50) (window.__slow ??= []).push([Math.round(ts - t0), Math.round(ts - prev)]);
           gaps.push(ts - prev);
           prev = ts;
           if (ts < end) requestAnimationFrame(tick);
@@ -108,6 +111,8 @@ try {
       }),
   );
   await page.click("#play");
+  if (process.env.DEBUG_FRAMES)
+    console.log(await page.evaluate(() => JSON.stringify({ slow: window.__slow, long: window.__long.slice(-12).map(([s, d]) => [Math.round(s), Math.round(d)]), sounds: performance.getEntriesByName("lento:load-sound").map((e) => [Math.round(e.startTime), Math.round(e.startTime + e.duration)]), play: performance.getEntriesByName("lento:start-playback").map((e) => Math.round(e.startTime)) })));
   frames.sort((a, b) => a - b);
   add("playback frames per second", frames.length / 8, "fps");
   add("  worst frame during playback", frames.at(-1));
