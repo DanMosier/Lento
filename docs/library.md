@@ -94,6 +94,10 @@ folder, and press Connect in Settings. After that, **Refresh** in the Library or
 - Without MusicXML, **Make MusicXML** asks your PC to convert it.
 - **Convert PDF** (from the home screen) lists every PDF without MusicXML with a checkbox, **Select all shown**
   (follows the search) and **Queue for my PC**. It also shows the watcher's status and what is waiting.
+- Its **Queue** tab shows what your PC is converting now, with a progress bar and a time estimate (from how long
+  recent conversions took), the rest of the batch in the order it will convert, a bar for the whole batch, what was
+  queued too late for this batch, and what finished recently. It checks on the PC every 15 seconds while it is open,
+  and nothing runs when it isn't.
 - Scores you have opened are saved on the device (✓) and open offline. The last index is saved too.
 - **Marks** in Practice (fingerings, bowings, string numbers, lifts, circles and short notes) are saved beside the
   MusicXML as `<name>.marks.json`, so they follow you between PC, phone and tablet. The score file itself is never

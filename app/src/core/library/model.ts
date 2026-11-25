@@ -22,21 +22,29 @@ export interface LibraryFile {
 /** requests/_status.json, written by `lento-library watch` on the PC. */
 export interface PcStatus {
   pc: string;
-  state: "idle" | "converting" | "stopped" | string;
+  state: "idle" | "converting" | "exporting" | "stopped" | string;
   heartbeat: string;
   interval_s: number;
+  /** PDF names still to come in this batch, in the order they will convert. */
   queue: string[];
   current: string | null;
-  results: { pdf: string; ok: boolean; at: string }[];
+  results: { pdf: string; ok: boolean; at: string; seconds?: number }[];
   musescore?: boolean; // false when MuseScore files are waiting but MuseScore isn't installed on the PC
+  /** Version 2 and later: the PDFs converting now, since when, and how far the batch has got. */
+  current_files?: string[];
+  started?: string;
+  batch?: { total: number; done: number; started: string };
+  /** Recent seconds per converted PDF (median), for time estimates. */
+  avg_s?: number | null;
 }
 
 /** Is the watcher running? It writes a heartbeat on every look, so a stale one means the PC is off or it stopped. */
 export function pcOnline(s: PcStatus, now = Date.now()): boolean {
   if (s.state === "stopped") return false;
   const age = now - Date.parse(s.heartbeat);
-  // a long conversion holds the heartbeat, so allow an hour while converting
-  return age < (s.state === "converting" ? 3600_000 : Math.max(3, 3 * (s.interval_s || 30)) * 1000 + 120_000);
+  const looks = Math.max(3, 3 * (s.interval_s || 30)) * 1000 + 120_000;
+  // newer watchers renew the heartbeat during a conversion; older ones hold it, so allow an hour for those
+  return age < (s.state === "converting" && !s.batch ? 3600_000 : looks);
 }
 
 export interface Piece {

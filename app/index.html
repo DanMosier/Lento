@@ -239,15 +239,38 @@
       <section class="page">
         <p id="cv-setup-hint" class="hint" hidden>Add your Google Drive library folder in <button type="button" class="link" data-go="settings">Settings</button> first.</p>
         <div id="cv-pc" class="cv-pc" aria-live="polite"></div>
-        <p id="cv-counts" class="hint"></p>
-        <div class="tools">
-          <button id="cv-all" type="button">Select all shown</button>
-          <button id="cv-none" type="button">Clear</button>
-          <button id="cv-go" type="button" class="primary" disabled>Queue for my PC</button>
+        <div class="cv-tabs" role="tablist" aria-label="Convert PDF">
+          <button id="cv-tab-pick" type="button" role="tab" aria-selected="true" aria-controls="cv-pick">Choose PDFs</button>
+          <button id="cv-tab-queue" type="button" role="tab" aria-selected="false" aria-controls="cv-queue">Queue</button>
         </div>
-        <ul id="cv-todo" class="cv-list"></ul>
-        <details id="cv-waiting-box" class="cv-box" hidden><summary>Waiting for your PC</summary><ul id="cv-waiting" class="cv-list"></ul></details>
-        <details id="cv-review-box" class="cv-box" hidden><summary>Converted, worth checking</summary><ul id="cv-review" class="cv-list"></ul></details>
+        <div id="cv-pick" role="tabpanel" aria-labelledby="cv-tab-pick">
+          <p id="cv-counts" class="hint"></p>
+          <div class="tools">
+            <button id="cv-all" type="button">Select all shown</button>
+            <button id="cv-none" type="button">Clear</button>
+            <button id="cv-go" type="button" class="primary" disabled>Queue for my PC</button>
+          </div>
+          <ul id="cv-todo" class="cv-list"></ul>
+          <details id="cv-review-box" class="cv-box" hidden><summary>Converted, worth checking</summary><ul id="cv-review" class="cv-list"></ul></details>
+        </div>
+        <div id="cv-queue" role="tabpanel" aria-labelledby="cv-tab-queue" hidden>
+          <div id="cv-q-batch" class="cv-batch" hidden>
+            <div class="cv-bar-label"><span id="cv-q-batch-text"></span><span id="cv-q-eta"></span></div>
+            <progress id="cv-q-batch-bar" max="1" value="0" aria-label="Batch progress"></progress>
+          </div>
+          <h3 class="cv-h">Converting now</h3>
+          <ul id="cv-q-now" class="cv-list"></ul>
+          <h3 class="cv-h">Up next</h3>
+          <ol id="cv-q-next" class="cv-list cv-numbered"></ol>
+          <div id="cv-q-pickup-box" hidden>
+            <h3 class="cv-h">Waiting for your PC to pick up</h3>
+            <p class="hint">Queued after the PC started its current batch (or while it was off). They go in the next batch.</p>
+            <ul id="cv-q-pickup" class="cv-list"></ul>
+          </div>
+          <h3 class="cv-h">Recently finished</h3>
+          <ul id="cv-q-recent" class="cv-list"></ul>
+          <p class="hint">This page checks on your PC every 15 seconds while it's open.</p>
+        </div>
         <details class="cv-box">
           <summary>How converting works</summary>
           <p>Reading a PDF into MusicXML (with homr) needs your PC's graphics card, so it runs there, not on the phone. This screen leaves a small note in the library's <code>requests/</code> folder for each PDF you queue.</p>
