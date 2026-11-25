@@ -30,7 +30,6 @@ from lento_library.library import (
     REQUESTS,
     VARIANT_RE,
     Library,
-    count_pages,
 )
 
 PLAN = "organize-plan.csv"
@@ -186,7 +185,7 @@ def batches(lib: Library) -> dict[str, tuple[int, int]]:
     return out
 
 
-def apply(lib: Library, batch: str) -> tuple[list[str], list[str]]:
+def apply(lib: Library, batch: str, rebuild: bool = True) -> tuple[list[str], list[str]]:
     """Moves one batch. Returns (moved, problems). Checks every row first, so a bad id moves nothing."""
     rows = [r for r in read_csv(lib.root / PLAN) if r["batch"] == batch and r["action"].strip().lower() == "move"]
     if not rows:
@@ -213,7 +212,7 @@ def apply(lib: Library, batch: str) -> tuple[list[str], list[str]]:
             todo.append((r, src, dest))
     if problems:
         return [], problems
-    log = read_csv(lib.root / LOG)
+    log_new = not (lib.root / LOG).is_file()
     catalog_new = not lib.catalog_path.is_file()
     cat_rows = []
     moved = []
@@ -221,26 +220,37 @@ def apply(lib: Library, batch: str) -> tuple[list[str], list[str]]:
     for r, src, dest in todo:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), dest)
-        log.append({"batch": batch, "source": r["source"], "dest": dest.relative_to(lib.root).as_posix(), "moved": "yes"})
+        entries = [{"batch": batch, "source": r["source"], "dest": dest.relative_to(lib.root).as_posix(), "moved": "yes"}]
         report = src.with_name(f"{src.stem}.quality.json")  # Lento_ConvertPDF's quality report travels with its file
         if report.is_file() and not dest.with_name(f"{dest.stem}.quality.json").exists():
             shutil.move(str(report), dest.with_name(f"{dest.stem}.quality.json"))
-            log.append({"batch": batch, "source": report.relative_to(lib.root).as_posix(),
+            entries.append({"batch": batch, "source": report.relative_to(lib.root).as_posix(),
                         "dest": dest.with_name(f"{dest.stem}.quality.json").relative_to(lib.root).as_posix(), "moved": "yes"})
         moved.append(dest.relative_to(lib.root).as_posix())
         if dest.suffix == ".pdf":
             row = {c: "" for c in COLUMNS}
             row.update(piece_id=r["piece_id"].strip(), file=dest.name, variant=r["variant"].strip(), composer=r.get("composer", ""),
-                       title=r.get("title", ""), source=r["source"], pages=count_pages(dest), added=today)
+                       title=r.get("title", ""), source=r["source"], added=today)
+            # no page count: reading every PDF would download the whole library from Drive
             cat_rows.append(row)
-        write_csv(lib.root / LOG, LOG_COLUMNS, log)  # after every move, so a crash leaves an exact record
+        with (lib.root / LOG).open("a", newline="", encoding="utf-8-sig" if log_new else "utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=LOG_COLUMNS)  # after every move, so a crash leaves an exact record
+            if log_new:
+                w.writeheader()
+                log_new = False
+            w.writerows(entries)
+    for folder in sorted({src.parent for _, src, _ in todo}, key=lambda d: -len(d.parts)):
+        while folder != lib.root and folder.is_dir() and not any(folder.iterdir()):  # emptied folders go (undo remakes them)
+            folder.rmdir()
+            folder = folder.parent
     if cat_rows:
         with lib.catalog_path.open("a", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=COLUMNS)
             if catalog_new:
                 w.writeheader()
             w.writerows(cat_rows)
-    lib.write_index()
+    if rebuild:
+        lib.write_index()
     return moved, []
 
 

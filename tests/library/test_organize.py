@@ -130,3 +130,13 @@ def test_names_with_hyphens_particles_and_full_scores() -> None:
     assert name("Duport, Jean-Louis/Duport, Jean-Louis - Nocturne en Duo No. 1 cello.pdf") == ("duport", "jl", "nocturne-en-duo-no-1", "cello")
     assert name("Lasso, di/di Lasso - I know a Young Maiden.pdf")[2] == "i-know-a-young-maiden"
     assert name("Ariosti, Attilio/Ariosti, Attilio - Sonata No.3 (in E minor) P & C.pdf")[2:] == ("sonata-no-3-in-e-minor", "score")
+
+
+def test_apply_all(tmp_path: Path) -> None:
+    messy(tmp_path)
+    assert main(["organize", "plan", "--root", str(tmp_path)]) == 0
+    assert main(["organize", "apply", "all", "--root", str(tmp_path)]) == 0
+    lib = Library(tmp_path)
+    assert all(todo == 0 for todo, _ in org.batches(lib).values())
+    assert len(json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["pieces"]) == 3
+    assert not (tmp_path / "Siklós, Albert").exists()  # emptied folders are removed

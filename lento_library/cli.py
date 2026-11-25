@@ -135,6 +135,21 @@ def organize(lib: Library, step: str, batch: str | None, fresh: bool = False) ->
         back = org.undo(lib, batch)
         print(f"put back {len(back)} file(s) from '{batch}'")
         return 0
+    if batch == "all":  # every batch with files left to move; one with problems is skipped, the rest go ahead
+        todo = [b for b, (left, _) in sorted(org.batches(lib).items()) if left]
+        total, stuck = 0, []
+        for b in todo:
+            moved, problems = org.apply(lib, b, rebuild=False)
+            total += len(moved)
+            if problems:
+                stuck.append(b)
+                for p in problems:
+                    print(f"PROBLEM ({b}):", p)
+        lib.write_index()
+        print(f"{total} file(s) filed from {len(todo) - len(stuck)} batch(es); library.json rebuilt.")
+        if stuck:
+            print(f"{len(stuck)} batch(es) not moved because of the problems above: fix them in {org.PLAN} and run it again")
+        return 1 if stuck else 0
     moved, problems = org.apply(lib, batch)
     for p in problems:
         print("PROBLEM:", p)
