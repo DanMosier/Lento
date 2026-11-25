@@ -1,6 +1,6 @@
 /** The Practice tab: slowed playback, loops, metronome, recording and note-by-note feedback. */
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
-import { $, sharedAudio, store } from "../core/app";
+import { $, onOpenScore, sharedAudio, store } from "../core/app";
 import { parseScore, scoreText, type Score } from "../core/score";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { trackPitch, type PitchTrack } from "./pitch";
@@ -131,6 +131,16 @@ ui.scoreFile.addEventListener("change", async () => {
     status(`Could not open ${f.name}: ${(e as Error).message}`, "error");
   }
   ui.scoreFile.value = "";
+});
+
+onOpenScore(async ({ name, data }) => {
+  if (player?.playing) stopPlayback();
+  try {
+    status(`Opening ${name}…`);
+    await openScore(name, scoreText(name, data));
+  } catch (e) {
+    status(`Could not open ${name}: ${(e as Error).message}`, "error");
+  }
 });
 
 ui.part.addEventListener("change", () => openScore(fileName, xml, ui.part.value).catch((e) => status((e as Error).message, "error")));
