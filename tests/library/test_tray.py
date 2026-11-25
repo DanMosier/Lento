@@ -63,7 +63,9 @@ def test_describe_and_names(tmp_path: Path) -> None:
     assert names("faure_elegie__imslp.pdf") == "Elegie, Fauré"
     assert names("popper_hungarian-rhapsody_op68__x.pdf") == "Hungarian rhapsody, OP68"  # not in the index yet
     busy = {"state": "converting", "current_files": ["faure_elegie__imslp.pdf"], "batch": {"total": 5, "done": 1}, "avg_s": 120}
-    assert tray.describe(busy, names) == ("busy", "Lento: converting Elegie, Fauré (2 of 5), about 8 min left")
+    assert tray.describe(busy, names) == ("busy", "Lento: converting Elegie, Fauré (piece 2 of 5), about 8 min left")
+    paged = {**busy, "page": {"pdf": "faure_elegie__imslp.pdf", "page": 3, "pages": 4}}
+    assert tray.describe(paged, names)[1] == "Lento: converting Elegie, Fauré, page 3 of 4 (piece 2 of 5), about 7 min left"
     assert tray.describe({"state": "idle", "results": []}, names) == ("idle", "Lento: waiting for PDFs to convert")
     idle = {"state": "idle", "results": [{"pdf": "faure_elegie__imslp.pdf", "ok": True}]}
     assert tray.describe(idle, names)[1].endswith("Last: Elegie, Fauré")
@@ -92,7 +94,7 @@ def test_tray_follows_status_and_notifies_each_finished_piece(tmp_path: Path, mo
     t.update({**busy, "current_files": ["b__x.pdf"], "batch": {"total": 2, "done": 1}, "results": done})
     assert icon.notes == [("Converted (1 of 2)", "Elegie, Fauré in 5 min. The MusicXML is in the library.")]
     t.update({"state": "idle", "results": [*done, {"pdf": "b__x.pdf", "ok": False, "at": "3"}]})
-    assert icon.notes[-1][0] == "Couldn't convert" and icon.icon_changes == 2
+    assert icon.notes[-1] == ("Couldn't convert", "b: see the log") and icon.icon_changes == 2
     t.update({"state": "idle", "results": [{"pdf": "x" * 300, "ok": True, "at": "4"}]})
     assert len(icon.title) <= tray.TIP_MAX
 
@@ -196,3 +198,28 @@ def test_install_has_python_open_the_log(tmp_path: Path, monkeypatch) -> None:
     vbs = (startup / "Lento library watcher.vbs").read_text(encoding="utf-8")
     assert "cmd /c" not in vbs and "--log" in vbs and "_watch.log" in vbs
     assert not (tmp_path / "not-mounted-yet").exists()  # installing doesn't need the folder
+
+
+def test_pages_and_failure_reasons_reach_the_status_and_the_index(tmp_path: Path) -> None:
+    import sys as _sys
+
+    folder = tmp_path / "pieces" / "bad_piece"
+    folder.mkdir(parents=True)
+    (folder / "bad_piece__x.pdf").write_bytes(b"%PDF")
+    (tmp_path / "requests").mkdir()
+    (tmp_path / "requests" / "convert__bad_piece__x.json").write_text("{}")
+    fake = tmp_path / "fake.py"
+    fake.write_text(
+        "print('      page 1/2: bad_piece__x.pdf', flush=True)\n"
+        "print('      page 2/2: bad_piece__x.pdf', flush=True)\n"
+        "print('[1/1] FAILED: bad_piece__x.pdf -> homr could not read page 2: No staffs found (4.0s)', flush=True)\n"
+    )
+    seen: list[dict] = []
+    lib = Library(tmp_path)
+    assert watch.run(lib, [_sys.executable, str(fake)], "no", once=True, on_status=lambda d: seen.append(json.loads(json.dumps(d)))) == 0
+    assert any(d.get("page") == {"pdf": "bad_piece__x.pdf", "page": 2, "pages": 2} for d in seen)
+    status = json.loads((tmp_path / "requests" / "_status.json").read_text(encoding="utf-8"))
+    assert "page" not in status
+    assert status["results"][-1]["error"] == "homr could not read page 2: No staffs found"
+    entry = json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["pieces"][0]["files"][0]
+    assert entry["convert_failed"] is True and entry["convert_error"] == "homr could not read page 2: No staffs found"

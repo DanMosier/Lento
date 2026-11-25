@@ -140,6 +140,30 @@ try:
 except Exception as exc:
     trace["error"] = repr(exc)
 
+
+def report_pages() -> None:
+    """Prints "LENTO_PAGE i/n" as homr starts each page, so Lento can show how far a PDF has got."""
+    run, process = homr_main.run_homr, homr_main.process_image
+    pages = {"done": 0, "total": 0}
+
+    def counted_run(images, *args, **kwargs):
+        pages["done"], pages["total"] = 0, len(images)
+        return run(images, *args, **kwargs)
+
+    def counted_process(*args, **kwargs):
+        pages["done"] += 1
+        if pages["total"]:
+            print(f"LENTO_PAGE {min(pages['done'], pages['total'])}/{pages['total']}", flush=True)
+        return process(*args, **kwargs)
+
+    homr_main.run_homr, homr_main.process_image = counted_run, counted_process
+
+
+try:
+    report_pages()
+except Exception as exc:  # homr's internals moved: no page progress, the conversion still runs
+    trace["pages_error"] = repr(exc)
+
 try:
     homr_main.main()
 finally:

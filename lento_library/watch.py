@@ -49,7 +49,7 @@ class Status:
 
     def write(self, state: str, queue: list[str], current: str | None = None, **extra) -> None:
         if state in ("idle", "stopped"):
-            for k in ("current_files", "started", "batch"):
+            for k in ("current_files", "started", "batch", "page"):
                 self.data.pop(k, None)
         self.data.update(state=state, queue=queue, current=current, heartbeat=now(), avg_s=self.average(), **extra)
         self.save()
@@ -73,10 +73,12 @@ class Status:
             except Exception as e:  # the icon must never stop a conversion
                 print(f"tray icon: {e}", flush=True)
 
-    def result(self, pdf: str, ok: bool, seconds: float | None = None) -> None:
+    def result(self, pdf: str, ok: bool, seconds: float | None = None, error: str | None = None) -> None:
         r: dict = {"pdf": pdf, "ok": ok, "at": now()}
         if seconds is not None:
             r["seconds"] = round(seconds, 1)
+        if error and not ok:
+            r["error"] = error[:300]
         self.data["results"] = [*self.data["results"], r][-KEEP_RESULTS:]
 
     def average(self) -> float | None:
@@ -104,15 +106,18 @@ class Batch:
 
     def folder(self, i: int, n: int, folder: Path, here: list[Path]) -> None:
         self.current = [p.name for p in here]
+        self.status.data.pop("page", None)
         self.started, self.started_at = now(), time.monotonic()
         self.write()
 
-    def line(self, name: str, state: str, seconds: float) -> None:
+    def line(self, name: str, state: str, seconds: float, detail: str = "") -> None:
         """The converter reported one PDF; requested ones are marked done (its siblings are ignored) and added to
-        the results right away, so the app's Recent list and the tray's notification don't wait for the batch."""
+        the results right away, with the reason if it failed, so the app's Recent list and the tray's notification
+        don't wait for the batch."""
         if name in self.current and name not in self.done:
             self.done[name] = (state == "converted", seconds)
-            self.status.result(name, state == "converted", seconds)
+            self.status.data.pop("page", None)
+            self.status.result(name, state == "converted", seconds, detail)
             self.started, self.started_at = now(), time.monotonic()  # the next PDF in the folder starts now
             self.write()
 
@@ -121,6 +126,12 @@ class Batch:
         self.order = [n for n in self.order if n not in names]
         self.batch["total"] = len(self.order)
         self.write()
+
+    def page(self, name: str, page: int, pages: int) -> None:
+        """homr started a page of a PDF in the batch: `page` in the status says how far that PDF has got."""
+        if name in self.current and name not in self.done:
+            self.status.data["page"] = {"pdf": name, "page": page, "pages": pages}
+            self.write()
 
     def tick(self) -> None:
         self.status.beat()
@@ -131,14 +142,18 @@ class Batch:
         for name in self.order:
             ok = name not in failed
             if name not in self.done:
-                self.status.result(name, ok)
+                self.status.result(name, ok, error=None if ok else "the converter didn't report it; see the log")
             elif self.done[name][0] != ok:
                 for r in reversed(self.status.data["results"]):
                     if r["pdf"] == name:
                         r["ok"] = ok
+                        if not ok:
+                            r["error"] = "no MusicXML was written"
                         break
 
 
+RESTART = 3  # run()'s return code when it updated itself and should be started again
+UPDATE_EVERY = 300.0  # seconds between looks for updates on GitHub (--auto-update), while idle
 WAIT_CHECK = 10.0  # seconds between looks for a library folder that isn't there yet
 
 
@@ -170,10 +185,12 @@ def open_log(path: Path) -> None:
 
 
 def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False, musescore: str | None = None,
-        stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None, log: Path | None = None) -> int:
+        stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None, log: Path | None = None,
+        auto_update: bool = False) -> int:
     """Watches until Ctrl+C or until `stop` is set (the tray's Quit, which also ends a conversion under way; its
     requests stay queued for next time). on_status gets every status update. It first waits for the library
-    folder if it isn't there (Google Drive not running yet), then sends its output to `log` if given."""
+    folder if it isn't there (Google Drive not running yet), then sends its output to `log` if given. With
+    auto_update it pulls merged changes from GitHub while idle and returns RESTART after updating."""
     from lento_library.cli import convert_pdfs, export_musescore
 
     try:
@@ -184,6 +201,7 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
     if log:
         open_log(log)
     status = Status(lib, interval, on_status)
+    next_update = time.monotonic() + min(UPDATE_EVERY, 60)
     tried: dict[Path, float] = {}  # MuseScore file -> its modified time when last exported or tried
     built: tuple | None = None  # the library's fingerprint when library.json was last written
     print(f"watching {lib.root / REQUESTS} every {interval:g} s (Ctrl+C to stop)", flush=True)
@@ -219,7 +237,8 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 pdfs.sort(key=lambda p: (str(p.parent), p.name))  # the order convert_pdfs works in
                 print(f"{len(pdfs)} PDF(s) queued", flush=True)
                 batch = Batch(status, pdfs)
-                failed = set(convert_pdfs(lib, pdfs, cmd, gpu, batch.folder, batch.line, batch.tick, requested_only=True, on_removed=batch.removed, stop=stop))
+                failed = set(convert_pdfs(lib, pdfs, cmd, gpu, batch.folder, batch.line, batch.tick, requested_only=True, on_removed=batch.removed, stop=stop,
+                                         on_page=batch.page))
                 if stop and stop.is_set():
                     break
                 batch.finish(failed)
@@ -235,6 +254,15 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
             status.write("idle", [])
             if once:
                 return 0
+            if auto_update and time.monotonic() >= next_update:
+                from lento_library import update
+
+                next_update = time.monotonic() + UPDATE_EVERY
+                subject = update.check()
+                if subject:
+                    if on_status:
+                        on_status({"state": "restarting", "update": subject})
+                    return RESTART
             if stop:
                 if stop.wait(interval):
                     break
@@ -248,17 +276,22 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
 
 
 def run_with_tray(lib: Library, cmd: list[str], gpu: str, interval: float = 30, musescore: str | None = None,
-                  log: Path | None = None) -> int:
+                  log: Path | None = None, auto_update: bool = False) -> int:
     """Runs the watcher with a tray icon (Windows), or without one when pystray isn't there."""
     from lento_library import tray
 
     if not tray.available():
         print("no tray icon (pystray isn't installed): watching without one", flush=True)
-        return run(lib, cmd, gpu, interval, musescore=musescore, log=log)
+        return run(lib, cmd, gpu, interval, musescore=musescore, log=log, auto_update=auto_update)
     stop = threading.Event()
     icon = tray.Tray(lib.root, log or tray.log_path(lib.root), stop.set)
-    icon.run(lambda: run(lib, cmd, gpu, interval, musescore=musescore, stop=stop, on_status=icon.update, log=log))
-    return 0
+    code = [0]
+
+    def work() -> None:
+        code[0] = run(lib, cmd, gpu, interval, musescore=musescore, stop=stop, on_status=icon.update, log=log, auto_update=auto_update)
+
+    icon.run(work)
+    return code[0]
 
 
 def startup_file() -> Path:
@@ -268,13 +301,13 @@ def startup_file() -> Path:
     return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Lento library watcher.vbs"
 
 
-def install(root: Path, interval: float = 30, tray: bool = True) -> str:
+def install(root: Path, interval: float = 30, tray: bool = True, auto_update: bool = True) -> str:
     """Starts the watcher hidden at every Windows sign-in (with its tray icon unless tray=False), logging to
     <library>/requests/_watch.log."""
     exe = Path(sys.executable)
     pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
     log = root.resolve() / REQUESTS / "_watch.log"
-    flag = " --tray" if tray else ""
+    flag = (" --tray" if tray else "") + (" --auto-update" if auto_update else "")
     # Python opens the log itself once the library folder is there: at sign-in Google Drive may not have mounted
     # G: yet, and a shell redirect into a missing folder would stop the watcher before it starts
     cmd = f'"{pyw}" -m lento_library watch --root "{root.resolve()}" --interval {interval:g}{flag} --log "{log}"'
@@ -282,6 +315,8 @@ def install(root: Path, interval: float = 30, tray: bool = True) -> str:
     f = startup_file()
     f.write_text(vbs, encoding="utf-8")
     icon = ", with its tray icon," if tray else ""
+    if auto_update:
+        icon += " updating itself from GitHub,"
     return f"installed: the watcher starts at sign-in{icon} ({f}). Log: {log}. Start it now by signing out and in, or by running that file."
 
 

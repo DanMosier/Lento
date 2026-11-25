@@ -61,6 +61,17 @@ stays queued and converts the next time the watcher starts). The icon is fed the
 reads no files and does no work between updates. Run `lento-library watch --tray` to get it in a window you started
 yourself, or `--install --no-tray` to start at sign-in without it.
 
+**Page progress and failure reasons.** While homr converts a PDF it reports each page it starts, so the tray's hover
+text and the app's Queue tab show "page 3 of 8" and a better time estimate. When a PDF fails, the reason homr gave
+(for example "homr could not read page 3: No staffs found") goes into the log, the tray notification,
+`_status.json` (`results[].error`), the set-aside request file, and `library.json` (`convert_error`).
+
+**Updating itself.** The installed watcher runs with `--auto-update`: every five minutes while it is idle it checks
+GitHub, and when a pull request has been merged it fast-forwards the repository it runs from, reinstalls if
+`pyproject.toml` changed, and restarts with the new code (the tray says so). It never merges or overwrites local edits:
+a repository with uncommitted changes is left alone (the log says why). Needs `git` on the PATH. Install with
+`--no-auto-update` to turn it off.
+
 **MuseScore files.** Put a MuseScore file (`.mscz`, or the older `.mscx`) in a piece folder, named like the others
 (`<piece_id>__<variant>.mscz`; `lento-library add` files it from the inbox too). `convert` and the watcher export it to
 a MusicXML and a PDF of the same name beside it, using MuseScore itself without opening its window, add a catalog row

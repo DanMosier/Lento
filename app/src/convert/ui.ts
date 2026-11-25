@@ -369,6 +369,7 @@ function renderQueue(): void {
         const time = document.createElement("small");
         time.className = "cv-now-time";
         row.append(bar, time);
+        if (it.page && it.page.pages > 1) row.append(Object.assign(document.createElement("small"), { className: "cv-now-page", textContent: ` · page ${it.page.page} of ${it.page.pages}` }));
         nowBars.push({ bar, time, base: it.elapsed_s, avg: it.left_s != null ? it.elapsed_s + it.left_s : null, at: t });
       } else row.append(Object.assign(document.createElement("small"), { textContent: "next, same folder" }));
       return row;

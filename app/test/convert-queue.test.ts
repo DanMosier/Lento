@@ -32,6 +32,17 @@ const status = (over: Partial<PcStatus> = {}): PcStatus => ({
 });
 
 describe("convert queue", () => {
+  it("passes on the page homr is on and why a PDF failed", () => {
+    const s = status({
+      page: { pdf: "a__imslp.pdf", page: 3, pages: 8 },
+      results: [{ pdf: "b__imslp.pdf", ok: false, at: "2026-11-25T11:58:00Z", error: "homr could not read page 2: No staffs found" }],
+    });
+    const v = buildQueue(s, INDEX, namesOf(INDEX), new Set(), NOW);
+    expect(v.now[0].page).toEqual({ page: 3, pages: 8 });
+    expect(v.recent[0]).toMatchObject({ title: "The Swan", ok: false, error: "homr could not read page 2: No staffs found" });
+    expect(buildQueue(status(), INDEX, namesOf(INDEX), new Set(), NOW).now[0].page).toBeUndefined();
+  });
+
   it("shows what's converting, what's next in order, and how far the batch is", () => {
     const v = buildQueue(status(), INDEX, namesOf(INDEX), new Set(["convert__d__imslp.json"]), NOW);
     expect(v.now).toHaveLength(1);

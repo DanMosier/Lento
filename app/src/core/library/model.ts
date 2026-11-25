@@ -30,12 +30,15 @@ export interface PcStatus {
   /** PDF names still to come in this batch, in the order they will convert. */
   queue: string[];
   current: string | null;
+  /** error: why a failed one failed (homr's reason), when the converter said. */
   results: { pdf: string; ok: boolean; at: string; seconds?: number; error?: string }[];
   musescore?: boolean; // false when MuseScore files are waiting but MuseScore isn't installed on the PC
   /** Version 2 and later: the PDFs converting now, since when, and how far the batch has got. */
   current_files?: string[];
   started?: string;
   batch?: { total: number; done: number; started: string };
+  /** The page homr is on in the PDF converting now (watcher with page progress). */
+  page?: { pdf: string; page: number; pages: number };
   /** Recent seconds per converted PDF (median), for time estimates. */
   avg_s?: number | null;
 }

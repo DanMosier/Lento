@@ -220,6 +220,9 @@ class Library:
                     entry["requested"] = True
                 elif p.stem in failed:
                     entry["convert_failed"] = True
+                    reason = self.failure_reason(p.stem)
+                    if reason:
+                        entry["convert_error"] = reason
                 files.append(entry)
             for x in xml_by_stem.values():  # MusicXML with no PDF beside it
                 if x.name not in paired:
@@ -274,12 +277,34 @@ class Library:
         """Still queued: the app removes a request by deleting its file."""
         return (self.root / REQUESTS / f"convert__{stem}.json").is_file()
 
-    def fail_request(self, stem: str) -> None:
-        """Set a request aside after a failed conversion, so the watcher doesn't retry it forever.
-        Queueing the PDF again from the app makes a fresh request."""
+    def fail_request(self, stem: str, error: str | None = None) -> None:
+        """Set a request aside after a failed conversion, so the watcher doesn't retry it forever, noting why it
+        failed (shown in the app). Queueing the PDF again from the app makes a fresh request."""
         src = self.root / REQUESTS / f"convert__{stem}.json"
-        if src.is_file():
-            src.replace(self.root / REQUESTS / f"failed__{stem}.json")
+        dest = self.root / REQUESTS / f"failed__{stem}.json"
+        if not src.is_file():
+            return
+        src.replace(dest)
+        if error:
+            try:
+                data = json.loads(dest.read_text(encoding="utf-8") or "{}")
+            except (OSError, ValueError):
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            data["error"] = error[:300]
+            try:
+                dest.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+
+    def failure_reason(self, stem: str) -> str | None:
+        """Why the last conversion of a set-aside PDF failed, if the converter said."""
+        try:
+            data = json.loads((self.root / REQUESTS / f"failed__{stem}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data.get("error") if isinstance(data, dict) and isinstance(data.get("error"), str) else None
 
     def pdfs_without_musicxml(self) -> list[Path]:
         """PDFs with no MusicXML of the same name beside them."""
