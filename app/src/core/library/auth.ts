@@ -52,7 +52,6 @@ export class GoogleAuth {
 
   /** A valid access token, asking Google for one if needed. Call from a click so the sign-in popup is allowed. */
   async getToken(clientId: string, fresh = false): Promise<string> {
-    if (!clientId) throw new Error("Add your Google client ID in Settings first.");
     if (!fresh && this.signedIn && clientId === this.clientId) return this.token;
     await loadGis();
     if (!this.client || clientId !== this.clientId) {

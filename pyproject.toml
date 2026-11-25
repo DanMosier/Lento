@@ -3,6 +3,7 @@ name = "lento_convertpdf"
 version = "1.0.0"
 description = "Batch convert sheet music PDFs into MusicXML using homr, with a full GUI and open-source VST MusicXML preview player."
 requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "pypdf>=5.0.0",
     "pypdfium2>=4.30.0",

@@ -116,3 +116,9 @@ Any `name.pdf` with a matching `name.mxl` or `name.musicxml` under `tests/fixtur
 Export flags, measured accuracy and orchestral limits are described in [docs/convertpdf-accuracy.md](docs/convertpdf-accuracy.md).
 Minimum scores go in `tests/fixtures/baselines.json`, for example `{"name": {"pitch_f1": 0.9, "strict_f1": 0.85}}`.
 Scores without a baseline are measured and printed, then skipped.
+
+## License
+
+Lento is free software under the [GNU General Public License](LICENSE), version 3 or (at your option) any later version.
+It comes with no warranty. homr and MuseScore are separate programs with their own licenses, and so are the sounds
+and plugins Lento uses.

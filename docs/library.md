@@ -84,8 +84,7 @@ move to `organize-log.csv` and rebuilds `library.json`.
 
 ## In the app
 
-Settings > Google Drive library: paste the folder's Drive link (the client ID is already filled in), then **Connect to
-Google Drive**. Or open `https://danmosier.github.io/Lento/?library=<folder link>` once on each device, which saves the
+Settings > Google Drive library: paste the folder's Drive link, then **Connect to Google Drive**. Or open `https://danmosier.github.io/Lento/?library=<folder link>` once on each device, which saves the
 folder, and press Connect in Settings. After that, **Refresh** in the Library or Convert PDF screen picks up a new `library.json`.
 
 - Each edition shows **PDF** (opens in Drive's viewer). If it has MusicXML it also shows **Practice**, which opens it
@@ -102,21 +101,20 @@ folder, and press Connect in Settings. After that, **Refresh** in the Library or
 - The app reads your Drive and can only create and change its own files, the request files and marks files (the
   `drive.file` permission does not let it open or change anything it did not create).
 
-## One-time setup: a Google client ID (about 5 minutes)
+## Only if you host your own copy: a Google client ID
 
-The app runs entirely in your browser, so Google needs to know it is allowed to ask for your Drive.
+People using https://danmosier.github.io/Lento/ skip this: the app has its client ID built in. A copy at another address
+needs its own, because Google allows each ID only from the addresses listed for it.
 
 1. Go to https://console.cloud.google.com/, sign in, and create a project (e.g. "Lento").
 2. **APIs & Services > Library**: enable **Google Drive API**.
 3. **APIs & Services > OAuth consent screen** (Google Auth Platform): app name "Lento", your email, audience
-   **External**, and under **Test users** add your own Google account. Leave it in **Testing**; it's only for you.
+   **External**, and under **Test users** add each Google account that will use it (Google allows up to 100 in Testing).
 4. **Data access**: add the scopes `.../auth/drive.readonly` and `.../auth/drive.file`.
 5. **Clients > Create client**: type **Web application**. Under **Authorized JavaScript origins** add
-   `https://danmosier.github.io` and `http://localhost:5173`. Create, then copy the **Client ID**
+   your copy's address and `http://localhost:5173`. Create, then copy the **Client ID**
    (it ends in `.apps.googleusercontent.com`).
-6. Paste it in the app's Library settings. The first sign-in shows "Google hasn't verified this app"; that's expected
+6. Build the app with it: set the repository variable `VITE_GOOGLE_CLIENT_ID`, or put it in `app/.env.local`. The first sign-in shows "Google hasn't verified this app"; that's expected
    for your own testing app: choose **Continue**.
 
-The client ID is not a secret, and the one for danmosier.github.io is built into the app
-(`app/src/core/library/connection.ts`). A fork can set its own with a repository variable `VITE_GOOGLE_CLIENT_ID`, in
-`app/.env.local`, or in Settings.
+The client ID is not a secret. The built-in one is in `app/src/core/library/connection.ts`.

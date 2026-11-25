@@ -3,13 +3,12 @@
  * (tuning "a4", headphone delay "avDelay", instrument sounds "sound", room sound "room", and the Google Drive library connection).
  */
 import { $, store } from "../core/app";
-import { auth, clientId, library, libraryChanged, libraryFolder, saveConnection } from "../core/library/connection";
+import { auth, library, libraryChanged, libraryFolder, saveFolder } from "../core/library/connection";
 import { SOUND_CACHE } from "../core/sounds";
 import { roomOn } from "../core/room";
 
 const ui = {
   folder: $<HTMLInputElement>("set-folder"),
-  client: $<HTMLInputElement>("set-client"),
   connect: $<HTMLButtonElement>("set-connect"),
   signOut: $<HTMLButtonElement>("set-signout"),
   driveStatus: $("set-drive-status"),
@@ -28,7 +27,7 @@ function say(el: HTMLElement, text: string, kind: "info" | "error" = "info"): vo
 }
 
 ui.connect.addEventListener("click", async () => {
-  saveConnection(ui.folder.value, ui.client.value);
+  saveFolder(ui.folder.value);
   const lib = library();
   if (!lib) return say(ui.driveStatus, "That doesn't look like a Google Drive folder link.", "error");
   ui.connect.disabled = true;
@@ -79,7 +78,6 @@ ui.clearSounds.addEventListener("click", async () => {
 /** Called when the screen opens: show the current values (another screen may have changed them). */
 export function enterSettings(): void {
   ui.folder.value = libraryFolder();
-  ui.client.value = clientId();
   ui.signOut.hidden = !auth.signedIn;
   ui.a4.value = store.get<string>("a4") ?? "440";
   ui.delay.value = String(store.get<number>("avDelay") ?? 0);
