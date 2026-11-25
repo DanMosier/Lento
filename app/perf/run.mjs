@@ -24,6 +24,7 @@ const BIG_MEASURES = 400;
 writeFileSync(join(tmp, "take-score.musicxml"), scoreXml(TAKE_MEASURES, 120, "Three minute piece"));
 writeFileSync(join(tmp, "big-score.musicxml"), scoreXml(BIG_MEASURES, 120, "Long piece"));
 writeFileSync(join(tmp, "take.wav"), takeWav(TAKE_MEASURES));
+writeFileSync(join(tmp, "mic.wav"), takeWav(12, 120, 48000)); // what the fake microphone "plays" in wait mode
 
 // ---- bundle size: what the phone downloads before the app can start ----
 const html = readFileSync(join(root, "dist", "index.html"), "utf8");
@@ -34,7 +35,10 @@ const startupKb = [...entry, ...preloads].reduce((s, f) => s + gz(f), 0);
 const allJsKb = readdirSync(join(root, "dist", "assets")).filter((f) => f.endsWith(".js")).reduce((s, f) => s + gz(join("assets", f)), 0);
 
 const server = await preview({ root, logLevel: "error", preview: { port: 4179, strictPort: true } });
-const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+const browser = await chromium.launch({
+  ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${join(tmp, "mic.wav")}`],
+});
 const results = { "startup-js-kb": startupKb, "all-js-kb": allJsKb };
 const errors = [];
 try {
@@ -92,6 +96,16 @@ try {
   results["start-playback-ms"] = (await measure("start-playback"))[0];
   await page.waitForTimeout(500);
   await page.click("#play");
+
+  // 4b. Wait mode: the microphone is read 25 times a second while the cursor waits; the page must stay responsive
+  t = await now();
+  await page.click("#wait");
+  await page.waitForSelector("#wait-panel:not([hidden])");
+  await page.waitForTimeout(4000);
+  results["wait-mode-longest-block-ms"] = await longestTask(t);
+  const found = await page.evaluate(() => parseInt(document.getElementById("wait-progress").textContent) - 1);
+  if (!(found > 0)) errors.push("wait mode heard no notes from the test microphone");
+  await page.click("#wait-stop");
 
   // 5. Checking a 3-minute recording
   t = await now();

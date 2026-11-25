@@ -156,7 +156,8 @@ export class Player {
       if (!o.mute) {
         for (const part of o.parts) {
           for (const n of part.notes)
-            if (n.beat >= fromBeat && n.beat < toBeat && n.beat < this.endBeat) this.note(n, passStart, part === o.parts[0] ? 1 : 0.55, part);
+            if (n.beat >= fromBeat && n.beat < toBeat && n.beat < this.endBeat)
+              this.note(n, passStart + this.secs(n.beat), passStart + this.secs(Math.min(n.beat + n.duration, this.endBeat)), part === o.parts[0] ? 1 : 0.55, part);
         }
       }
       if (o.click > 0) {
@@ -183,9 +184,20 @@ export class Player {
     }
   }
 
-  private note(n: ScoreNote, passStart: number, level: number, part: Score): void {
-    const t0 = passStart + this.secs(n.beat);
-    const t1 = passStart + this.secs(Math.min(n.beat + n.duration, this.endBeat));
+  /**
+   * Plays these parts' notes that start from `fromBeat` up to `toBeat`, beginning now, at `tempoFactor`. Wait mode
+   * uses it for accompaniment that waits for you: each time you find a note, the other parts play on to your next.
+   */
+  playSpan(parts: Score[], fromBeat: number, toBeat: number, tempoFactor: number, level = 0.55): void {
+    if (this.ctx.state !== "running") void this.ctx.resume();
+    const now = this.ctx.currentTime + 0.03;
+    for (const part of parts) {
+      const at = (beat: number) => now + (part.secondsAt(beat) - part.secondsAt(fromBeat)) / tempoFactor;
+      for (const n of part.notes) if (n.beat >= fromBeat - 1e-6 && n.beat < toBeat - 1e-6) this.note(n, at(n.beat), at(n.beat + n.duration), level, part);
+    }
+  }
+
+  private note(n: ScoreNote, t0: number, t1: number, level: number, part: Score): void {
     const dur = Math.max(0.06, t1 - t0 - 0.02);
     if (!this.instruments.has(part)) this.instruments.set(part, partInstrument(part));
     const track = (node: AudioScheduledSourceNode) => {

@@ -83,6 +83,7 @@
       <div class="group actions">
         <button id="play" type="button">Play</button>
         <button id="record" type="button" class="record">Record</button>
+        <button id="wait" type="button" title="The cursor waits on each note until you play it">Wait mode</button>
         <label class="button" for="audio-file">Check a recording</label>
         <input id="audio-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" hidden />
       </div>
@@ -110,6 +111,21 @@
       </details>
     </section>
 
+
+    <section id="wait-panel" class="wait-panel" hidden aria-label="Wait mode">
+      <div class="wait-main">
+        <span class="wait-label">Play</span>
+        <strong id="wait-note" class="wait-note" aria-live="polite"></strong>
+        <span id="wait-where" class="wait-where"></span>
+      </div>
+      <div class="wait-side">
+        <span id="wait-progress" class="wait-progress"></span>
+        <span id="wait-heard" class="wait-heard"></span>
+        <button id="wait-hint" type="button">Play it for me</button>
+        <button id="wait-skip" type="button">Skip</button>
+        <button id="wait-stop" type="button">Stop</button>
+      </div>
+    </section>
 
     <p id="status" class="status" role="status" aria-live="polite"></p>
 

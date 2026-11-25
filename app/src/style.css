@@ -140,6 +140,20 @@ input[type="number"] { width: 5.5em; padding: 6px 8px; min-height: 36px; }
 .av-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); }
 .av-dot.on { background: var(--accent); border-color: var(--accent); }
 
+.wait-panel {
+  position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px;
+  padding: 12px max(16px, env(safe-area-inset-left)); background: var(--panel); border-bottom: 2px solid var(--accent);
+}
+.wait-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.wait-label { color: var(--muted); }
+.wait-note { font-size: 2rem; font-variant-numeric: tabular-nums; }
+.wait-note.ok { color: var(--in_tune); }
+.wait-where { color: var(--muted); }
+.wait-side { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wait-progress, .wait-heard { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 5em; }
+.wait-heard.wrong { color: var(--out_of_tune); font-weight: 600; }
+#wait.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
 .status { margin: 10px 0; color: var(--muted); min-height: 1.4em; }
 .status[data-kind="error"] { color: var(--rec); font-weight: 600; }
 
