@@ -269,6 +269,15 @@
             <button id="cv-go" type="button" class="primary" disabled>Queue for my PC</button>
           </div>
           <ul id="cv-todo" class="cv-list"></ul>
+          <details id="cv-failed-box" class="cv-box cv-failed" open hidden>
+            <summary id="cv-failed-title">Failed on your PC</summary>
+            <p class="hint">These didn't convert last time, so "Select all shown" leaves them out. Check the reason, fix the PDF if needed (a scan that's too faint, several pieces in one file), then try again.</p>
+            <div class="tools">
+              <button id="cv-failed-all" type="button">Select all failed</button>
+              <button id="cv-retry" type="button" disabled>Try again on my PC</button>
+            </div>
+            <ul id="cv-failed" class="cv-list"></ul>
+          </details>
           <details id="cv-review-box" class="cv-box" hidden><summary>Converted, worth checking</summary><ul id="cv-review" class="cv-list"></ul></details>
         </div>
         <div id="cv-queue" role="tabpanel" aria-labelledby="cv-tab-queue" hidden>

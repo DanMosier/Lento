@@ -17,6 +17,8 @@ export interface LibraryFile {
   requested?: boolean;
   /** For a PDF with no MusicXML: the last conversion on the PC failed. */
   convert_failed?: boolean;
+  /** Why it failed, when the PC said. */
+  convert_error?: string;
 }
 
 /** requests/_status.json, written by `lento-library watch` on the PC. */
