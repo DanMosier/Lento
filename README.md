@@ -92,6 +92,18 @@ No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN librarie
 
 `--gpu force` (default) fails unless CUDA is really in use. `--gpu auto` and `--gpu no` allow the CPU.
 
+### Splitting a PDF of several pieces
+
+A quick tool of its own (no homr or GPU needed). It proposes the pieces beside a preview of the pages; nothing is
+written until you press Split, and the original is never changed. Check the proposals: scans are often cut wrongly.
+
+```powershell
+.venv\Scripts\python.exe -m lento_convertpdf.split_tool "C:\path\to\album.pdf"  # or no file, to browse for one
+.venv\Scripts\python.exe -m lento_convertpdf.split_tool --install                 # right-click > Send to, and a desktop icon to drop PDFs on
+```
+
+The pieces go to a new folder beside the PDF, or to `inbox/` for a PDF in a Lento library's `pieces/`.
+
 ## Tests
 
 ```powershell
