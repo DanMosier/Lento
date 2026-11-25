@@ -116,6 +116,12 @@ class Batch:
             self.started, self.started_at = now(), time.monotonic()  # the next PDF in the folder starts now
             self.write()
 
+    def removed(self, names: list[str]) -> None:
+        """Taken off the queue in the app before their turn: they leave the batch without a result."""
+        self.order = [n for n in self.order if n not in names]
+        self.batch["total"] = len(self.order)
+        self.write()
+
     def tick(self) -> None:
         self.status.beat()
 
@@ -172,7 +178,7 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 pdfs.sort(key=lambda p: (str(p.parent), p.name))  # the order convert_pdfs works in
                 print(f"{len(pdfs)} PDF(s) queued", flush=True)
                 batch = Batch(status, pdfs)
-                failed = set(convert_pdfs(lib, pdfs, cmd, gpu, batch.folder, batch.line, batch.tick, stop))
+                failed = set(convert_pdfs(lib, pdfs, cmd, gpu, batch.folder, batch.line, batch.tick, requested_only=True, on_removed=batch.removed, stop=stop))
                 if stop and stop.is_set():
                     break
                 batch.finish(failed)

@@ -6,7 +6,7 @@
 import { $ } from "../core/app";
 import { library, libraryChanged, onLibraryChanged, requestedHere } from "../core/library/connection";
 import type { LibraryFile, LibraryIndex, Piece } from "../core/library/model";
-import { fold, musicxmlOf, pcOnline, requestName, type PcStatus } from "../core/library/model";
+import { fold, musicxmlOf, pcOnline, requestName, requestNameOf, type PcStatus } from "../core/library/model";
 import { buildQueue, duration, item, namesOf, type Names, type QueueItem } from "./queue";
 
 const SHOWN = 200;
@@ -35,6 +35,9 @@ const ui = {
   qPickupBox: $("cv-q-pickup-box"),
   qPickup: $<HTMLUListElement>("cv-q-pickup"),
   qRecent: $<HTMLUListElement>("cv-q-recent"),
+  qAll: $<HTMLButtonElement>("cv-q-all"),
+  qNone: $<HTMLButtonElement>("cv-q-none"),
+  qRemove: $<HTMLButtonElement>("cv-q-remove"),
   review: $<HTMLUListElement>("cv-review"),
   reviewBox: $<HTMLDetailsElement>("cv-review-box"),
 };
@@ -43,6 +46,9 @@ type Item = { piece: Piece; file: LibraryFile };
 let index: LibraryIndex | null = null;
 let names: Names = new Map();
 let pc: PcStatus | null = null; // the watcher's last status
+const removedHere = new Set<string>(); // PDF names taken off the queue on this device (until the index says so too)
+const qSelected = new Set<string>(); // PDF names ticked in the Queue tab
+let removable: string[] = []; // the PDF names that have a checkbox right now
 const selected = new Map<string, Item>(); // by request file name
 
 function status(text: string, kind: "info" | "error" = "info"): void {
@@ -82,7 +88,7 @@ function render(): void {
       if (xml) {
         done++;
         if (xml.quality === "REVIEW" || xml.quality === "UNRELIABLE") review.push({ piece, file: xml });
-      } else if (file.requested || mine.has(requestName(file))) waiting.push({ piece, file });
+      } else if ((file.requested || mine.has(requestName(file))) && !removedHere.has(file.name)) waiting.push({ piece, file });
       else todo.push({ piece, file }); // includes ones whose last conversion failed, so they can be queued again
     }
   ui.counts.textContent = `${todo.length} PDFs without MusicXML · ${waiting.length} waiting for your PC · ${done} converted`;
@@ -220,7 +226,10 @@ async function queue(): Promise<void> {
   try {
     await lib.requestConversion(items);
     const mine = requestedHere.all();
-    for (const it of items) mine.add(requestName(it.file));
+    for (const it of items) {
+      mine.add(requestName(it.file));
+      removedHere.delete(it.file.name); // queued again after being removed
+    }
     requestedHere.save(mine);
     selected.clear();
     render();
@@ -239,11 +248,69 @@ function queueRow(it: QueueItem, extra?: string): HTMLLIElement {
   return li(it.title, [it.sub, extra].filter(Boolean).join(" · "));
 }
 
+/** A queued piece with a checkbox, for "Remove from queue". */
+function pickRow(it: QueueItem, prefix = ""): HTMLLIElement {
+  const row = queueRow({ ...it, title: prefix + it.title });
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = qSelected.has(it.name);
+  box.setAttribute("aria-label", `Select ${it.title}`);
+  box.addEventListener("change", () => {
+    if (box.checked) qSelected.add(it.name);
+    else qSelected.delete(it.name);
+    updateRemove();
+  });
+  const lab = document.createElement("label");
+  lab.className = "cv-row";
+  lab.append(box, ...Array.from(row.childNodes));
+  row.replaceChildren(lab);
+  return row;
+}
+
+function updateRemove(): void {
+  ui.qRemove.textContent = qSelected.size ? `Remove ${qSelected.size} from queue` : "Remove from queue";
+  ui.qRemove.disabled = qSelected.size === 0;
+  ui.qAll.disabled = removable.length === 0;
+  ui.qNone.disabled = qSelected.size === 0;
+}
+
+async function removeSelected(): Promise<void> {
+  const lib = library();
+  const names = [...qSelected];
+  if (!lib || !names.length) return;
+  ui.qRemove.disabled = true;
+  status(`Removing ${names.length} from the queue…`);
+  try {
+    const { removed, failed } = await lib.cancelConversion(names);
+    const mine = requestedHere.all();
+    for (const n of removed) {
+      removedHere.add(n);
+      qSelected.delete(n);
+      mine.delete(requestNameOf(n));
+    }
+    requestedHere.save(mine);
+    render();
+    renderQueue();
+    libraryChanged();
+    status(
+      (removed.length ? `Removed ${removed.length} from the queue. They're back in the list under Choose PDFs.` : "") +
+        (failed.length
+          ? ` ${failed.length} couldn't be removed from here (queued on the PC itself): delete their files in the library's requests folder there.`
+          : ""),
+      failed.length ? "error" : "info",
+    );
+  } catch (e) {
+    status((e as Error).message, "error");
+  } finally {
+    updateRemove();
+  }
+}
+
 let nowBars: { bar: HTMLProgressElement; time: HTMLElement; base: number; avg: number | null; at: number }[] = [];
 
 function renderQueue(): void {
   if (ui.queue.hidden) return; // nothing to draw while the list tab is showing
-  const v = buildQueue(pc, index, names, requestedHere.all());
+  const v = buildQueue(pc, index, names, requestedHere.all(), Date.now(), removedHere);
   const online = !!pc && pcOnline(pc);
   ui.qBatch.hidden = !v.batch;
   if (v.batch) {
@@ -270,10 +337,15 @@ function renderQueue(): void {
   );
   if (!v.now.length) ui.qNow.append(li(online ? "Nothing right now." : "Nothing: your PC is off or not watching."));
   tick();
-  ui.qNext.replaceChildren(...v.next.map((it) => queueRow(it)));
+  ui.qNext.replaceChildren(...v.next.map((it, i) => pickRow(it, `${i + 1}. `)));
   if (!v.next.length) ui.qNext.append(Object.assign(li("Nothing else in this batch."), { className: "hint" }));
   ui.qPickupBox.hidden = !v.pickup.length;
-  ui.qPickup.replaceChildren(...v.pickup.map((it) => queueRow(it)));
+  ui.qPickup.replaceChildren(...v.pickup.map((it) => pickRow(it)));
+  // the one converting now can't be stopped half way, so only what's waiting has a checkbox
+  removable = [...v.next, ...v.pickup].map((it) => it.name);
+  const keep = new Set(removable);
+  for (const n of [...qSelected]) if (!keep.has(n)) qSelected.delete(n);
+  updateRemove();
   ui.qRecent.replaceChildren(
     ...v.recent.map((r) => {
       const row = queueRow(r, `${ago(r.at)}${r.seconds ? `, took ${duration(r.seconds).replace("about ", "")}` : ""}`);
@@ -331,6 +403,15 @@ function showTab(queue: boolean): void {
   }
   updateTimers();
 }
+ui.qAll.addEventListener("click", () => {
+  for (const n of removable) qSelected.add(n);
+  renderQueue();
+});
+ui.qNone.addEventListener("click", () => {
+  qSelected.clear();
+  renderQueue();
+});
+ui.qRemove.addEventListener("click", () => void removeSelected());
 ui.tabPick.addEventListener("click", () => showTab(false));
 ui.tabQueue.addEventListener("click", () => showTab(true));
 document.addEventListener("visibilitychange", () => {

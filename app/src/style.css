@@ -88,9 +88,6 @@ body {
 .cv-tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; min-height: 44px; padding: 0 14px; font-weight: 600; color: var(--muted); }
 .cv-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .cv-h { font-size: 1rem; margin: 18px 0 0; }
-.cv-numbered { list-style: decimal inside; }
-.cv-numbered li { display: list-item; }
-.cv-numbered li small { display: block; padding-left: 1.6em; }
 .cv-batch { margin: 12px 0; }
 .cv-bar-label { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
 .cv-bar-label span:last-child, .cv-now-time { color: var(--muted); }
@@ -260,6 +257,41 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .tuner-settings { color: var(--muted); margin: 12px 0 0; }
 .tuner-refs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
+.lib-filters { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 8px; padding: 0 max(16px, env(safe-area-inset-left)) 6px; align-items: center; }
+#lib-clear { flex: none; }
+.lib-filters select { flex: none; font: inherit; font-size: 0.9rem; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 40px; max-width: 100%; }
+.lib-table { --row: 48px; position: relative; overflow: auto; margin: 0 max(16px, env(safe-area-inset-left)); border: 1px solid var(--line); border-radius: 10px; background: var(--panel); height: 60vh; overscroll-behavior: contain; contain: strict; }
+.lib-row { display: grid; grid-template-columns: var(--cols); width: max-content; min-width: 100%; }
+.lib-head { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); }
+.lib-head button { all: unset; box-sizing: border-box; padding: 0 10px; height: 44px; display: flex; align-items: center; gap: 4px; font-weight: 600; font-size: 0.9rem; cursor: pointer; white-space: nowrap; }
+.lib-head button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lib-head [aria-sort="ascending"] button::after { content: "▲"; font-size: 0.7em; }
+.lib-head [aria-sort="descending"] button::after { content: "▼"; font-size: 0.7em; }
+.lib-body { position: relative; }
+.lib-body .lib-row { position: absolute; left: 0; top: 0; width: var(--roww); min-width: 0; height: var(--row); contain: layout style paint; will-change: transform; border-bottom: 1px solid var(--line); cursor: pointer; background: var(--panel); }
+.lib-body .lib-row:hover, .lib-body .lib-row:focus-visible { background: var(--bg); outline: none; }
+.lib-cell { padding: 0 10px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; font-size: 0.92rem; }
+.lib-cell > span { overflow: hidden; text-overflow: ellipsis; }
+.lib-cell.num { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.lib-cell.muted, .lib-c.muted { color: var(--muted); }
+.lib-c { padding: 0 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: var(--row); font-size: 0.92rem; }
+.lib-c.num { text-align: right; font-variant-numeric: tabular-nums; }
+.lib-c:first-child { display: flex; align-items: center; line-height: normal; }
+.lib-c[data-xml="Yes"], .lib-c[data-xml="MuseScore"] { color: var(--in_tune); }
+.lib-c[data-xml="check"] { color: var(--slightly_off); }
+.lib-head > :first-child, .lib-body .lib-row > :first-child { position: sticky; left: 0; z-index: 1; background: inherit; font-weight: 600; box-shadow: 1px 0 0 var(--line); }
+.lib-xml-check { color: var(--slightly_off); }
+.lib-xml-yes { color: var(--in_tune); }
+.lib-empty { padding: 16px; color: var(--muted); }
+.lib-detail { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(640px, calc(100vw - 32px)); max-height: 85dvh; background: var(--panel); color: var(--ink); }
+.lib-detail::backdrop { background: rgb(0 0 0 / 0.35); }
+.lib-detail-top { display: flex; justify-content: flex-end; position: sticky; top: 0; background: var(--panel); }
+.lib-detail-top button { min-width: 44px; min-height: 44px; border: none; background: none; font-size: 1.1rem; }
+.lib-detail #lib-detail-body { padding: 0 16px 16px; }
+.lib-detail .piece { border: none; padding: 0; list-style: none; }
+.lib-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0; font-size: 0.92rem; }
+.lib-facts dt { color: var(--muted); }
+.lib-facts dd { margin: 0; }
 .lib-list { list-style: none; padding: 0 max(16px, env(safe-area-inset-left)); margin: 0; display: grid; gap: 10px; max-width: 860px; }
 .piece { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .piece-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
@@ -279,7 +311,7 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 #lib-batch[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .batch-bar { background: var(--panel); border-block: 1px solid var(--line); color: var(--muted); }
 .saved { margin-left: 2px; }
-#lib-search, #cv-search { flex: 1 1 220px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
+#lib-search, #cv-search { flex: 1 1 160px; min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
 .lib-setup { margin: 16px max(16px, env(safe-area-inset-left)) 40px; max-width: 640px; }
 .lib-setup label { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-weight: 600; }
 .lib-setup input { font: inherit; font-weight: 400; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; width: 100%; }
@@ -290,3 +322,4 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 /* Nothing on the score is clickable, and hit-testing tens of thousands of SVG shapes after every scroll (to update
    hover) cost up to 90 ms a time on a phone. Its own layer means the cursor moving over it never repaints it. */
 .sheet svg { pointer-events: none; will-change: transform; }
+.lib-body .lib-row > :first-child > span { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; line-height: 1.25; }

@@ -43,7 +43,8 @@ export function item(name: string, names: Names): QueueItem {
   return { name, title: hit.piece.title, sub: [hit.piece.composer, ed].filter(Boolean).join(" · ") };
 }
 
-export function buildQueue(s: PcStatus | null, index: LibraryIndex | null, names: Names, mine: Set<string>, now = Date.now()): QueueView {
+/** `removed`: PDF names taken off the queue on this device, hidden until the PC and the index catch up. */
+export function buildQueue(s: PcStatus | null, index: LibraryIndex | null, names: Names, mine: Set<string>, now = Date.now(), removed = new Set<string>()): QueueView {
   const busy = s?.state === "converting" ? (s.current_files ?? (s.current ? s.current.split(", ") : [])) : [];
   const avg = s?.avg_s && s.avg_s > 0 ? s.avg_s : null;
   const elapsed = s?.started ? Math.max(0, (now - Date.parse(s.started)) / 1000) : 0;
@@ -52,13 +53,13 @@ export function buildQueue(s: PcStatus | null, index: LibraryIndex | null, names
     const e = i === 0 ? elapsed : 0;
     return { ...item(n, names), elapsed_s: e, fraction: avg ? Math.min(0.95, e / avg) : null, left_s: avg ? Math.max(0, avg - e) : null };
   });
-  const queue = s?.state === "converting" ? s.queue : [];
+  const queue = (s?.state === "converting" ? s.queue : []).filter((n) => !removed.has(n));
   const inBatch = new Set([...busy, ...queue]);
   const converted = new Set((s?.results ?? []).filter((r) => r.ok).map((r) => r.pdf));
   const pickup: QueueItem[] = [];
   for (const piece of index?.pieces ?? [])
     for (const file of piece.files) {
-      if (file.kind !== "pdf" || musicxmlOf(file) || inBatch.has(file.name)) continue;
+      if (file.kind !== "pdf" || musicxmlOf(file) || inBatch.has(file.name) || removed.has(file.name)) continue;
       if (!(file.requested || mine.has(requestName(file)))) continue;
       if (converted.has(file.name)) continue; // converted since the index was built
       pickup.push(item(file.name, names));

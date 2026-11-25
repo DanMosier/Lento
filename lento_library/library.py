@@ -27,7 +27,11 @@ ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(_[a-z0-9]+(-[a-z0-9]+)*){1,2}$")
 VARIANT_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 COLUMNS = ["piece_id", "file", "variant", "composer", "title", "catalog_no",
            "edition", "source", "pages", "key", "clefs", "positions", "tags",
-           "added", "notes"]
+           "added", "notes", "year", "genre", "instrumentation", "level"]
+# added later, so an older catalog.csv may not have them yet (it gets them the next time a row is added)
+OPTIONAL = {"year", "genre", "instrumentation", "level"}
+# piece metadata copied from a piece's first catalog row into library.json
+PIECE_FIELDS = ("catalog_no", "key", "clefs", "positions", "notes", "year", "genre", "instrumentation", "level")
 KINDS = {".pdf": "pdf", ".musicxml": "musicxml", ".mxl": "musicxml", ".xml": "musicxml"}
 MUSESCORE = (".mscz", ".mscx")
 INDEX_NAME = "library.json"
@@ -66,10 +70,37 @@ class Library:
             return []
         with self.catalog_path.open(newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            missing = [c for c in COLUMNS if c not in (reader.fieldnames or [])]
+            missing = [c for c in COLUMNS if c not in (reader.fieldnames or []) and c not in OPTIONAL]
             if missing:
                 raise ValueError(f"catalog.csv is missing columns: {', '.join(missing)}")
-            return [{k: (v or "").strip() for k, v in r.items() if k} for r in reader]
+            blank = dict.fromkeys(OPTIONAL, "")
+            return [{**blank, **{k: (v or "").strip() for k, v in r.items() if k}} for r in reader]
+
+    def write_catalog(self, rows: list[dict[str, str]]) -> None:
+        """Rewrites catalog.csv with every column (BOM, so Excel reads accents right)."""
+        tmp = self.catalog_path.with_suffix(".csv.tmp")
+        with tmp.open("w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+        tmp.replace(self.catalog_path)
+
+    def append_catalog(self, rows: list[dict[str, str]]) -> None:
+        """Adds rows to catalog.csv, first bringing an older file's header up to date so columns stay aligned."""
+        if not rows:
+            return
+        if self.catalog_path.is_file():
+            with self.catalog_path.open(newline="", encoding="utf-8-sig") as f:
+                header = next(csv.reader(f), [])
+            if header != COLUMNS:
+                self.write_catalog(self.catalog() + rows)
+                return
+        new = not self.catalog_path.is_file()
+        with self.catalog_path.open("a", newline="", encoding="utf-8-sig" if new else "utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+            if new:
+                w.writeheader()
+            w.writerows(rows)
 
     def folders(self) -> list[Path]:
         if not self.pieces.is_dir():
@@ -144,15 +175,10 @@ class Library:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), dest)
         if kind == "pdf":
-            new = not self.catalog_path.is_file()
             row = {c: "" for c in COLUMNS}
             row.update(piece_id=piece_id, file=dest.name, variant=variant, pages=count_pages(dest),
                        added=datetime.date.today().isoformat())
-            with self.catalog_path.open("a", newline="", encoding="utf-8") as f:
-                w = csv.DictWriter(f, fieldnames=COLUMNS)
-                if new:
-                    w.writeheader()
-                w.writerow(row)
+            self.append_catalog([row])
         return dest
 
     # ---- the index ----
@@ -214,9 +240,10 @@ class Library:
                 "musicxml": any(f["kind"] == "musicxml" or "musicxml" in f for f in files),
                 "files": files,
             }
-            for k in ("catalog_no", "key", "clefs", "positions", "notes"):
-                if first.get(k):
-                    piece[k] = first[k]
+            for k in PIECE_FIELDS:  # the first row that says, so a piano part's row can fill in what the cello part's lacks
+                v = next((r[k] for r in meta if r.get(k)), "")
+                if v:
+                    piece[k] = v
             if tags:
                 piece["tags"] = tags
             pieces.append(piece)
@@ -242,6 +269,10 @@ class Library:
     def clear_request(self, stem: str) -> None:
         (self.root / REQUESTS / f"failed__{stem}.json").unlink(missing_ok=True)
         (self.root / REQUESTS / f"convert__{stem}.json").unlink(missing_ok=True)
+
+    def is_requested(self, stem: str) -> bool:
+        """Still queued: the app removes a request by deleting its file."""
+        return (self.root / REQUESTS / f"convert__{stem}.json").is_file()
 
     def fail_request(self, stem: str) -> None:
         """Set a request aside after a failed conversion, so the watcher doesn't retry it forever.
@@ -275,16 +306,11 @@ class Library:
         """Adds a catalog row for a PDF exported from MuseScore, if it has none yet."""
         if any(r["file"] == pdf.name for r in self.catalog()):
             return
-        new = not self.catalog_path.is_file()
         row = {c: "" for c in COLUMNS}
         stem = pdf.stem
         row.update(piece_id=pdf.parent.name, file=pdf.name, variant=stem.split("__", 1)[1] if "__" in stem else "",
                    source="MuseScore", pages=count_pages(pdf), added=datetime.date.today().isoformat())
-        with self.catalog_path.open("a", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=COLUMNS)
-            if new:
-                w.writeheader()
-            w.writerow(row)
+        self.append_catalog([row])
 
     def pdf_for(self, stem: str) -> Path | None:
         """The PDF called <stem>.pdf, in the piece folder its name starts with.
@@ -306,6 +332,9 @@ class Library:
         """What library.json is built from (score files, catalog.csv, tags.md) with their sizes and modified times.
         The watcher compares it between looks, so files added, moved or renamed by hand are picked up."""
         files = [self.catalog_path, self.tags_path]
+        req = self.root / REQUESTS
+        if req.is_dir():  # a request queued or removed in the app changes a PDF's "requested" flag
+            files += [p for p in req.iterdir() if p.name.startswith(("convert__", "failed__"))]
         for folder in self.folders():
             files += [p for p in folder.iterdir() if p.suffix.lower() in KINDS]
         out = []

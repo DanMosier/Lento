@@ -315,3 +315,44 @@ def test_batch_status_shows_current_next_and_progress(tmp_path: Path) -> None:
     assert "batch" not in s and "current_files" not in s
     assert [(r["pdf"], r["ok"], r.get("seconds")) for r in s["results"]] == [("a__x.pdf", True, 40.0), ("a__y.pdf", True, 60.0), ("b__x.pdf", False, None)]
     assert s["avg_s"] == 60.0  # median of the converted ones
+
+
+def test_watch_skips_pdfs_removed_from_the_queue_before_their_turn(tmp_path: Path) -> None:
+    import sys as _sys
+
+    from lento_library import watch
+
+    make_library(tmp_path)
+    req = tmp_path / "requests"
+    req.mkdir()
+    for pid in ("a_first", "b_second"):
+        (tmp_path / "pieces" / pid).mkdir()
+        (tmp_path / "pieces" / pid / f"{pid}__x.pdf").write_bytes(b"%PDF")
+        (req / f"convert__{pid}__x.json").write_text("{}")
+    # converting the first folder removes the second one's request, as the app would while it waits
+    fake = tmp_path / "fake.py"
+    fake.write_text(
+        "import sys, pathlib\n"
+        "d = pathlib.Path(sys.argv[1])\n"
+        "(d.parent.parent / 'requests' / 'convert__b_second__x.json').unlink(missing_ok=True)\n"
+        "for p in d.glob('*.pdf'): p.with_suffix('.musicxml').write_text('<score-partwise/>')\n"
+    )
+    assert watch.run(Library(tmp_path), [_sys.executable, str(fake)], "no", interval=0, once=True) == 0
+    assert (tmp_path / "pieces" / "a_first" / "a_first__x.musicxml").is_file()
+    assert not (tmp_path / "pieces" / "b_second" / "b_second__x.musicxml").exists()
+    assert not (req / "failed__b_second__x.json").exists()  # removed, not failed
+    status = json.loads((req / "_status.json").read_text(encoding="utf-8"))
+    assert [r["pdf"] for r in status["results"]] == ["a_first__x.pdf"]
+    pieces = {p["id"]: p for p in json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["pieces"]}
+    assert not pieces["b_second"]["files"][0].get("requested")
+
+
+def test_fingerprint_changes_when_a_request_is_removed(tmp_path: Path) -> None:
+    make_library(tmp_path)
+    (tmp_path / "requests").mkdir()
+    r = tmp_path / "requests" / "convert__x__y.json"
+    r.write_text("{}")
+    lib = Library(tmp_path)
+    before = lib.fingerprint()
+    r.unlink()
+    assert lib.fingerprint() != before

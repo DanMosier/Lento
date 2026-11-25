@@ -56,6 +56,11 @@ export interface Piece {
   clefs?: string;
   positions?: string;
   notes?: string;
+  /** From catalog.csv's newer columns (filled by `lento-library details` from a spreadsheet). */
+  year?: string;
+  genre?: string;
+  instrumentation?: string;
+  level?: string;
   tags?: string[];
   /** True when any edition has a MusicXML. */
   musicxml?: boolean;
@@ -89,22 +94,30 @@ export function fold(s: string): string {
 }
 
 function haystack(p: Piece): string {
-  return fold([p.title, p.composer, p.id, p.catalog_no, p.key, ...(p.tags ?? []), ...p.files.map((f) => f.edition ?? "")].join(" "));
+  return fold(
+    [p.title, p.composer, p.id, p.catalog_no, p.key, p.year, p.genre, p.instrumentation, p.level, ...(p.tags ?? []), ...p.files.map((f) => f.edition ?? "")].join(" "),
+  );
 }
 
 const cache = new WeakMap<Piece, string>();
 
-/** Every word of the query must appear somewhere in the piece. Sorted by composer, then title. */
-export function search(pieces: Piece[], query: string, tag = ""): Piece[] {
+/** Every word of the query must appear somewhere in the piece (and it has the tag, if one is given). Keeps the order. */
+export function matching(pieces: Piece[], query: string, tag = ""): Piece[] {
   const words = fold(query).split(/\s+/).filter(Boolean);
-  return pieces
-    .filter((p) => {
-      if (tag && !p.tags?.includes(tag)) return false;
-      let h = cache.get(p);
-      if (h === undefined) cache.set(p, (h = haystack(p)));
-      return words.every((w) => h!.includes(w));
-    })
-    .sort((a, b) => a.composer.localeCompare(b.composer) || a.title.localeCompare(b.title));
+  if (!words.length && !tag) return pieces.slice();
+  return pieces.filter((p) => {
+    if (tag && !p.tags?.includes(tag)) return false;
+    let h = cache.get(p);
+    if (h === undefined) cache.set(p, (h = haystack(p)));
+    return words.every((w) => h!.includes(w));
+  });
+}
+
+const byName = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+/** matching(), sorted by composer, then title. */
+export function search(pieces: Piece[], query: string, tag = ""): Piece[] {
+  return matching(pieces, query, tag).sort((a, b) => byName.compare(a.composer, b.composer) || byName.compare(a.title, b.title));
 }
 
 export function allTags(pieces: Piece[]): string[] {
@@ -127,5 +140,9 @@ export function musicxmlOf(f: LibraryFile): LibraryFile | null {
 
 /** "convert__<pdf name without .pdf>.json", the file `lento-library convert` looks for. */
 export function requestName(f: LibraryFile): string {
-  return `convert__${f.name.replace(/\.pdf$/i, "")}.json`;
+  return requestNameOf(f.name);
+}
+
+export function requestNameOf(pdfName: string): string {
+  return `convert__${pdfName.replace(/\.pdf$/i, "")}.json`;
 }
