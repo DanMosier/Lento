@@ -121,6 +121,48 @@ try {
     const d = await measure(step);
     results[`  ${step}-ms`] = d[d.length - 1];
   }
+
+  // 6. The Library table with a library the size of Daniel's (2,251 pieces): draw, sort, search, scroll
+  const comps = ["Bach, Johann Sebastian", "Popper, David", "Fauré, Gabriel", "Saint-Saëns, Camille", "Lalo, Édouard", "Davidov, Karl", "Romberg, Bernhard"];
+  const pieces = Array.from({ length: 2251 }, (_, i) => ({
+    id: `p${i}_x`, title: `Piece ${i} in ${"CDGA"[i % 4]} major, Op. ${i % 90}`, composer: comps[i % 7], genre: ["Baroque", "Romantic", "Classical / Romantic"][i % 3],
+    year: String(1700 + ((i * 7) % 300)), instrumentation: ["Duet (Cello & Piano)", "Solo Cello"][i % 2], tags: i % 5 ? undefined : ["legato"],
+    files: [{ name: `p${i}_x__cello.pdf`, kind: "pdf", variant: "cello", ...(i % 6 ? {} : { musicxml: `p${i}_x__cello.musicxml` }) }, { name: `p${i}_x__piano.pdf`, kind: "pdf", variant: "piano" }],
+  }));
+  await page.evaluate(async (idx) => {
+    localStorage.setItem("lento.library.folder", JSON.stringify("https://drive.google.com/drive/folders/perfTestFolder0000000"));
+    await new Promise((res) => {
+      const r = indexedDB.open("lento-library", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("files");
+      r.onsuccess = () => {
+        const tx = r.result.transaction("files", "readwrite");
+        tx.objectStore("files").put({ data: new TextEncoder().encode(JSON.stringify(idx)), modifiedTime: "x" }, "library.json");
+        tx.oncomplete = res;
+      };
+    });
+  }, { format: "lento-library", version: 1, generated: new Date().toISOString(), pieces });
+  await page.goto("http://localhost:4179/"); // a fresh start, so the measures below are the library's alone
+  await waitFor("ready");
+  await page.click('.home-card[data-go="library"]');
+  await waitFor("library-render", 1);
+  await page.click("#lib-head [role=columnheader]:nth-child(4) button"); // sort by year
+  await waitFor("library-render", 2);
+  await page.fill("#lib-search", "major romantic");
+  await waitFor("library-render", 3);
+  results["library-render-ms"] = Math.max(...(await measure("library-render")));
+  await page.fill("#lib-search", "");
+  await waitFor("library-render", 4);
+  t = await now();
+  // a fast fling: 600 px a frame for a second and a half, done inside the page like a real scroll
+  await page.evaluate(async () => {
+    const el = document.getElementById("lib-table");
+    for (let i = 1; i <= 90; i++) {
+      el.scrollTop = i * 600;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  });
+  await page.waitForTimeout(200);
+  results["library-scroll-longest-block-ms"] = await longestTask(t);
 } finally {
   await browser.close();
   await new Promise((r) => server.httpServer.close(r));

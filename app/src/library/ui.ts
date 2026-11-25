@@ -2,16 +2,30 @@
 import { $, requestOpenScore } from "../core/app";
 import { cache, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
 import { fileKey, type DriveLibrary } from "../core/library/library";
-import { allTags, musicxmlOf, requestName, search, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
+import { store } from "../core/app";
+import { allTags, musicxmlOf, requestName, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
+import { timed } from "../core/perf";
+import { cell, choices, COLUMNS, rows, type ColumnId, type Filters, type Sort } from "./table";
 
-const SHOWN = 150;
+const ROW = 48; // px, matches --row in style.css
+const OVERSCAN = 8;
 
 const ui = {
   search: $<HTMLInputElement>("lib-search"),
+  genre: $<HTMLSelectElement>("lib-genre"),
+  instr: $<HTMLSelectElement>("lib-instr"),
+  level: $<HTMLSelectElement>("lib-level"),
   tag: $<HTMLSelectElement>("lib-tag"),
+  xml: $<HTMLSelectElement>("lib-xml"),
+  clear: $<HTMLButtonElement>("lib-clear"),
   refresh: $<HTMLButtonElement>("lib-refresh"),
   status: $("lib-status"),
-  list: $<HTMLUListElement>("lib-list"),
+  table: $("lib-table"),
+  head: $("lib-head"),
+  body: $("lib-body"),
+  detail: $<HTMLDialogElement>("lib-detail"),
+  detailBody: $("lib-detail-body"),
+  detailClose: $<HTMLButtonElement>("lib-detail-close"),
   setupHint: $("lib-setup-hint"),
 };
 
@@ -45,7 +59,9 @@ async function refresh(): Promise<void> {
     const mine = requests.all();
     for (const r of [...mine]) if (!stillWaiting.has(r)) mine.delete(r);
     requests.save(mine);
+    menus();
     render();
+    fitTable();
     libraryChanged();
   } catch (e) {
     status((e as Error).message, "error");
@@ -78,20 +94,160 @@ const QUALITY: Record<string, string> = {
   UNRELIABLE: "Converted automatically and probably wrong in many places",
 };
 
+// the title column shrinks on a phone so some of the next column shows, which says "scroll sideways"
+ui.table.style.setProperty("--cols", COLUMNS.map((c, i) => (i ? `${c.width}px` : `min(${c.width}px, 44vw)`)).join(" "));
+// a fixed row size lets the browser lay out each row on its own (see contain in style.css)
+ui.table.style.setProperty("--roww", `calc(min(${COLUMNS[0].width}px, 44vw) + ${COLUMNS.slice(1).reduce((s, c) => s + c.width, 0)}px)`);
+let sort: Sort = store.get<Sort>("library.sort") ?? { by: "composer", desc: false };
+let shown: Piece[] = [];
+let open: Piece | null = null; // the piece in the details window
+
+function fill(sel: HTMLSelectElement, all: string, values: string[]): void {
+  const chosen = sel.value;
+  sel.replaceChildren(new Option(all, ""), ...values.map((v) => new Option(v, v, false, v === chosen)));
+  sel.hidden = values.length === 0;
+  if (!values.includes(chosen)) sel.value = "";
+}
+
+function filters(): Filters {
+  return { query: ui.search.value, genre: ui.genre.value, instrumentation: ui.instr.value, level: ui.level.value, tag: ui.tag.value, musicxml: ui.xml.value };
+}
+
+/** Rebuilds the filter menus (after a new index). */
+function menus(): void {
+  if (!index) return;
+  fill(ui.genre, "Every genre / era", choices(index.pieces, "genre"));
+  fill(ui.instr, "Any instrumentation", choices(index.pieces, "instrumentation"));
+  fill(ui.level, "Every level", choices(index.pieces, "level"));
+  fill(ui.tag, "Every technique", allTags(index.pieces));
+}
+
+function header(): void {
+  ui.head.replaceChildren(
+    ...COLUMNS.map((c) => {
+      const h = el("div", undefined, "lib-cell");
+      h.setAttribute("role", "columnheader");
+      if (sort.by === c.id) h.setAttribute("aria-sort", sort.desc ? "descending" : "ascending");
+      const b = el("button", c.label);
+      b.type = "button";
+      b.title = `Sort by ${c.label.toLowerCase()}`;
+      b.addEventListener("click", () => sortBy(c.id));
+      h.append(b);
+      return h;
+    }),
+  );
+}
+
+function sortBy(id: ColumnId): void {
+  sort = sort.by === id ? { by: id, desc: !sort.desc } : { by: id, desc: false };
+  store.set("library.sort", sort);
+  render();
+}
+
 function render(): void {
   if (!index) return;
-  const tags = allTags(index.pieces);
-  const chosen = ui.tag.value;
-  ui.tag.replaceChildren(new Option("All techniques", ""), ...tags.map((t) => new Option(t, t, false, t === chosen)));
-  ui.tag.hidden = tags.length === 0;
-  const found = search(index.pieces, ui.search.value, ui.tag.value);
+  void timed("library-render", renderNow);
+}
+
+function renderNow(): void {
+  if (!index) return;
+  const f = filters();
+  shown = rows(index.pieces, f, sort);
+  ui.clear.hidden = !(f.genre || f.instrumentation || f.level || f.tag || f.musicxml);
   const when = index.generated ? ` · index from ${new Date(index.generated).toLocaleDateString()}` : "";
-  status(
-    found.length === index.pieces.length
-      ? `${index.pieces.length} pieces${when}`
-      : `${found.length} of ${index.pieces.length} pieces${found.length > SHOWN ? `, showing the first ${SHOWN}` : ""}`,
-  );
-  ui.list.replaceChildren(...found.slice(0, SHOWN).map(item));
+  status(shown.length === index.pieces.length ? `${index.pieces.length} pieces${when}` : `${shown.length} of ${index.pieces.length} pieces`);
+  header();
+  ui.table.setAttribute("aria-rowcount", String(shown.length + 1));
+  ui.body.style.height = `${shown.length * ROW}px`;
+  drawn = "";
+  clearRows();
+  if (!shown.length) {
+    ui.body.replaceChildren(el("div", index.pieces.length ? "No pieces match. Try fewer words or clear the filters." : "The library is empty.", "lib-empty"));
+    ui.body.style.height = "";
+  } else draw();
+  if (open) showDetail(open); // its buttons may have changed
+}
+
+let drawn = ""; // the first and last row drawn, so scrolling within them does nothing
+
+/** Draws only the rows in view (plus a few either side): 2,000 pieces cost the same as 30. */
+function draw(): void {
+  const top = ui.table.scrollTop;
+  const h = ui.table.clientHeight || 600;
+  const from = Math.max(0, Math.floor(top / ROW) - OVERSCAN);
+  const to = Math.min(shown.length, Math.ceil((top + h) / ROW) + OVERSCAN);
+  const key = `${from}:${to}`;
+  if (key === drawn) return;
+  drawn = key;
+  // rows that scrolled out are reused for the ones scrolling in: only their text and position change
+  const free: HTMLElement[] = [];
+  for (const [i, r] of live) if (i < from || i >= to) (free.push(r), live.delete(i));
+  for (let i = from; i < to; i++) {
+    if (live.has(i)) continue;
+    let r = free.pop();
+    if (!r) ui.body.append((r = newRow()));
+    fillRow(r, shown[i], i);
+    live.set(i, r);
+  }
+  for (const r of free) r.remove();
+}
+
+const live = new Map<number, HTMLElement>(); // row index -> its element
+
+function clearRows(): void {
+  live.clear();
+  ui.body.replaceChildren();
+}
+
+function newRow(): HTMLElement {
+  const r = el("div", undefined, "lib-row");
+  r.setAttribute("role", "row");
+  r.tabIndex = 0;
+  COLUMNS.forEach((c, k) => {
+    // plain text cells (fewer elements to lay out while scrolling); only the title has a span, for two lines
+    const d = el("div", undefined, `lib-c${c.numeric ? " num" : ""}${c.id === "composer" || c.id === "year" ? " muted" : ""}`);
+    d.setAttribute("role", "cell");
+    if (k === 0) d.append(el("span"));
+    r.append(d);
+  });
+  return r;
+}
+
+function fillRow(r: HTMLElement, p: Piece, i: number): void {
+  r.setAttribute("aria-rowindex", String(i + 2));
+  r.style.transform = `translateY(${i * ROW}px)`;
+  r.dataset.i = String(i);
+  COLUMNS.forEach((c, k) => {
+    const v = cell(p, c.id);
+    const d = (k === 0 ? r.children[0].firstElementChild : r.children[k]) as HTMLElement;
+    if (d.textContent !== v) d.textContent = v;
+    if (c.id === "musicxml") d.dataset.xml = v;
+    if ((d.title !== "") !== v.length > 18) d.title = v.length > 18 ? v : "";
+  });
+}
+
+function fitTable(): void {
+  if ($("view-library").hidden) return;
+  const top = ui.table.getBoundingClientRect().top;
+  ui.table.style.height = `${Math.max(240, window.innerHeight - top - 12)}px`;
+  drawn = "";
+  if (shown.length) draw();
+}
+
+function showDetail(p: Piece): void {
+  open = p;
+  const facts = el("dl", undefined, "lib-facts");
+  for (const c of COLUMNS) {
+    if (c.id === "title" || c.id === "composer" || c.id === "musicxml" || c.id === "editions") continue;
+    const v = cell(p, c.id);
+    if (v) facts.append(el("dt", c.label), el("dd", v));
+  }
+  if (p.catalog_no) facts.append(el("dt", "Catalogue"), el("dd", p.catalog_no));
+  if (p.notes) facts.append(el("dt", "Notes"), el("dd", p.notes));
+  const it = item(p);
+  it.querySelector(".piece-head")?.after(facts);
+  ui.detailBody.replaceChildren(it);
+  if (!ui.detail.open) ui.detail.showModal();
 }
 
 function item(p: Piece): HTMLLIElement {
@@ -188,9 +344,50 @@ async function request(items: { piece: Piece; file: LibraryFile }[], button?: HT
 let typing = 0;
 ui.search.addEventListener("input", () => {
   clearTimeout(typing);
-  typing = window.setTimeout(render, 120);
+  typing = window.setTimeout(() => {
+    ui.table.scrollTop = 0;
+    render();
+  }, 120);
 });
-ui.tag.addEventListener("change", render);
+for (const sel of [ui.genre, ui.instr, ui.level, ui.tag, ui.xml])
+  sel.addEventListener("change", () => {
+    ui.table.scrollTop = 0;
+    render();
+  });
+ui.clear.addEventListener("click", () => {
+  for (const sel of [ui.genre, ui.instr, ui.level, ui.tag, ui.xml]) sel.value = "";
+  ui.table.scrollTop = 0;
+  render();
+});
+let frame = 0;
+ui.table.addEventListener(
+  "scroll",
+  () => {
+    if (!frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        draw();
+      });
+  },
+  { passive: true },
+);
+const pick = (e: Event) => {
+  const r = (e.target as HTMLElement).closest<HTMLElement>(".lib-body .lib-row");
+  if (r?.dataset.i) showDetail(shown[Number(r.dataset.i)]);
+};
+ui.body.addEventListener("click", pick);
+ui.body.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    pick(e);
+  }
+});
+ui.detailClose.addEventListener("click", () => ui.detail.close());
+ui.detail.addEventListener("click", (e) => {
+  if (e.target === ui.detail) ui.detail.close(); // a tap on the backdrop
+});
+ui.detail.addEventListener("close", () => (open = null));
+window.addEventListener("resize", fitTable, { passive: true });
 ui.refresh.addEventListener("click", () => void refresh());
 onLibraryChanged(() => {
   if (!$("view-library").hidden) return; // this screen caused it
@@ -201,6 +398,7 @@ let started = false;
 
 /** Called when the user opens the tab: show the saved library straight away, even offline. */
 export async function enterLibrary(): Promise<void> {
+  requestAnimationFrame(fitTable);
   if (started) return;
   started = true;
   const lib = setup();
@@ -214,6 +412,9 @@ export async function enterLibrary(): Promise<void> {
   } catch {
     index = null;
   }
-  if (index) render();
-  else status("Press Refresh to load your library from Google Drive.");
+  if (index) {
+    menus();
+    render();
+    requestAnimationFrame(fitTable);
+  } else status("Press Refresh to load your library from Google Drive.");
 }

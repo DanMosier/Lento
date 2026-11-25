@@ -10,5 +10,7 @@
   "check-3min-longest-block-ms": 3500,
   "track-pitch-ms": 8000,
   "wait-mode-longest-block-ms": 150,
-  "first-open-practice-ms": 400
+  "first-open-practice-ms": 400,
+  "library-render-ms": 150,
+  "library-scroll-longest-block-ms": 100
 }

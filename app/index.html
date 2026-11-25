@@ -202,12 +202,30 @@
 
     <div id="view-library" class="view" aria-label="Library" hidden>
       <div class="bar">
-        <input id="lib-search" type="search" placeholder="Search title, composer, technique" aria-label="Search the library" />
-        <select id="lib-tag" aria-label="Technique" hidden></select>
+        <input id="lib-search" type="search" placeholder="Search title, composer, genre, technique" aria-label="Search the library" />
         <button id="lib-refresh" type="button">Refresh</button>
       </div>
+      <div class="lib-filters">
+        <select id="lib-genre" aria-label="Genre or era" hidden></select>
+        <select id="lib-instr" aria-label="Instrumentation" hidden></select>
+        <select id="lib-level" aria-label="Level" hidden></select>
+        <select id="lib-tag" aria-label="Technique" hidden></select>
+        <select id="lib-xml" aria-label="MusicXML">
+          <option value="">With or without MusicXML</option>
+          <option value="yes">Has MusicXML</option>
+          <option value="no">No MusicXML yet</option>
+        </select>
+        <button id="lib-clear" type="button" class="link" hidden>Clear filters</button>
+      </div>
       <p id="lib-status" class="status" role="status" aria-live="polite"></p>
-      <ul id="lib-list" class="lib-list"></ul>
+      <div id="lib-table" class="lib-table" role="table" aria-label="Pieces" aria-rowcount="0" tabindex="0">
+        <div id="lib-head" class="lib-row lib-head" role="row"></div>
+        <div id="lib-body" class="lib-body" role="rowgroup"></div>
+      </div>
+      <dialog id="lib-detail" class="lib-detail" aria-label="Piece">
+        <div class="lib-detail-top"><button id="lib-detail-close" type="button" aria-label="Close">✕</button></div>
+        <div id="lib-detail-body"></div>
+      </dialog>
       <p id="lib-setup-hint" class="hint" hidden>Add your Google Drive library folder in <button type="button" class="link" data-go="settings">Settings</button> to browse your scores here.</p>
     </div>
 

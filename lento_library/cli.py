@@ -26,6 +26,11 @@
       organize-plan.csv (nothing moves; edit ids there, or set action to skip); "status" lists the batches;
       "apply" moves one batch and logs it to organize-log.csv; "undo" puts a batch back.
 
+  lento-library details SHEET.csv [--apply] [--overwrite] [--root FOLDER]
+      Fills each piece's year, genre, instrumentation and level in catalog.csv from a spreadsheet saved as CSV
+      (Composer and Title columns, or "Composer & Piece Title"). Matches by surname and closest title, fills only
+      empty fields, and writes catalog-import-report.csv; nothing changes without --apply.
+
 FOLDER defaults to the current folder.
 """
 
@@ -47,7 +52,7 @@ from lento_library.library import Library
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="lento-library", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("build", "check", "add", "convert", "watch", "organize"):
+    for name in ("build", "check", "add", "convert", "watch", "organize", "details"):
         p = sub.add_parser(name)
         p.add_argument("--root", default=".", help="library folder (default: current folder)")
         if name == "check":
@@ -69,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("step", choices=["plan", "status", "apply", "undo"])
             p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo, or all")
             p.add_argument("--fresh", action="store_true", help="plan: start over instead of keeping an existing plan's edits")
+        if name == "details":
+            p.add_argument("sheet", help="a spreadsheet saved as CSV, with Composer and Title columns")
+            p.add_argument("--apply", action="store_true", help="write catalog.csv (without it, only the report is made)")
+            p.add_argument("--overwrite", action="store_true", help="replace details already in catalog.csv")
         if name == "add":
             p.add_argument("file")
             p.add_argument("piece_id")
@@ -92,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
             return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
         if args.cmd == "organize":
             return organize(lib, args.step, args.batch, args.fresh)
+        if args.cmd == "details":
+            from lento_library import metadata
+
+            return metadata.run(lib, Path(args.sheet), args.apply, args.overwrite)
         if args.cmd == "add":
             src = Path(args.file)
             if not src.exists():

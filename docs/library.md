@@ -63,6 +63,23 @@ installed, the app's Convert PDF screen says so. All the files go in one MuseSco
 MusicXML that already exists, clears the finished requests and rebuilds `library.json`. You can still use
 Lento_ConvertPDF's own window for a batch; run `lento-library build` afterwards so the app sees the results.
 
+## Piece details: genre, era, year, instrumentation, level
+
+`catalog.csv` has columns for `year`, `genre`, `instrumentation` and `level`, which the app's Library table shows,
+sorts and filters by. Fill them by hand, or from a spreadsheet saved as CSV (for a Google Sheet: File > Download >
+Comma-separated values):
+
+```powershell
+lento-library details "Cello Sheet Music Library Catalog.csv"            # matches pieces, writes catalog-import-report.csv
+lento-library details "Cello Sheet Music Library Catalog.csv" --apply    # then fills catalog.csv and rebuilds library.json
+```
+
+The sheet needs a composer and a title column (`Composer` and `Score Name`/`Title`, or one `Composer & Piece Title`
+column like "J.S. Bach - Minuet in C"). It reads `Year Written`, `Genre / Era`, `Instrumentation / Ensemble` and
+`Phase / Level` (and similar names). Each piece is matched by the composer's surname and the closest title, ignoring
+"(Cello Part)" and "(Piano Score)"; only empty fields are filled (`--overwrite` replaces them), and "Unknown" is
+left empty. The report lists every piece, what it matched and what was filled, so you can check before `--apply`.
+
 ## Filing an existing folder
 
 An existing score folder (say one folder per composer, files named any old way) is filed into `pieces/` in batches,
@@ -88,6 +105,10 @@ Settings > Google Drive library: paste the folder's Drive link (the client ID is
 Google Drive**. Or open `https://danmosier.github.io/Lento/?library=<folder link>` once on each device, which saves the
 folder, and press Connect in Settings. After that, **Refresh** in the Library or Convert PDF screen picks up a new `library.json`.
 
+- The **Library** is a table: title, composer, genre / era, year, instrumentation, level, key, technique, number of
+  PDFs and whether there is MusicXML. Tap a column heading to sort by it (again to reverse); the menus above filter
+  by genre, instrumentation, level, technique and MusicXML, and the search box looks in every column. On a phone,
+  swipe the table sideways; the title stays put. Tap a piece to open its details and editions.
 - Each edition shows **PDF** (opens in Drive's viewer). If it has MusicXML it also shows **Practice**, which opens it
   in the Practice tab; a **check** or **unreliable** badge means the MusicXML was converted automatically and may
   have wrong notes.
