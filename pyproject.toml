@@ -12,16 +12,18 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "music21", "verovio", "pyinstaller"]
+practice = ["numpy", "scipy", "librosa>=0.10", "soundfile"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["PDF_to_MusicXML*"]
+include = ["PDF_to_MusicXML*", "lento_core*", "lento_practice*"]
 
 [project.scripts]
 pdf-to-musicxml = "PDF_to_MusicXML.cli:main"
+lento-practice = "lento_practice.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = [".", "tests"]
