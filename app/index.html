@@ -23,7 +23,7 @@
     <div class="bar">
       <label class="button primary" for="score-file">Open score</label>
       <input id="score-file" type="file" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden />
-      <select id="part" aria-label="Part to practise" hidden></select>
+      <button id="parts-btn" type="button" class="button" hidden>Parts</button>
       <span id="title" class="title"></span>
     </div>
 
@@ -42,7 +42,7 @@
       <div class="group checks">
         <label><input id="loop" type="checkbox" /> Loop</label>
         <label><input id="count-in" type="checkbox" checked /> Count-in</label>
-        <label><input id="accomp" type="checkbox" /> All parts</label>
+        <label id="accomp-label" hidden><input id="accomp" type="checkbox" /> Play other shown parts</label>
       </div>
       <div class="group">
         <label for="click">Click</label>
@@ -116,6 +116,21 @@
       </section>
       <section id="feedback" class="feedback" hidden></section>
       <div id="sheet" class="sheet" hidden></div>
+      <dialog id="parts-dialog" class="parts-dialog" aria-labelledby="parts-heading">
+        <form method="dialog">
+          <h2 id="parts-heading">Choose parts</h2>
+          <p class="hint">Pick the part you practise, and any others to show and play along. Each extra part makes opening slower, most of all on a phone.</p>
+          <div class="parts-head" aria-hidden="true"><span>Part</span><span>Practise</span><span>Show</span></div>
+          <div id="parts-list" class="parts-list"></div>
+          <div class="parts-actions">
+            <button type="button" id="parts-none" class="button">Only my part</button>
+            <button type="button" id="parts-all" class="button">All parts</button>
+            <span class="spacer"></span>
+            <button value="cancel" class="button">Cancel</button>
+            <button value="ok" class="button primary">Open</button>
+          </div>
+        </form>
+      </dialog>
     </main>
     </div>
 

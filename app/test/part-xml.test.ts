@@ -18,3 +18,30 @@ describe("partXml", () => {
     expect(again.notes.map((n) => n.midi)).toEqual(s.notes.map((n) => n.midi));
   });
 });
+
+import { quickPartList } from "../src/core/score";
+import { choiceLabel, cleanChoice } from "../src/practice/parts";
+
+describe("part choice", () => {
+  const parts = [
+    { id: "P1", name: "Violin" },
+    { id: "P2", name: "Cello" },
+    { id: "P3", name: "Piano" },
+  ];
+  it("reads the part list without parsing the parts", () => {
+    expect(quickPartList(two)).toEqual([
+      { id: "P1", name: "Violin" },
+      { id: "P2", name: "Cello" },
+    ]);
+  });
+  it("keeps several parts in score order", () => {
+    const s = parseScore(two, "P2");
+    const out = partXml(s.doc, ["P2", "P1"]);
+    expect(parseScore(out).parts.map((p) => p.name)).toEqual(["Violin", "Cello"]);
+  });
+  it("cleans a saved choice against the score", () => {
+    expect(cleanChoice(parts, { practise: "P2", shown: ["P3", "P9"] })).toEqual({ practise: "P2", shown: ["P2", "P3"] });
+    expect(cleanChoice(parts, { practise: "P9", shown: [] })).toBeNull();
+    expect(choiceLabel(parts, { practise: "P2", shown: ["P2", "P3"] })).toBe("Cello + 1");
+  });
+});
