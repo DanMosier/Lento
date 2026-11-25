@@ -13,6 +13,27 @@ export interface LibraryFile {
   quality?: "OK" | "REVIEW" | "UNRELIABLE" | string;
   /** For a PDF with no MusicXML: conversion already asked for. */
   requested?: boolean;
+  /** For a PDF with no MusicXML: the last conversion on the PC failed. */
+  convert_failed?: boolean;
+}
+
+/** requests/_status.json, written by `lento-library watch` on the PC. */
+export interface PcStatus {
+  pc: string;
+  state: "idle" | "converting" | "stopped" | string;
+  heartbeat: string;
+  interval_s: number;
+  queue: string[];
+  current: string | null;
+  results: { pdf: string; ok: boolean; at: string }[];
+}
+
+/** Is the watcher running? It writes a heartbeat on every look, so a stale one means the PC is off or it stopped. */
+export function pcOnline(s: PcStatus, now = Date.now()): boolean {
+  if (s.state === "stopped") return false;
+  const age = now - Date.parse(s.heartbeat);
+  // a long conversion holds the heartbeat, so allow an hour while converting
+  return age < (s.state === "converting" ? 3600_000 : Math.max(3, 3 * (s.interval_s || 30)) * 1000 + 120_000);
 }
 
 export interface Piece {

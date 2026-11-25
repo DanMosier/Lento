@@ -1,0 +1,5 @@
+Instrument sounds: VS Chamber Orchestra: Community Edition, by Versilian Studios
+(recorded by Sam Gossner and Simon Dalzell; sample cutting by Elan Hickler / Soundemote).
+Released under CC0 1.0 Universal (public domain): https://github.com/sgossner/VSCO-2-CE
+
+Built into these packs by app/scripts/build_sounds.py (trimmed, levelled, looped, Opus-encoded).

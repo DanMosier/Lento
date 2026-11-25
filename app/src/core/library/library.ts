@@ -1,6 +1,6 @@
 /** A library folder in Google Drive: reads library.json and fetches files, keeping offline copies. */
 import { Drive, type FileCache } from "./drive";
-import { parseIndex, requestName, type LibraryFile, type LibraryIndex, type Piece } from "./model";
+import { parseIndex, requestName, type LibraryFile, type LibraryIndex, type PcStatus, type Piece } from "./model";
 
 export const INDEX_KEY = "library.json";
 
@@ -51,6 +51,16 @@ export class DriveLibrary {
       made++;
     }
     return made;
+  }
+
+  /** What the PC's watcher last reported, or null if it has never run. Always fetched fresh. */
+  async pcStatus(): Promise<PcStatus | null> {
+    const requests = this.ids.get("requests") ?? (await this.drive.child(this.rootId, "requests"))?.id;
+    if (!requests) return null;
+    this.ids.set("requests", requests);
+    const f = await this.drive.child(requests, "_status.json");
+    if (!f) return null;
+    return JSON.parse(new TextDecoder().decode(await this.drive.download(f.id))) as PcStatus;
   }
 
   private async folder(path: string[]): Promise<string> {

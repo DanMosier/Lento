@@ -1,6 +1,6 @@
 /**
  * Speed check on one real score file: how long the Practice tab takes to open it, add parts, start playback,
- * keep the cursor moving, and switch tabs with it loaded. Same phone-speed CPU as perf/run.mjs. Reports only;
+ * and keep the cursor moving. Same phone-speed CPU as perf/run.mjs. Reports only;
  * it has no budgets, because real scores vary too much.
  *
  *   npm run build && node perf/score.mjs path/to/score.mxl [practised part] [other parts to add, comma-separated]
@@ -40,6 +40,7 @@ try {
 
   await page.goto("http://localhost:4180/");
   await waitFor("ready", 1);
+  await page.click('.home-card[data-go="practice"]');
 
   // In the part picker: tick the practised part (and optionally others), then press Open
   const choose = async (practise, show) => {
@@ -112,18 +113,6 @@ try {
   add("  worst frame during playback", frames.at(-1));
   add("  frames slower than 50 ms", frames.filter((g) => g > 50).length, "count");
 
-  // Tab switch with the big score loaded
-  const tabMs = await page.evaluate(async () => {
-    const tab = (n) => document.querySelector(`[data-tab="${n}"]`);
-    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const t0 = performance.now();
-    tab("tuner").click();
-    await frame();
-    tab("practice").click();
-    await frame();
-    return (performance.now() - t0) / 2;
-  });
-  add("tab switch with score loaded", tabMs);
   if (errors.length) add(`page errors: ${errors.join(" | ")}`, 0, "count");
 } finally {
   await browser.close();

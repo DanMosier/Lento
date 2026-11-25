@@ -37,6 +37,10 @@ export interface ScoreNote {
 export interface PartInfo {
   id: string;
   name: string;
+  /** General MIDI program (1-128), if the file gives one: helps pick the instrument sound. */
+  program?: number;
+  /** The instrument named in the file (score-instrument), if any. */
+  instrument?: string;
 }
 
 export interface Score {
@@ -95,15 +99,20 @@ export function scoreText(name: string, data: ArrayBuffer): string {
   return strFromU8(files[target]);
 }
 
+function scorePart(sp: Element): PartInfo {
+  const id = sp.getAttribute("id") ?? "";
+  const name = (childText(sp, "part-name") || childText(sp, "score-instrument/instrument-name") || id).trim();
+  const program = parseInt(childText(sp, "midi-instrument/midi-program") ?? "", 10);
+  const instrument = (childText(sp, "score-instrument/instrument-name") ?? "").trim();
+  return { id, name, ...(program > 0 ? { program } : {}), ...(instrument ? { instrument } : {}) };
+}
+
 export function listParts(doc: Document): PartInfo[] {
-  const names = new Map<string, string>();
-  for (const sp of Array.from(doc.getElementsByTagName("score-part"))) {
-    const id = sp.getAttribute("id") ?? "";
-    names.set(id, (childText(sp, "part-name") || childText(sp, "score-instrument/instrument-name") || id).trim());
-  }
+  const info = new Map<string, PartInfo>();
+  for (const sp of Array.from(doc.getElementsByTagName("score-part"))) info.set(sp.getAttribute("id") ?? "", scorePart(sp));
   return children(doc.documentElement, "part").map((p) => {
     const id = p.getAttribute("id") ?? "";
-    return { id, name: names.get(id) ?? id };
+    return info.get(id) ?? { id, name: id };
   });
 }
 
@@ -329,10 +338,7 @@ export function quickPartList(xml: string): PartInfo[] {
   if (a >= 0 && b > a) {
     const doc = new DOMParser().parseFromString(xml.slice(a, b + 12), "application/xml");
     if (!doc.getElementsByTagName("parsererror").length) {
-      const parts = Array.from(doc.getElementsByTagName("score-part")).map((sp) => {
-        const id = sp.getAttribute("id") ?? "";
-        return { id, name: (childText(sp, "part-name") || childText(sp, "score-instrument/instrument-name") || id).trim() };
-      });
+      const parts = Array.from(doc.getElementsByTagName("score-part")).map(scorePart);
       if (parts.length) return parts;
     }
   }

@@ -7,7 +7,8 @@ import { choiceLabel, cleanChoice, pickParts, type PartChoice } from "./parts";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { type PitchTrack } from "./pitch";
 import { trackPitchAsync } from "./pitch-async";
-import { Player } from "./player";
+import { SoundBank } from "../core/sounds";
+import { partInstrument, Player } from "./player";
 import { reportedDelay, TapTest } from "./latency";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";
@@ -50,6 +51,7 @@ let fileName = "";
 let score: Score | null = null;
 let ctx: AudioContext | null = null;
 let player: Player | null = null;
+let sounds: SoundBank | null = null;
 let recorder: Recorder | null = null;
 let take: Float32Array | null = null; // last recording, at the analysis rate
 let track: { take: Float32Array; a4: number; pitch: PitchTrack } | null = null; // its pitch, kept so re-checks are instant
@@ -74,7 +76,8 @@ function status(text: string, kind: "info" | "error" = "info"): void {
 function audio(): AudioContext {
   if (!ctx) {
     ctx = sharedAudio();
-    player = new Player(ctx);
+    sounds = new SoundBank(ctx);
+    player = new Player(ctx, ctx.destination, sounds);
     player.onEnd = () => stopPlayback();
     recorder = new Recorder(ctx);
   }
@@ -116,6 +119,20 @@ async function render(text: string): Promise<void> {
 
 async function openScore(name: string, text: string, picked?: PartChoice): Promise<void> {
   return timed("open-score", () => openScoreNow(name, text, picked));
+}
+
+/**
+ * Starts downloading the recorded sounds for the parts that can play (cached after the first time). Playback
+ * doesn't wait for them: it uses the synth until each one is ready.
+ */
+function loadSounds(): void {
+  if (!score || !choice || !fullDoc) return;
+  const insts = [partInstrument(score), ...choice.shown.filter((id) => id !== choice!.practise).map((id) => {
+    const p = score!.parts.find((x) => x.id === id)!;
+    return partInstrument({ ...score!, partId: id, partName: p.name });
+  })];
+  audio();
+  setTimeout(() => void sounds?.want(insts), 0);
 }
 
 /** Opens a file the user just picked: for a score with several parts, asks which parts first. */
@@ -162,8 +179,8 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   updateTempoLabel();
   plainXml = partXml(s.doc, choice.shown); // only the chosen parts are drawn
   await render(plainXml);
+  loadSounds();
   status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.` : "This part has no notes.");
-  if (text.length < 3_000_000) store.set("score", { name, text, part: s.partId, shown: choice.shown });
   if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
 
@@ -549,9 +566,7 @@ for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timing
 }
 const savedTempo = store.get<number>("tempo");
 if (savedTempo) ui.tempo.value = String(savedTempo);
-const saved = store.get<{ name: string; text: string; part: string; shown?: string[] }>("score");
-if (saved) openScore(saved.name, saved.text, { practise: saved.part, shown: saved.shown ?? [saved.part] }).catch(() => status("Open a score to start."));
-else {
+{
   // Load the renderer when the user reaches for "Open score", so it loads while the file picker is open.
   // (Loading it in the background at startup froze taps for about a quarter second on a phone.)
   const warm = () => void sheetRenderer();
@@ -559,8 +574,44 @@ else {
   for (const ev of ["pointerdown", "focus", "keydown"]) opener?.addEventListener(ev, warm, { once: true });
 }
 
-/** Called when the user opens the tab: pick up a tuning change made in another tab. */
+/** Is a score open? The app asks before going home, since that closes it. */
+export function hasScore(): boolean {
+  return score !== null;
+}
+
+/** Closes the score and anything about it (playback, a recording in progress, feedback), freeing its memory. */
+export function closeScore(): void {
+  if (recorder?.recording) recorder.stop(); // discard: the user chose to leave
+  player?.stop();
+  cancelAnimationFrame(frame);
+  ui.play.textContent = "Play";
+  ui.record.textContent = "Record";
+  ui.record.classList.remove("on");
+  ui.play.disabled = false;
+  score = null;
+  xml = plainXml = fileName = "";
+  fullDoc = null;
+  choice = null;
+  accompParts = null;
+  analysis = null;
+  take = null;
+  track = null;
+  showingColors = false;
+  osmd?.clear();
+  ui.sheet.hidden = true;
+  ui.feedback.hidden = true;
+  ui.feedback.replaceChildren();
+  ui.controls.hidden = true;
+  ui.partsBtn.hidden = true;
+  ui.title.textContent = "";
+  ui.welcome.hidden = false;
+  status("Open a score to start.");
+}
+
+/** Called when the user opens the screen: pick up tuning and headphone delay changed in Settings or the Tuner. */
 export function enterPractice(): void {
+  const d = store.get<number>("avDelay");
+  if (d !== null && d !== +ui.delay.value) setDelay(d);
   const v = store.get<string>("a4");
   if (v && v !== ui.a4.value) {
     ui.a4.value = v;
