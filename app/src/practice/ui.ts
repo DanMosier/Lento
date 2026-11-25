@@ -14,6 +14,7 @@ import { reportedDelay, TapTest } from "./latency";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";
 import { celloWhere, stepName, WaitJudge, waitSteps } from "./wait";
+import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
 
 const ui = {
   scoreFile: $<HTMLInputElement>("score-file"),
@@ -183,6 +184,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   plainXml = partXml(s.doc, choice.shown); // only the chosen parts are drawn
   await render(plainXml);
   loadSounds();
+  showBest();
   status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.` : "This part has no notes.");
   if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
@@ -191,6 +193,7 @@ ui.scoreFile.addEventListener("change", async () => {
   const f = ui.scoreFile.files?.[0];
   if (!f) return;
   if (waiting()) stopWait();
+  if (training()) stopTrainer();
   try {
     status(`Opening ${f.name}…`);
     await openFile(f.name, scoreText(f.name, await f.arrayBuffer()));
@@ -201,6 +204,7 @@ ui.scoreFile.addEventListener("change", async () => {
 });
 
 onOpenScore(async ({ name, data }) => {
+  if (training()) stopTrainer();
   if (player?.playing) stopPlayback();
   if (waiting()) stopWait();
   try {
@@ -213,6 +217,7 @@ onOpenScore(async ({ name, data }) => {
 
 ui.partsBtn.addEventListener("click", async () => {
   if (!score || !choice) return;
+  if (training()) stopTrainer();
   if (player?.playing) stopPlayback();
   if (waiting()) stopWait();
   const c = await pickParts(score.parts, choice);
@@ -403,13 +408,15 @@ async function finishRecording(): Promise<void> {
   const raw = recorder!.stop();
   ui.record.textContent = "Record";
   ui.record.classList.remove("on");
-  ui.play.disabled = false;
+  ui.play.disabled = training();
   // drop the count-in, so its clicks are not taken for notes
   const skip = Math.max(0, Math.floor((player!.firstBeatTime - recordStartedAt - 0.25) * c.sampleRate));
   const samples = raw.subarray(Math.min(skip, raw.length));
   if (samples.length < c.sampleRate * 0.5) return status("The recording was too short to check.", "error");
   status("Checking your playing…");
-  take = await toAnalysisRate(samples, c.sampleRate);
+  const t = await toAnalysisRate(samples, c.sampleRate);
+  if (training()) return trainerPass(t);
+  take = t;
   await check();
 }
 
@@ -736,6 +743,126 @@ $("wait-skip").addEventListener("click", () => {
   if (ev) advanced(ev === "done");
 });
 
+// ---- speed trainer: loop a passage, raising the tempo after each clean pass ----
+
+const tr = {
+  box: $<HTMLDetailsElement>("trainer"),
+  start: $<HTMLSelectElement>("tr-start"),
+  target: $<HTMLSelectElement>("tr-target"),
+  step: $<HTMLSelectElement>("tr-step"),
+  need: $<HTMLSelectElement>("tr-need"),
+  go: $<HTMLButtonElement>("tr-go"),
+  best: $("tr-best"),
+  log: $("tr-log"),
+};
+let trainer: SpeedTrainer | null = null;
+let trainerTimer = 0;
+
+for (const sel of [tr.start, tr.target]) for (let p = 30; p <= 120; p += 5) sel.append(new Option(`${p}%`, String(p)));
+{
+  const saved = { ...DEFAULT_TRAINER, ...(store.get<Partial<TrainerConfig>>("trainer") ?? {}) };
+  tr.start.value = String(saved.start);
+  tr.target.value = String(saved.target);
+  tr.step.value = String(saved.step);
+  tr.need.value = String(saved.need);
+}
+function trainerConfig(): TrainerConfig {
+  const c = { start: +tr.start.value, target: +tr.target.value, step: +tr.step.value, need: +tr.need.value };
+  store.set("trainer", c);
+  return c;
+}
+
+/** The fastest clean pass saved for these measures of this score. */
+const bestKey = () => `trainer:${fileName}:${ui.from.value}-${ui.to.value}`;
+function showBest(): void {
+  const b = score ? store.get<number>(bestKey()) : null;
+  tr.best.textContent = b ? `Fastest clean pass for these measures so far: ${b}%.` : "";
+}
+
+const training = (): boolean => trainer !== null;
+
+function startTrainer(): void {
+  if (!score) return;
+  if (player?.playing) stopPlayback();
+  if (waiting()) stopWait();
+  trainer = new SpeedTrainer(trainerConfig());
+  tr.log.replaceChildren();
+  tr.go.textContent = "Stop trainer";
+  tr.go.classList.add("on");
+  ui.play.disabled = ui.record.disabled = ui.wait.disabled = true;
+  void runPass();
+}
+
+async function runPass(): Promise<void> {
+  if (!trainer || !score) return;
+  ui.tempo.value = String(trainer.tempo);
+  updateTempoLabel();
+  try {
+    const c = audio();
+    await recorder!.start();
+    recordStartedAt = c.currentTime;
+    await startPlayback(!ui.playWhileRecording.checked);
+    status(`Pass ${trainer.passes.length + 1} at ${trainer.tempo}%. ${ui.countIn.checked ? "Start after the count-in." : "Play now."}`);
+  } catch (e) {
+    stopTrainer();
+    status(`Could not record: ${(e as Error).message}`, "error");
+  }
+}
+
+/** Called with each finished pass's recording. */
+async function trainerPass(t: Float32Array): Promise<void> {
+  if (!trainer || !score) return;
+  const tempo = trainer.tempo;
+  status(`Listening to pass ${trainer.passes.length + 1}…`);
+  try {
+    const s = settings();
+    const pitch = await timed("track-pitch", () => trackPitchAsync(t, s.a4));
+    const a = await timed("analyze", () => analyze(parseScore(plainXml, score!.partId, score!.title), pitch, s));
+    if (!trainer) return; // stopped while listening
+    analysis = a;
+    take = t;
+    const p = judgePass(a, tempo, (writtenTempo() * tempo) / 100, trainer.cfg.need);
+    const verdict = trainer.next(p);
+    const why = p.dragged ? "fell behind the tempo" : `${p.percent}% right`;
+    const then = { up: `clean, up to ${trainer.tempo}%`, same: "again at this tempo", down: `back to ${trainer.tempo}%`, done: "clean at the target!" }[verdict];
+    tr.log.prepend(el("li", `${tempo}%: ${why}, ${then}`, p.clean ? "clean" : "miss"));
+    if (p.clean && tempo > (store.get<number>(bestKey()) ?? 0)) store.set(bestKey(), tempo);
+    showBest();
+    if (verdict === "done") return finishTrainer(`Done: a clean pass at ${tempo}%.`);
+    status(`Pass ${trainer.passes.length}: ${why}. Next pass at ${trainer.tempo}% in 3 seconds…`);
+    trainerTimer = window.setTimeout(() => void runPass(), 3000);
+  } catch (e) {
+    if (!trainer) return;
+    tr.log.prepend(el("li", `${tempo}%: couldn't hear this pass (${(e as Error).message}), trying again`, "miss"));
+    trainerTimer = window.setTimeout(() => void runPass(), 3000);
+  }
+}
+
+function stopTrainer(): void {
+  trainer = null;
+  clearTimeout(trainerTimer);
+  if (recorder?.recording) recorder.stop(); // discard the unfinished pass
+  player?.stop();
+  cancelAnimationFrame(frame);
+  osmd?.cursor.hide();
+  ui.play.textContent = "Play";
+  tr.go.textContent = "Start trainer";
+  tr.go.classList.remove("on");
+  ui.play.disabled = ui.record.disabled = ui.wait.disabled = false;
+}
+
+function finishTrainer(message: string): void {
+  const best = trainer?.best;
+  stopTrainer();
+  status(best ? `${message} Fastest clean pass: ${best}%.` : message);
+  if (analysis) showFeedback(analysis); // the last pass, in detail
+}
+
+tr.go.addEventListener("click", () => (training() ? finishTrainer("Trainer stopped.") : startTrainer()));
+for (const sel of [tr.start, tr.target, tr.step, tr.need]) sel.addEventListener("change", trainerConfig);
+ui.from.addEventListener("change", showBest);
+ui.to.addEventListener("change", showBest);
+
 // ---- restore the last session ----
 
 for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timingStrict, "timing"], [ui.click, "click"]] as const) {
@@ -764,6 +891,7 @@ export function hasScore(): boolean {
 /** Closes the score and anything about it (playback, a recording in progress, feedback), freeing its memory. */
 export function closeScore(): void {
   if (waiting()) stopWait();
+  if (training()) stopTrainer();
   if (recorder?.recording) recorder.stop(); // discard: the user chose to leave
   player?.stop();
   cancelAnimationFrame(frame);

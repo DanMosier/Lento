@@ -9,6 +9,9 @@ timing, judged as strictly as you choose (pitch and timing separately).
 and moves on only once the microphone hears it held in tune. There's no metronome. After three wrong tries it plays
 the note for you. The other shown parts can follow along, and at the end you get a tally of the notes that needed
 several tries.
+The **speed trainer** loops the chosen measures and listens to each pass: a clean pass (80, 90 or 100% of notes in
+tune and on time, without falling behind) raises the tempo a step toward the target; two passes with mistakes in a
+row step it back. It remembers the fastest clean pass for each passage.
 
 **Library:** browse your score library in Google Drive, open a MusicXML into Practice or a PDF in Drive's viewer, and
 queue PDFs (one or a batch) for MusicXML conversion on your PC.
@@ -40,7 +43,7 @@ screen. Features never import each other.
   connection Library, Convert and Settings share).
 - `src/practice/` Practice: `pitch.ts` (YIN pitch tracking, in a worker), `align.ts` and `analyze.ts` (ports of
   `lento_practice` in Python, which stays the reference), `report.ts`, `player.ts` (playback and metronome),
-  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `recorder.ts`, `latency.ts`, `ui.ts`.
+  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `recorder.ts`, `latency.ts`, `ui.ts`.
 - `src/library/` Library: browse and open scores. It hands a score to Practice with `requestOpenScore` from core.
 - `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status.
 - `src/tuner/` Tuner. `src/settings/` Settings (library connection, tuning, headphone delay, sounds).

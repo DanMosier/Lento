@@ -39,7 +39,7 @@
     <section id="controls" class="controls" hidden>
       <div class="group">
         <label for="tempo">Tempo</label>
-        <input id="tempo" type="range" min="30" max="120" step="5" value="70" />
+        <input id="tempo" type="range" min="30" max="120" step="1" value="70" />
         <output id="tempo-out" for="tempo"></output>
       </div>
       <div class="group">
@@ -87,6 +87,17 @@
         <label class="button" for="audio-file">Check a recording</label>
         <input id="audio-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" hidden />
       </div>
+      <details id="trainer" class="group more trainer">
+        <summary>Speed trainer</summary>
+        <p class="hint">Loops the chosen measures and listens to each pass. A clean pass raises the tempo a step; two passes with mistakes in a row step it back.</p>
+        <label>Start at <select id="tr-start" aria-label="Starting tempo"></select></label>
+        <label>Target <select id="tr-target" aria-label="Target tempo"></select></label>
+        <label>Step <select id="tr-step" aria-label="Tempo step"><option value="2">2%</option><option value="5" selected>5%</option><option value="10">10%</option></select></label>
+        <label>Clean means <select id="tr-need" aria-label="Notes that must be right"><option value="80">80% right</option><option value="90" selected>90% right</option><option value="100">every note right</option></select></label>
+        <button id="tr-go" type="button">Start trainer</button>
+        <p id="tr-best" class="hint"></p>
+        <ol id="tr-log" class="tr-log"></ol>
+      </details>
       <details class="group more">
         <summary>Settings</summary>
         <label>Tuning A = <input id="a4" type="number" min="400" max="480" step="0.5" value="440" /> Hz</label>
