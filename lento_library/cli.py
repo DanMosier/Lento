@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--uninstall", action="store_true", help="stop starting it at sign-in")
             p.add_argument("--tray", action="store_true", help="show a system tray icon while it runs (Windows)")
             p.add_argument("--no-tray", action="store_true", help="--install: start it at sign-in without the tray icon")
+            p.add_argument("--log", type=Path, help="append output to this file (opened once the library folder is there)")
         if name == "organize":
             p.add_argument("step", choices=["plan", "status", "apply", "undo"])
             p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo, or all")
@@ -104,8 +105,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(watch.install(lib.root, args.interval, not args.no_tray) if args.install else watch.uninstall())
                 return 0
             if args.tray and not args.once:
-                return watch.run_with_tray(lib, converter_cmd(args), args.gpu, args.interval, musescore=args.musescore)
-            return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
+                return watch.run_with_tray(lib, converter_cmd(args), args.gpu, args.interval, musescore=args.musescore, log=args.log)
+            return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore, log=args.log)
         if args.cmd == "organize":
             return organize(lib, args.step, args.batch, args.fresh)
         if args.cmd == "details":

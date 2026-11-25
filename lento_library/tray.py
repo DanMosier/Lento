@@ -95,6 +95,8 @@ def describe(data: dict, name: Callable[[str], str]) -> tuple[str, str]:
         return "busy", f"Lento: exporting {data.get('current') or 'MuseScore files'} with MuseScore"
     if state == "stopped":
         return "stopped", "Lento: watcher stopped"
+    if state == "waiting":
+        return "stopped", "Lento: waiting for Google Drive (the library folder isn't there yet)"
     last = next((r for r in reversed(data.get("results", [])) if r.get("ok")), None)
     tip = "Lento: waiting for PDFs to convert"
     return "idle", tip + (f". Last: {name(last['pdf'])}" if last else "")
@@ -133,7 +135,7 @@ class Tray:
                 item(lambda _: self.menu_line(), None, enabled=False),
                 pystray.Menu.SEPARATOR,
                 item("Open library folder", lambda: self.open(self.root), default=True),
-                item("Open log", lambda: self.open(self.log), visible=bool(log)),
+                item("Open log", lambda: self.open(self.log), visible=lambda _: bool(self.log and self.log.exists())),
                 item("Open Lento app", lambda: webbrowser.open(APP_URL)),
                 pystray.Menu.SEPARATOR,
                 item("Quit watcher", self.quit),
@@ -164,7 +166,9 @@ class Tray:
         with self.lock:
             state, tip = describe(data, self.names)
             self.set(state, tip)
-            results = data.get("results", [])
+            if "results" not in data:  # waiting for the library folder: nothing to compare yet
+                return
+            results = data["results"]
             keys = {(r.get("pdf"), r.get("at")) for r in results}
             if self.seen is not None:
                 for r in results:
