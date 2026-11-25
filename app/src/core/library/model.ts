@@ -11,6 +11,8 @@ export interface LibraryFile {
   musicxml?: string;
   /** Lento_ConvertPDF's rating of that MusicXML. */
   quality?: "OK" | "REVIEW" | "UNRELIABLE" | string;
+  /** "musescore": the MusicXML and PDF were exported from a MuseScore file, so the notes are exact. */
+  from?: "musescore" | string;
   /** For a PDF with no MusicXML: conversion already asked for. */
   requested?: boolean;
   /** For a PDF with no MusicXML: the last conversion on the PC failed. */
@@ -26,6 +28,7 @@ export interface PcStatus {
   queue: string[];
   current: string | null;
   results: { pdf: string; ok: boolean; at: string }[];
+  musescore?: boolean; // false when MuseScore files are waiting but MuseScore isn't installed on the PC
 }
 
 /** Is the watcher running? It writes a heartbeat on every look, so a stale one means the PC is off or it stopped. */
@@ -111,7 +114,7 @@ export function folderIdFromLink(text: string): string | null {
 /** The MusicXML to practise from for this file: the file itself, or the one beside a PDF. */
 export function musicxmlOf(f: LibraryFile): LibraryFile | null {
   if (f.kind === "musicxml") return f;
-  return f.musicxml ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality } : null;
+  return f.musicxml ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality, from: f.from } : null;
 }
 
 /** "convert__<pdf name without .pdf>.json", the file `lento-library convert` looks for. */

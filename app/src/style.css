@@ -259,6 +259,7 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .quality { font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; cursor: help; }
 .quality.review { color: var(--slightly_off); border: 1px solid var(--slightly_off); }
 .quality.unreliable { color: var(--out_of_tune); border: 1px solid var(--out_of_tune); }
+.quality.ok { color: var(--in_tune); border: 1px solid var(--in_tune); }
 .requested { color: var(--muted); font-size: 0.9rem; font-style: italic; }
 .pick { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; color: var(--accent); font-weight: 600; }
 .pick input { width: 20px; height: 20px; accent-color: var(--accent); }

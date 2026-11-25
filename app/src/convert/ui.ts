@@ -141,9 +141,11 @@ function showPc(s: PcStatus | null): void {
   ui.pc.dataset.state = online ? s.state : "offline";
   if (!online) line(`${s.pc || "Your PC"} is off or not watching (last seen ${ago(s.heartbeat)}). Queued PDFs convert when it's back.`);
   else if (s.state === "converting") line(`${s.pc || "Your PC"} is converting ${s.current}${s.queue.length ? `, ${s.queue.length} more after that` : ""}.`);
+  else if (s.state === "exporting") line(`${s.pc || "Your PC"} is exporting ${s.current} from MuseScore.`);
   else line(`${s.pc || "Your PC"} is on and watching (checked ${ago(s.heartbeat)}). New requests start within ${Math.round(s.interval_s || 30)} s.`);
+  if (s.musescore === false) line("There are MuseScore files in the library, but MuseScore isn't installed on the PC. Install MuseScore 4 there and they'll be exported.", "hint");
   const recent = [...s.results].reverse().slice(0, 5);
-  if (recent.length) line("Recent: " + recent.map((r) => `${r.pdf.replace(/\.pdf$/, "")} ${r.ok ? "✓" : "failed"}`).join(" · "), "hint");
+  if (recent.length) line("Recent: " + recent.map((r) => `${r.pdf.replace(/\.(pdf|mscz|mscx)$/, "")} ${r.ok ? "✓" : "failed"}`).join(" · "), "hint");
 }
 
 async function loadPc(): Promise<void> {

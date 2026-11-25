@@ -7,13 +7,17 @@
   lento-library add FILE PIECE_ID VARIANT [--root FOLDER]
       Moves FILE (from inbox/ if not found as given) to pieces/<piece_id>/<piece_id>__<variant>.<ext>.
 
-  lento-library convert [PIECE_ID ...] [--missing] [--root FOLDER] [--converter CMD]
+  lento-library convert [PIECE_ID ...] [--missing] [--root FOLDER] [--converter CMD] [--musescore EXE]
       Makes MusicXML from PDFs with Lento_ConvertPDF (homr, on this PC's GPU), saved beside each PDF under the
       same name, then rebuilds library.json. With no PIECE_ID, converts the PDFs requested from the app
       ("Make MusicXML"); --missing converts every PDF that has no MusicXML yet. Existing MusicXML is kept.
+      It also exports every MuseScore file (.mscz/.mscx) in the library to MusicXML and PDF beside it, using
+      MuseScore itself (found automatically, or give --musescore). Those exports are exact, and redone when the
+      MuseScore file changes.
 
   lento-library watch [--root FOLDER] [--interval SECONDS] [--install | --uninstall]
-      Keeps running and converts PDFs as soon as they are queued from the app, whenever this PC is on.
+      Keeps running and converts PDFs as soon as they are queued from the app, whenever this PC is on, and
+      exports MuseScore files as soon as they appear in the library.
       Writes requests/_status.json so the app can show what the PC is doing. --install starts it hidden
       at every Windows sign-in (Startup folder); --uninstall removes that.
 
@@ -44,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         if name in ("convert", "watch"):
             p.add_argument("--converter", help="command that runs Lento_ConvertPDF (default: this Python's lento_convertpdf)")
             p.add_argument("--gpu", default="force", choices=["force", "auto", "no"])
+            p.add_argument("--musescore", help="the MuseScore program (default: found in the usual places)")
         if name == "convert":
             p.add_argument("piece_ids", nargs="*")
             p.add_argument("--missing", action="store_true", help="every piece with a PDF and no MusicXML")
@@ -72,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.install or args.uninstall:
                 print(watch.install(lib.root, args.interval) if args.install else watch.uninstall())
                 return 0
-            return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once)
+            return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
         if args.cmd == "add":
             src = Path(args.file)
             if not src.exists():
@@ -122,8 +127,30 @@ def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_fo
     return failed
 
 
+def export_musescore(lib: Library, explicit: str | None = None, only: list[str] | None = None) -> tuple[list[str], list[str], bool]:
+    """Exports MuseScore files that need it. Returns (exported, failed, musescore_found)."""
+    from lento_library import musescore
+
+    files = [p for p in lib.musescore_files() if not only or p.parent.name in only]
+    if not files:
+        return [], [], True
+    exe = musescore.find(explicit)
+    if not exe:
+        print(f"{len(files)} MuseScore file(s) to export, but MuseScore isn't installed (or give --musescore)", flush=True)
+        return [], [p.name for p in files], False
+    print(f"exporting {len(files)} MuseScore file(s) to MusicXML and PDF…", flush=True)
+    done = musescore.export(exe, files)
+    for src, ok in done.items():
+        if ok:
+            lib.catalog_export(src.with_suffix(".pdf"))
+    return [s.name for s, ok in done.items() if ok], [s.name for s, ok in done.items() if not ok], True
+
+
 def convert(lib: Library, args: argparse.Namespace) -> int:
     """Runs the converter as a separate program, so the library never depends on the converter's code."""
+    exported, ms_failed, _ = export_musescore(lib, args.musescore, args.piece_ids or None)
+    if exported or ms_failed:
+        print(f"MuseScore: {len(exported)} exported, {len(ms_failed)} failed" + "".join(f"\n  failed: {n}" for n in ms_failed))
     if args.piece_ids:
         pdfs = [p for pid in args.piece_ids for p in sorted((lib.pieces / pid).glob("*.pdf"))]
     elif args.missing:
@@ -131,6 +158,9 @@ def convert(lib: Library, args: argparse.Namespace) -> int:
     else:
         pdfs = [p for p in (lib.pdf_for(stem) for stem in lib.requests()) if p]
     if not pdfs:
+        if exported or ms_failed:
+            lib.write_index()
+            return 1 if ms_failed else 0
         print("nothing to convert" + ("" if args.missing else " (no requests; use --missing for every PDF without MusicXML)"))
         return 0
     failed = convert_pdfs(lib, pdfs, converter_cmd(args), args.gpu)
@@ -138,7 +168,7 @@ def convert(lib: Library, args: argparse.Namespace) -> int:
     print(f"wrote {path} ({n} pieces); {len(pdfs) - len(failed)} PDF(s) converted, {len(failed)} failed")
     for name in failed:
         print(f"  failed: {name}")
-    return 1 if failed else 0
+    return 1 if failed or ms_failed else 0
 
 
 if __name__ == "__main__":

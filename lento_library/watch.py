@@ -49,10 +49,11 @@ class Status:
         self.data["results"] = [*self.data["results"], {"pdf": pdf, "ok": ok, "at": now()}][-KEEP_RESULTS:]
 
 
-def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False) -> int:
-    from lento_library.cli import convert_pdfs
+def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False, musescore: str | None = None) -> int:
+    from lento_library.cli import convert_pdfs, export_musescore
 
     status = Status(lib, interval)
+    tried: dict[Path, float] = {}  # MuseScore file -> its modified time when last exported or tried
     print(f"watching {lib.root / REQUESTS} every {interval:g} s (Ctrl+C to stop)", flush=True)
     try:
         while True:
@@ -62,6 +63,21 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 if not lib.pdf_for(stem):
                     lib.fail_request(stem)
                     status.result(f"{stem}.pdf", False)
+            # MuseScore files are exported as soon as they appear (or change); a failed one is tried again only
+            # after it changes, so a broken file doesn't run MuseScore every few seconds
+            pending = [p for p in lib.musescore_files() if tried.get(p) != p.stat().st_mtime]
+            if pending:
+                status.write("exporting", [p.name for p in pending], ", ".join(p.name for p in pending))
+                exported, failed_ms, found = export_musescore(lib, musescore, None)
+                status.data["musescore"] = found
+                for p in pending:
+                    tried[p] = p.stat().st_mtime
+                for name in exported:
+                    status.result(name, True)
+                for name in failed_ms:
+                    status.result(name, False)
+                if exported:
+                    lib.write_index()
             if pdfs:
                 names = [p.name for p in pdfs]
                 print(f"{len(pdfs)} PDF(s) queued", flush=True)

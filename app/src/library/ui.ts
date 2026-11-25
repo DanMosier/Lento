@@ -111,7 +111,11 @@ function item(p: Piece): HTMLLIElement {
       const b = button("Practice", "primary", (b) => void openFile(p, xml, b), offlineKeys.has(key) ? "Saved on this device, opens offline" : undefined);
       if (offlineKeys.has(key)) b.append(el("span", " ✓", "saved"));
       row.append(b);
-      if (xml.quality && QUALITY[xml.quality]) {
+      if (xml.from === "musescore") {
+        const q = el("span", "MuseScore", "quality ok");
+        q.title = "Exported from a MuseScore file, so the notes are exact";
+        row.append(q);
+      } else if (xml.quality && QUALITY[xml.quality]) {
         const q = el("span", xml.quality === "REVIEW" ? "check" : "unreliable", `quality ${xml.quality.toLowerCase()}`);
         q.title = QUALITY[xml.quality];
         row.append(q);
