@@ -27,8 +27,22 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
 
 ## Practice web app
 
-`web/` is the practice app for PC, phone and tablet: slowed playback with loops and a count-in, recording, and
-note-by-note intonation and timing feedback, all in the browser. See [web/README.md](web/README.md).
+`web/` is the practice app for PC, phone and tablet: slowed playback with loops, count-in and metronome,
+recording, note-by-note intonation and timing feedback, and a tuner, all in the browser. Live at
+https://danmosier.github.io/Lento/. See [web/README.md](web/README.md).
+
+## Practice feedback
+
+`lento-practice` compares a recording of you playing with its MusicXML score and reports intonation in cents, early or
+late notes, and missed or wrong notes, with a colored copy of the score to open in MuseScore. See
+[docs/practice.md](docs/practice.md).
+
+```powershell
+uv pip install -e ".[practice]"
+.venv\Scripts\lento-practice.exe analyze score.musicxml take.wav
+```
+
+The repository holds independent features. `lento_core` is code they share; features may import it but never each other.
 
 ## Setup
 
