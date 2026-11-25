@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -76,14 +77,14 @@ def test_slowing_down_in_an_echoey_room(score_path, score, tmp_path):
 
 
 def test_planted_mistakes_are_found(score_path, score, tmp_path):
-    take = Take(detune={2: 30, 7: -15, 16: 100}, skip={23}, shift_ms={18: 150})
+    take = Take(detune={2: 30, 7: -15, 16: 100}, skip={23}, shift_ms={18: 200})
     a = run(score_path, score, tmp_path, take)
     r = {x.index: x for x in a.results}
     assert r[2].status == OUT_OF_TUNE and r[2].cents == pytest.approx(30, abs=4)
     assert r[7].status == SLIGHTLY_OFF and r[7].cents == pytest.approx(-15, abs=4)
     assert r[16].status == WRONG_NOTE and r[16].heard == "Eb3"
     assert r[23].status == MISSED
-    assert r[18].timing == "late" and r[18].timing_ms == pytest.approx(150, abs=50)
+    assert r[18].timing == "late" and r[18].timing_ms == pytest.approx(200, abs=70)
     others = [x for i, x in r.items() if i not in (2, 7, 16, 23, 18) and x.status != DOUBLE_STOP]
     assert all(x.status == IN_TUNE and not x.timing for x in others), [(x.index, x.status, x.timing) for x in others]
 
@@ -144,6 +145,18 @@ def test_cli_writes_report_and_colored_score(score_path, score, tmp_path, capsys
     labels = [lyr.findtext("text") for lyr in cello.iter("lyric")]
     assert "+30" in labels and "miss" in labels
     assert "Report written" in capsys.readouterr().out
+
+
+def test_pitch_and_timing_strictness_are_separate(score_path, score, tmp_path):
+    wav = write_take(tmp_path / "take.wav", score, Take(detune={2: 8, 7: 18}, shift_ms={16: 120}))
+    def judge(pitch, timing):
+        out = tmp_path / f"{pitch}-{timing}"
+        assert main(["analyze", str(score_path), str(wav), "--out", str(out), "--pitch", pitch, "--timing", timing]) == 0
+        rows = {int(r["index"]): r for r in csv.DictReader(open(out / "notes.csv", encoding="utf-8"))}
+        return rows[2]["status"], rows[7]["status"], rows[16]["timing"]
+    assert judge("strict", "strict") == ("slightly_off", "out_of_tune", "late")
+    assert judge("relaxed", "strict") == ("in_tune", "in_tune", "late")
+    assert judge("standard", "relaxed") == ("in_tune", "slightly_off", "")
 
 
 def test_cli_reports_bad_input(score_path, tmp_path, capsys):

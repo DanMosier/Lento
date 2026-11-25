@@ -20,13 +20,17 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--part", help="part id or name, if the score has several parts (default: the cello part)")
     a.add_argument("--measures", help="the measures you played, e.g. 12-20 (default: found automatically)")
     a.add_argument("--a4", type=float, default=440.0, help="tuning pitch of A4 in Hz (default 440)")
-    a.add_argument("--in-tune", type=float, default=10.0, help="cents that still count as in tune (default 10)")
-    a.add_argument("--slightly-off", type=float, default=25.0, help="cents that count as slightly off (default 25)")
-    a.add_argument("--timing-ms", type=float, default=70.0, help="ms early or late before a note is flagged (default 70)")
+    a.add_argument("--pitch", choices=["strict", "standard", "relaxed"], default="standard",
+                   help="how strict about pitch: in tune within 5, 10 or 20 cents (default standard)")
+    a.add_argument("--timing", choices=["strict", "standard", "relaxed"], default="standard",
+                   help="how strict about timing: flagged beyond 60, 100 or 160 ms (default standard)")
+    a.add_argument("--in-tune", type=float, help="exact cents that count as in tune (overrides --pitch)")
+    a.add_argument("--slightly-off", type=float, help="exact cents that count as slightly off (overrides --pitch)")
+    a.add_argument("--timing-ms", type=float, help="exact ms early or late before a note is flagged (overrides --timing)")
     a.add_argument("--no-labels", action="store_true", help="color the notes but do not write text under them")
     args = p.parse_args(argv)
 
-    from .analyze import AnalysisSettings, analyze
+    from .analyze import PITCH_WINDOWS, TIMING_WINDOWS, AnalysisSettings, analyze
     from .report import summary_markdown, write_report
 
     for f in (args.score, args.audio):
@@ -39,9 +43,9 @@ def main(argv: list[str] | None = None) -> int:
         measures = (first.strip(), (last or first).strip())
     settings = AnalysisSettings(
         a4=args.a4,
-        good_cents=args.in_tune,
-        ok_cents=args.slightly_off,
-        timing_ms=args.timing_ms,
+        good_cents=args.in_tune if args.in_tune is not None else PITCH_WINDOWS[args.pitch][0],
+        ok_cents=args.slightly_off if args.slightly_off is not None else PITCH_WINDOWS[args.pitch][1],
+        timing_ms=args.timing_ms if args.timing_ms is not None else TIMING_WINDOWS[args.timing],
         part=args.part,
         measures=measures,
     )

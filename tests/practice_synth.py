@@ -124,7 +124,8 @@ def render(score, take: Take) -> np.ndarray:
         if n.index in take.skip:
             continue
         t0 = lead + at(n.beat) + take.shift_ms.get(n.index, 0) / 1000.0
-        dur = at(n.beat + n.duration) - at(n.beat) - 0.03  # short bow change
+        # short bow change; a late note still ends on time, as when a player comes in late
+        dur = at(n.beat + n.duration) - at(n.beat) - 0.03 - max(0.0, take.shift_ms.get(n.index, 0) / 1000.0)
         cents = take.overall_cents + take.detune.get(n.index, 0.0)
         freq = 440.0 * 2 ** ((n.midi - 69) / 12 + cents / 1200)
         tone = _tone(freq, dur, rng) * (0.6 if n.in_chord else 1.0)

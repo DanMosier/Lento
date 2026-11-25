@@ -23,13 +23,18 @@ DOUBLE_STOP = "double_stop"  # second note of a double stop; not measured yet
 NOT_PLAYED = "not_played"  # outside the part of the score the recording covers
 
 
+# Named strictness levels, chosen separately for pitch and timing
+PITCH_WINDOWS = {"strict": (5.0, 15.0), "standard": (10.0, 25.0), "relaxed": (20.0, 40.0)}  # in tune, slightly off (cents)
+TIMING_WINDOWS = {"strict": 60.0, "standard": 100.0, "relaxed": 160.0}  # ms early or late
+
+
 @dataclass
 class AnalysisSettings:
     a4: float = 440.0
     good_cents: float = 10.0  # within this: in tune
     ok_cents: float = 25.0  # within this: slightly off; beyond: out of tune
     wrong_note_cents: float = 70.0  # beyond this the nearest semitone is another note
-    timing_ms: float = 70.0  # early or late beyond this, against your own local tempo
+    timing_ms: float = 100.0  # early or late beyond this, against your own local tempo
     part: str | None = None
     measures: tuple[str, str] | None = None  # printed numbers, inclusive
     suspect_run: int = 4  # this many notes in a row off by the same interval → suspect the score
@@ -136,6 +141,16 @@ def _expected_times(track: PitchTrack, events: list[Event]) -> tuple[np.ndarray,
     all_beats = np.array([ev.beat for ev in events])
     expected = spb * all_beats + fit[1] + np.interp(all_beats, b[keep], resid[keep])
     return expected, spb
+
+
+def _theil_sen(x: np.ndarray, y: np.ndarray) -> tuple[float, float] | None:
+    """Line through the median of pairwise slopes: a few early or late neighbours barely move it."""
+    i, j = np.triu_indices(len(x), 1)
+    ok = x[j] != x[i]
+    if not ok.any():
+        return None
+    slope = float(np.median((y[j][ok] - y[i][ok]) / (x[j][ok] - x[i][ok])))
+    return slope, float(np.median(y - slope * x))
 
 
 def _fit_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float] | None:
@@ -298,10 +313,12 @@ def _timing(results, onsets, settings, score):
         if r.onset_sec is None or r.status == DOUBLE_STOP:
             continue
         b = r.note.beat
-        window = np.abs(beats - b) <= 4.0
+        # neighbours only: a late note must not pull the line it is measured against
+        dist = np.abs(beats - b)
+        window = (dist <= 6.0) & (dist > 1e-6)
         if window.sum() < 4:
-            window = np.argsort(np.abs(beats - b))[:4]
-        local = _fit_line(beats[window], secs[window]) or fit
+            window = [i for i in np.argsort(dist) if dist[i] > 1e-6][:4]
+        local = _theil_sen(beats[window], secs[window]) or fit
         dev = (r.onset_sec - (local[0] * b + local[1])) * 1000.0
         r.timing_ms = round(float(dev), 0)
         if dev > settings.timing_ms:

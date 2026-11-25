@@ -25,8 +25,9 @@ here", grey the second note of a double stop (not checked). The label under a no
 (`Eb3?`), `miss`, `early` or `late`.
 
 Options: `--measures 12-20` if you want to say which measures you played (otherwise they are found), `--part` for a score
-with several parts (the cello part is picked by default), `--a4 442` for your tuning pitch, `--in-tune` and
-`--slightly-off` for the cents thresholds (10 and 25), `--timing-ms` for the timing threshold (70).
+with several parts (the cello part is picked by default), `--a4 442` for your tuning pitch, `--pitch` and `--timing`
+(`strict`, `standard` or `relaxed`, set separately: in tune within 5, 10 or 20 cents; flagged beyond 60, 100 or 160 ms),
+or exact values with `--in-tune`, `--slightly-off` and `--timing-ms`.
 
 ## Recording tips
 
