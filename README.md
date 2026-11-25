@@ -74,7 +74,7 @@ poetry install --only main --extras cuda
 poetry run homr --gpu force --init      # downloads the models
 
 # this project
-cd ..\PDF_to_MusicXML_project
+cd ..\Lento
 uv venv --python 3.12
 uv pip install -e ".[dev]"
 uv pip install winrt-runtime winrt-Windows.Foundation winrt-Windows.Foundation.Collections winrt-Windows.Globalization winrt-Windows.Graphics.Imaging winrt-Windows.Media.Ocr winrt-Windows.Storage.Streams

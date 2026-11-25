@@ -13,7 +13,13 @@ export const cache = new IdbCache();
 let current: DriveLibrary | null = null;
 
 export const libraryFolder = (): string => store.get<string>("library.folder") ?? "";
-export const clientId = (): string => store.get<string>("library.client") ?? (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? "";
+/**
+ * The app's Google client ID (from Google Cloud, made for this app's address). It isn't a secret: it only names the
+ * app to Google, and works only from the app's own address. A repository variable or Settings can override it.
+ */
+const BUILT_IN_CLIENT = "58187739726-bc8b69ursjooua6j28dqbt22rn0bb12i.apps.googleusercontent.com";
+export const clientId = (): string =>
+  store.get<string>("library.client") || (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || BUILT_IN_CLIENT;
 
 export function saveConnection(folder: string, client: string): void {
   store.set("library.folder", folder.trim());

@@ -302,6 +302,21 @@ class Library:
             return None
         return p if inside and p.is_file() and not p.is_symlink() else None
 
+    def fingerprint(self) -> tuple:
+        """What library.json is built from (score files, catalog.csv, tags.md) with their sizes and modified times.
+        The watcher compares it between looks, so files added, moved or renamed by hand are picked up."""
+        files = [self.catalog_path, self.tags_path]
+        for folder in self.folders():
+            files += [p for p in folder.iterdir() if p.suffix.lower() in KINDS]
+        out = []
+        for p in files:
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            out.append((str(p.relative_to(self.root)), st.st_size, st.st_mtime_ns))
+        return tuple(sorted(out))
+
     def write_index(self) -> tuple[Path, int]:
         data = self.index()
         path = self.root / INDEX_NAME

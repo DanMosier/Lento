@@ -2,7 +2,8 @@
 
 It looks at requests/ in the library folder (kept in sync with Google Drive by Drive for Desktop) every few
 seconds. When requests appear it runs the converter on them, then rebuilds library.json, so the phone sees the
-new MusicXML after its next refresh. It writes requests/_status.json on every look, which the app reads to show
+new MusicXML after its next refresh. It also rebuilds library.json whenever score files are added, moved or renamed
+by hand (and once when it starts), so the index never needs a manual `lento-library build`. It writes requests/_status.json on every look, which the app reads to show
 whether the PC is online and what it is doing.
 """
 
@@ -54,9 +55,11 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
 
     status = Status(lib, interval)
     tried: dict[Path, float] = {}  # MuseScore file -> its modified time when last exported or tried
+    built: tuple | None = None  # the library's fingerprint when library.json was last written
     print(f"watching {lib.root / REQUESTS} every {interval:g} s (Ctrl+C to stop)", flush=True)
     try:
         while True:
+            wrote = False  # library.json written during this look
             stems = lib.requests()
             pdfs = [p for p in (lib.pdf_for(s) for s in stems) if p]
             for stem in stems:  # a request for a PDF that isn't there can never succeed
@@ -78,6 +81,7 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                     status.result(name, False)
                 if exported:
                     lib.write_index()
+                    wrote = True
             if pdfs:
                 names = [p.name for p in pdfs]
                 print(f"{len(pdfs)} PDF(s) queued", flush=True)
@@ -89,7 +93,14 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 for p in pdfs:
                     status.result(p.name, p.name not in failed)
                 lib.write_index()
+                wrote = True
                 print(f"done: {len(pdfs) - len(failed)} converted, {len(failed)} failed", flush=True)
+            # rebuilt above after a conversion or export, so this only fires for changes made by hand
+            fp = lib.fingerprint()
+            if fp != built and not wrote:
+                _, n = lib.write_index()
+                print(f"library changed: library.json rebuilt ({n} pieces)", flush=True)
+            built = fp
             status.write("idle", [])
             if once:
                 return 0

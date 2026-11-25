@@ -226,3 +226,30 @@ def test_musescore_missing_is_reported(tmp_path: Path, capsys, monkeypatch) -> N
     assert status["musescore"] is False
     assert status["results"][-1] == {"pdf": "saint-saens_the-swan__mine.mscz", "ok": False, "at": status["results"][-1]["at"]}
     assert "MuseScore isn't installed" in capsys.readouterr().out
+
+
+def test_watch_rebuilds_index_when_files_change_by_hand(tmp_path: Path, monkeypatch) -> None:
+    from lento_library import watch
+
+    make_library(tmp_path)
+    lib = Library(tmp_path)
+    index = tmp_path / "library.json"
+    pieces = lambda: [p["id"] for p in json.loads(index.read_text(encoding="utf-8"))["pieces"]]  # noqa: E731
+    looks = []
+
+    def sleep(_s: float) -> None:  # between looks: check, then change the folder by hand
+        looks.append(pieces() if index.exists() else None)
+        if len(looks) == 1:
+            folder = tmp_path / "pieces" / "bach_suite-1_prelude"
+            folder.mkdir()
+            (folder / "bach_suite-1_prelude__urtext.pdf").write_bytes(b"%PDF-1.4\n")
+        elif len(looks) == 2:
+            index.unlink()  # nothing changed, so the next look must not write it again
+        else:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(watch.time, "sleep", sleep)
+    assert watch.run(lib, ["true"], "no", interval=0) == 0
+    assert "bach_suite-1_prelude" not in looks[0]  # built on the first look
+    assert "bach_suite-1_prelude" in looks[1]  # rebuilt after the hand-made change
+    assert not index.exists()
