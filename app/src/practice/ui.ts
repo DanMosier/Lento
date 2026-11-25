@@ -5,6 +5,7 @@ import { parseScore, scoreText, type Score } from "../core/score";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { trackPitch, type PitchTrack } from "./pitch";
 import { Player } from "./player";
+import { reportedDelay, TapTest } from "./latency";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";
 
@@ -28,6 +29,8 @@ const ui = {
   pitchStrict: $<HTMLSelectElement>("pitch-strict"),
   timingStrict: $<HTMLSelectElement>("timing-strict"),
   playWhileRecording: $<HTMLInputElement>("play-while-recording"),
+  delay: $<HTMLInputElement>("av-delay"),
+  delayOut: $<HTMLOutputElement>("av-delay-out"),
   status: $("status"),
   welcome: $("welcome"),
   feedback: $("feedback"),
@@ -171,7 +174,7 @@ function moveCursorTo(beat: number): void {
 }
 
 function follow(): void {
-  const beat = player?.currentBeat();
+  const beat = player?.currentBeat(+ui.delay.value / 1000);
   if (beat !== null && beat !== undefined) moveCursorTo(beat);
   frame = requestAnimationFrame(follow);
 }
@@ -210,6 +213,85 @@ function stopPlayback(): void {
 ui.play.addEventListener("click", () => {
   if (player?.playing) stopPlayback();
   else startPlayback().catch((e) => status((e as Error).message, "error"));
+});
+
+// ---- headphone delay: hold the cursor back by however late the sound arrives ----
+
+function setDelay(ms: number): void {
+  const v = Math.max(+ui.delay.min, Math.min(+ui.delay.max, Math.round(ms / 5) * 5));
+  ui.delay.value = String(v);
+  ui.delayOut.textContent = `${v > 0 ? "+" : ""}${v} ms`;
+  store.set("avDelay", v);
+}
+setDelay(store.get<number>("avDelay") ?? 0);
+ui.delay.addEventListener("input", () => setDelay(+ui.delay.value));
+$("av-minus").addEventListener("click", () => setDelay(+ui.delay.value - 10));
+$("av-plus").addEventListener("click", () => setDelay(+ui.delay.value + 10));
+
+const avTest = $("av-test");
+const avTap = $<HTMLButtonElement>("av-tap");
+const avDot = $("av-dot");
+const avResult = $("av-result");
+let tapTest: TapTest | null = null;
+let tapTimer = 0;
+
+function endTapTest(): void {
+  tapTest?.stop();
+  tapTest = null;
+  clearTimeout(tapTimer);
+  avTap.disabled = true;
+}
+
+$("av-measure").addEventListener("click", () => {
+  if (player?.playing) stopPlayback();
+  endTapTest();
+  const ctx = audio();
+  void ctx.resume();
+  avTest.hidden = false;
+  avTap.disabled = false;
+  avTap.focus();
+  const reported = reportedDelay(ctx);
+  avResult.textContent = reported !== null ? `Your browser reports about ${reported} ms; tapping will tell us what you actually hear.` : "";
+  const test = (tapTest = new TapTest(ctx));
+  const end = test.start();
+  // flash the dot in time with each click, shifted by the current setting, so you can see whether it matches
+  const flash = () => {
+    if (tapTest !== test) return;
+    const now = ctx.currentTime - +ui.delay.value / 1000;
+    avDot.classList.toggle("on", test.clicks.some((c) => now >= c && now < c + 0.1));
+    if (ctx.currentTime < end + 0.8) requestAnimationFrame(flash);
+  };
+  requestAnimationFrame(flash);
+  tapTimer = window.setTimeout(() => {
+    const r = test.result();
+    endTapTest();
+    avDot.classList.remove("on");
+    if (!r) {
+      avResult.textContent = "Not enough taps landed near the clicks. Press Measure to try again.";
+      return;
+    }
+    setDelay(r.ms);
+    avResult.textContent =
+      `Measured ${r.ms} ms from ${r.taps} taps (give or take ${r.spreadMs} ms). The cursor now waits that long. ` +
+      (r.spreadMs > 40 ? "Your taps were spread out, so try once more for a steadier number. " : "") +
+      "Fine-tune with − and + if the cursor still looks early or late.";
+  }, (end - ctx.currentTime + 0.8) * 1000);
+});
+
+avTap.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  tapTest?.tap(e);
+  avTap.classList.add("hit");
+  setTimeout(() => avTap.classList.remove("hit"), 80);
+});
+document.addEventListener("keydown", (e) => {
+  if (!tapTest || avTest.hidden || e.repeat || (e.key !== " " && e.key !== "Enter")) return;
+  e.preventDefault();
+  tapTest.tap(e);
+});
+$("av-close").addEventListener("click", () => {
+  endTapTest();
+  avTest.hidden = true;
 });
 
 // ---- recording and analysis ----
