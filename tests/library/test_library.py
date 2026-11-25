@@ -253,3 +253,14 @@ def test_watch_rebuilds_index_when_files_change_by_hand(tmp_path: Path, monkeypa
     assert "bach_suite-1_prelude" not in looks[0]  # built on the first look
     assert "bach_suite-1_prelude" in looks[1]  # rebuilt after the hand-made change
     assert not index.exists()
+
+
+def test_runs_as_a_module(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    make_library(tmp_path)
+    out = subprocess.run([sys.executable, "-m", "lento_library", "build", "--root", str(tmp_path)], capture_output=True, text=True,
+                         cwd=Path(__file__).parents[2])
+    assert out.returncode == 0, out.stderr
+    assert (tmp_path / "library.json").exists()
