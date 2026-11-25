@@ -5,36 +5,55 @@
  */
 import "./style.css";
 import { $, onOpenScore } from "./core/app";
-import { mark } from "./core/perf";
-import { enterConvert } from "./convert/ui";
-import { enterLibrary } from "./library/ui";
-import { closeScore, enterPractice, hasScore } from "./practice/ui";
-import { enterSettings } from "./settings/ui";
-import { enterTuner, leaveTuner } from "./tuner/ui";
+import { mark, timed } from "./core/perf";
+
+/**
+ * Each feature's code loads the first time its screen opens, so adding features doesn't slow the app's start.
+ * (Practice also loads when a score is sent to it from the Library.)
+ */
+interface Feature {
+  enter?: () => void;
+  leave?: () => void;
+  hasScore?: () => boolean;
+  closeScore?: () => void;
+}
+const LOAD: Record<string, () => Promise<Feature>> = {
+  practice: () => import("./practice/ui").then((m) => ({ enter: m.enterPractice, hasScore: m.hasScore, closeScore: m.closeScore })),
+  library: () => import("./library/ui").then((m) => ({ enter: () => void m.enterLibrary() })),
+  convert: () => import("./convert/ui").then((m) => ({ enter: m.enterConvert })),
+  tuner: () => import("./tuner/ui").then((m) => ({ enter: m.enterTuner, leave: m.leaveTuner })),
+  settings: () => import("./settings/ui").then((m) => ({ enter: m.enterSettings })),
+};
+const features = new Map<string, Promise<Feature>>();
+const feature = (name: string): Promise<Feature> | null => {
+  if (!LOAD[name]) return null;
+  let f = features.get(name);
+  if (!f) features.set(name, (f = timed(`load-${name}`, LOAD[name])));
+  return f;
+};
+const loadedFeatures = new Map<string, Feature>(); // the ones that have finished loading
 
 const NAMES: Record<string, string> = { home: "", practice: "Practice", library: "Library", convert: "Convert PDF", tuner: "Tuner", settings: "Settings" };
 const SCREENS = Object.keys(NAMES);
-const onEnter: Record<string, () => void> = {
-  practice: enterPractice,
-  library: () => void enterLibrary(),
-  convert: enterConvert,
-  tuner: enterTuner,
-  settings: enterSettings,
-};
-const onLeave: Record<string, () => void> = { tuner: leaveTuner };
 
 let current = "";
 
 function show(name: string): void {
   if (name === current) return;
-  if (current) onLeave[current]?.();
+  if (current) loadedFeatures.get(current)?.leave?.();
   for (const s of SCREENS) $(`view-${s}`).hidden = s !== name;
   current = name;
   $("screen-name").textContent = NAMES[name];
   document.title = name === "home" ? "Lento" : `${NAMES[name]} · Lento`;
-  onEnter[name]?.();
   window.scrollTo(0, 0);
+  void feature(name)?.then((f) => {
+    loadedFeatures.set(name, f);
+    if (current === name) f.enter?.();
+    mark(`entered-${name}`);
+  });
 }
+
+const practice = (): Feature | undefined => loadedFeatures.get("practice");
 
 /** Opens a feature from home. It gets a history entry, so the phone's Back button returns home. */
 function go(name: string): void {
@@ -46,7 +65,7 @@ function go(name: string): void {
 
 /** Going home closes an open score, so ask first. */
 function confirmLeave(): Promise<boolean> {
-  if (current !== "practice" || !hasScore()) return Promise.resolve(true);
+  if (current !== "practice" || !practice()?.hasScore?.()) return Promise.resolve(true);
   const d = $<HTMLDialogElement>("leave-dialog");
   return new Promise((resolve) => {
     d.returnValue = "";
@@ -58,7 +77,7 @@ function confirmLeave(): Promise<boolean> {
 async function goHome(): Promise<void> {
   if (current === "home") return;
   if (!(await confirmLeave())) return;
-  if (current === "practice") closeScore();
+  if (current === "practice") practice()?.closeScore?.();
   if (history.state?.screen) history.back(); // pops the entry made by go(); popstate then shows home
   else {
     history.replaceState(null, "", location.pathname);
@@ -69,13 +88,13 @@ async function goHome(): Promise<void> {
 window.addEventListener("popstate", async () => {
   const target = (history.state?.screen as string | undefined) ?? "home";
   if (target === current) return;
-  if (target === "home" && current === "practice" && hasScore()) {
+  if (target === "home" && current === "practice" && practice()?.hasScore?.()) {
     // Back button with a score open: stay unless the user confirms
     if (!(await confirmLeave())) {
       history.pushState({ screen: "practice" }, "", "#practice");
       return;
     }
-    closeScore();
+    practice()?.closeScore?.();
   }
   show(SCREENS.includes(target) ? target : "home");
 });

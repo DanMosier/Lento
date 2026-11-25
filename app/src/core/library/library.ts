@@ -63,6 +63,35 @@ export class DriveLibrary {
     return JSON.parse(new TextDecoder().decode(await this.drive.download(f.id))) as PcStatus;
   }
 
+  /**
+   * A small JSON file kept beside a piece's scores (for example score marks: `<score>.marks.json`). Returns null
+   * if there isn't one yet. Uses the offline copy when Drive can't be reached.
+   */
+  async readSidecar(pieceId: string, name: string): Promise<unknown | null> {
+    const key = `pieces/${pieceId}/${name}`;
+    const saved = await this.cache.get(key);
+    const parse = (d: ArrayBuffer) => JSON.parse(new TextDecoder().decode(d)) as unknown;
+    try {
+      const f = await this.drive.child(await this.folder(["pieces", pieceId]), name);
+      if (!f) return null;
+      if (saved && saved.modifiedTime === f.modifiedTime) return parse(saved.data);
+      const data = await this.drive.download(f.id);
+      await this.cache.put(key, { data, modifiedTime: f.modifiedTime });
+      return parse(data);
+    } catch (e) {
+      if (saved) return parse(saved.data);
+      throw e;
+    }
+  }
+
+  /** Writes that file to Drive (creating it the first time) and keeps a copy for offline use. */
+  async writeSidecar(pieceId: string, name: string, content: object): Promise<void> {
+    const folderId = await this.folder(["pieces", pieceId]);
+    const f = await this.drive.child(folderId, name);
+    const saved = f ? await this.drive.update(f.id, content) : await this.drive.create(folderId, name, content);
+    await this.cache.put(`pieces/${pieceId}/${name}`, { data: new TextEncoder().encode(JSON.stringify(content)).buffer as ArrayBuffer, modifiedTime: saved.modifiedTime });
+  }
+
   private async folder(path: string[]): Promise<string> {
     let id = this.rootId;
     for (let i = 0; i < path.length; i++) {

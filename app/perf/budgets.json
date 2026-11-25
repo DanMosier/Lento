@@ -1,5 +1,5 @@
 {
-  "startup-js-kb": 40,
+  "startup-js-kb": 20,
   "all-js-kb": 400,
   "startup-ms": 600,
   "tab-switch-ms": 100,
@@ -9,5 +9,6 @@
   "check-3min-ms": 10000,
   "check-3min-longest-block-ms": 3500,
   "track-pitch-ms": 8000,
-  "wait-mode-longest-block-ms": 150
+  "wait-mode-longest-block-ms": 150,
+  "first-open-practice-ms": 400
 }
