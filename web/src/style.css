@@ -38,6 +38,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);
@@ -120,3 +121,22 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
   .controls { position: static; }
   #tempo { width: 120px; }
 }
+
+.tuner {
+  margin: 12px max(16px, env(safe-area-inset-left)) 0; padding: 16px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; text-align: center; max-width: 560px;
+}
+.tuner-note { font-size: 3.4rem; font-weight: 700; line-height: 1; }
+.tuner-note small { font-size: 1.2rem; color: var(--muted); margin-left: 2px; }
+.tuner-meter { margin: 14px 0 6px; }
+.tuner-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.8rem; }
+.tuner-track { position: relative; height: 34px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); }
+.tuner-zone { position: absolute; left: 45%; width: 10%; top: 0; bottom: 0; background: color-mix(in srgb, var(--in_tune) 22%, transparent); }
+.tuner-needle { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--muted); transition: left 80ms linear; }
+.tuner[data-state="good"] .tuner-needle { background: var(--in_tune); }
+.tuner[data-state="close"] .tuner-needle { background: var(--slightly_off); }
+.tuner[data-state="off"] .tuner-needle { background: var(--out_of_tune); }
+.tuner-readout { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tuner-refs { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin: 10px 0; }
+.tuner-refs button { min-width: 48px; }
+.tuner-refs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

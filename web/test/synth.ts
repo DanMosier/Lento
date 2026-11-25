@@ -101,7 +101,8 @@ export function render(score: Score, take: Take = {}): Float32Array {
   for (const n of notes) {
     if (skip.includes(n.index)) continue;
     const t0 = lead + at(n.beat) + (shiftMs[n.index] ?? 0) / 1000;
-    const dur = at(n.beat + n.duration) - at(n.beat) - 0.03;
+    // a late note still ends on time, as when a player comes in late
+    const dur = at(n.beat + n.duration) - at(n.beat) - 0.03 - Math.max(0, (shiftMs[n.index] ?? 0) / 1000);
     const cents = overallCents + (detune[n.index] ?? 0);
     const freq = 440 * 2 ** ((n.midi - 69) / 12 + cents / 1200);
     const len = Math.floor(dur * SR);

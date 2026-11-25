@@ -1,7 +1,9 @@
 # Lento web app
 
 Practise with your own sheet music on a PC, phone or tablet. Open a MusicXML score, play it back slowly with loops and a
-count-in, record yourself, and see every note colored by intonation and timing. It installs as an app (PWA), works
+count-in and a metronome (whole notes down to 16ths), record yourself, and see every note colored by intonation and
+timing, judged as strictly as you choose (pitch and timing separately). It also has a tuner with reference tones for
+the open strings. It installs as an app (PWA), works
 offline, and keeps everything on the device.
 
 ```bash
@@ -23,7 +25,5 @@ the https site from `npm run build` + GitHub Pages instead, or use a tunnel.
 
 ## Publishing
 
-`.github/workflows/web.yml` tests and builds on every pull request that touches `web/`, and publishes `main` to GitHub
-Pages once Pages is switched on (Settings > Pages > Source: GitHub Actions) and the repository variable
-`PAGES_ENABLED` is `true`. Pages on a private repository needs a paid GitHub plan; the built `dist/` folder also works
-on any static host (Cloudflare Pages, Netlify).
+`.github/workflows/web.yml` tests and builds on every pull request that touches `web/`, and publishes `main` to
+https://danmosier.github.io/Lento/ (Settings > Pages > Source: GitHub Actions).

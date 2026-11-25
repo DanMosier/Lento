@@ -11,7 +11,7 @@ export interface PlayOptions {
   tempoFactor: number; // 0.5 = half speed
   countIn: boolean;
   loop: boolean;
-  metronome: boolean;
+  click: number; // metronome step in quarter notes (4 whole, 2 half, 1 quarter, 0.5 eighth, 0.25 16th); 0 off
   mute?: boolean; // count-in and clicks only (for recording without the part sounding)
 }
 
@@ -93,7 +93,7 @@ export class Player {
     const tempo = s.tempos.findLast?.((t) => t[0] <= this.startBeat)?.[1] ?? s.tempos[0][1];
     const clickSec = (60 / (tempo * opts.tempoFactor)) * clickBeat;
     if (opts.countIn) {
-      for (let i = 0; i < beatsPerBar; i++) this.click(now + i * clickSec, i === 0);
+      for (let i = 0; i < beatsPerBar; i++) this.click(now + i * clickSec, i === 0 ? 2 : 1);
       this.startTime = now + beatsPerBar * clickSec;
     } else {
       this.startTime = now;
@@ -142,11 +142,13 @@ export class Player {
           for (const n of part.notes) if (n.beat >= fromBeat && n.beat < toBeat && n.beat < this.endBeat) this.note(n, passStart, part === o.parts[0] ? 1 : 0.55);
         }
       }
-      if (o.metronome) {
-        const step = 4 / o.parts[0].timeSignature[1];
-        for (let b = Math.ceil((fromBeat - this.startBeat) / step) * step + this.startBeat; b < toBeat; b += step) {
-          const m = o.parts[0].measureStarts.findIndex((ms) => Math.abs(ms - b) < 1e-6);
-          this.click(passStart + this.secs(b), m >= 0);
+      if (o.click > 0) {
+        const s0 = o.parts[0];
+        const beatUnit = 4 / s0.timeSignature[1];
+        for (let b = Math.ceil((fromBeat - this.startBeat) / o.click - 1e-9) * o.click + this.startBeat; b < toBeat - 1e-9; b += o.click) {
+          const m = [...s0.measureStarts].reverse().find((ms) => ms <= b + 1e-6) ?? 0;
+          const level = Math.abs(b - m) < 1e-6 ? 2 : Math.abs(((b - m) / beatUnit) % 1) < 1e-6 ? 1 : 0;
+          this.click(passStart + this.secs(b), level);
         }
       }
       this.scheduledUntilBeat = toBeat;
@@ -197,14 +199,15 @@ export class Player {
     }
   }
 
-  private click(t: number, accent: boolean): void {
+  /** level 2: first beat of the measure, 1: a beat, 0: a subdivision. */
+  click(t: number, level: 0 | 1 | 2): void {
     const ctx = this.ctx;
     const osc = ctx.createOscillator();
     // well above the pitch tracker's range, so clicks heard by the mic are not taken for notes
-    osc.frequency.value = accent ? 3520 : 2640;
+    osc.frequency.value = [2640, 3150, 3520][level];
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, t);
-    env.gain.exponentialRampToValueAtTime(accent ? 0.35 : 0.22, t + 0.002);
+    env.gain.exponentialRampToValueAtTime([0.1, 0.22, 0.35][level], t + 0.002);
     env.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
     osc.connect(env).connect(this.out);
     osc.start(t);

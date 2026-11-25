@@ -1,10 +1,11 @@
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import "./style.css";
 import { parseScore, scoreText, type Score } from "./core/score";
-import { analyze, DEFAULT_SETTINGS, type Analysis, type NoteResult } from "./practice/analyze";
-import { trackPitch } from "./practice/pitch";
+import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./practice/analyze";
+import { trackPitch, type PitchTrack } from "./practice/pitch";
 import { Player } from "./practice/player";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./practice/recorder";
+import { Tuner } from "./practice/tuner";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./practice/report";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -19,14 +20,14 @@ const ui = {
   to: $<HTMLSelectElement>("to"),
   loop: $<HTMLInputElement>("loop"),
   countIn: $<HTMLInputElement>("count-in"),
-  metronome: $<HTMLInputElement>("metronome"),
+  click: $<HTMLSelectElement>("click"),
   accomp: $<HTMLInputElement>("accomp"),
   play: $<HTMLButtonElement>("play"),
   record: $<HTMLButtonElement>("record"),
   audioFile: $<HTMLInputElement>("audio-file"),
   a4: $<HTMLInputElement>("a4"),
-  good: $<HTMLInputElement>("good"),
-  ok: $<HTMLInputElement>("ok"),
+  pitchStrict: $<HTMLSelectElement>("pitch-strict"),
+  timingStrict: $<HTMLSelectElement>("timing-strict"),
   playWhileRecording: $<HTMLInputElement>("play-while-recording"),
   status: $("status"),
   welcome: $("welcome"),
@@ -59,6 +60,7 @@ let ctx: AudioContext | null = null;
 let player: Player | null = null;
 let recorder: Recorder | null = null;
 let take: Float32Array | null = null; // last recording, at the analysis rate
+let track: { take: Float32Array; a4: number; pitch: PitchTrack } | null = null; // its pitch, kept so re-checks are instant
 let analysis: Analysis | null = null;
 let showingColors = false;
 const osmd = new OpenSheetMusicDisplay(ui.sheet, {
@@ -100,8 +102,9 @@ function settings() {
   return {
     ...DEFAULT_SETTINGS,
     a4: +ui.a4.value || 440,
-    goodCents: +ui.good.value || 10,
-    okCents: +ui.ok.value || 25,
+    goodCents: PITCH_WINDOWS[ui.pitchStrict.value as Strictness][0],
+    okCents: PITCH_WINDOWS[ui.pitchStrict.value as Strictness][1],
+    timingMs: TIMING_WINDOWS[ui.timingStrict.value as Strictness],
     measures: [score!.measures[+ui.from.value], score!.measures[+ui.to.value]] as [string, string],
     strict: false,
   };
@@ -193,7 +196,7 @@ async function startPlayback(mute = false): Promise<void> {
     tempoFactor: +ui.tempo.value / 100,
     countIn: ui.countIn.checked,
     loop: ui.loop.checked && !recorder!.recording,
-    metronome: ui.metronome.checked,
+    click: +ui.click.value,
     mute,
   });
   osmd.cursor.show();
@@ -273,7 +276,8 @@ async function check(): Promise<void> {
   try {
     const fresh = parseScore(xml, score.partId, fileName.replace(/\.[^.]+$/, ""));
     const s = settings();
-    analysis = analyze(fresh, trackPitch(take, s.a4), s);
+    if (!track || track.take !== take || track.a4 !== s.a4) track = { take, a4: s.a4, pitch: trackPitch(take, s.a4) };
+    analysis = analyze(fresh, track.pitch, s);
     await render(coloredScore(analysis));
     showingColors = true;
     showFeedback(analysis);
@@ -395,12 +399,71 @@ function rowOf(cells: string[], tag: "td" | "th", cls?: string): HTMLTableRowEle
 
 // ---- restore the last session ----
 
-for (const [input, key] of [[ui.a4, "a4"], [ui.good, "good"], [ui.ok, "ok"]] as const) {
+for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timingStrict, "timing"], [ui.click, "click"]] as const) {
   const v = store.get<string>(key);
   if (v) input.value = v;
-  input.addEventListener("change", () => store.set(key, input.value));
+  input.addEventListener("change", () => {
+    store.set(key, input.value);
+    if (analysis && take) void check(); // re-judge the same take with the new windows
+  });
 }
 const savedTempo = store.get<number>("tempo");
 if (savedTempo) ui.tempo.value = String(savedTempo);
 const saved = store.get<{ name: string; text: string; part: string }>("score");
 if (saved) openScore(saved.name, saved.text, saved.part).catch(() => status("Open a score to start."));
+
+// ---- tuner ----
+
+const tunerUi = {
+  panel: $("tuner"),
+  name: $("tuner-name"),
+  octave: $("tuner-octave"),
+  needle: $("tuner-needle"),
+  readout: $("tuner-readout"),
+};
+let tuner: Tuner | null = null;
+
+$("tuner-open").addEventListener("click", async () => {
+  if (tuner?.running) return;
+  tunerUi.panel.hidden = false;
+  tunerUi.panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  tuner = new Tuner(audio(), +ui.a4.value || 440);
+  tuner.onReading = (r) => {
+    if (!r) {
+      tunerUi.readout.textContent = "Play a note";
+      tunerUi.needle.style.left = "50%";
+      tunerUi.panel.dataset.state = "idle";
+      return;
+    }
+    tunerUi.name.textContent = r.name;
+    tunerUi.octave.textContent = String(r.octave);
+    const c = Math.max(-50, Math.min(50, r.cents));
+    tunerUi.needle.style.left = `${50 + c}%`;
+    tunerUi.readout.textContent = `${r.cents > 0 ? "+" : ""}${r.cents.toFixed(0)} cents · ${r.hz.toFixed(1)} Hz`;
+    tunerUi.panel.dataset.state = Math.abs(r.cents) <= 5 ? "good" : Math.abs(r.cents) <= 15 ? "close" : "off";
+  };
+  try {
+    await tuner.start();
+  } catch (e) {
+    tunerUi.readout.textContent = `Could not use the microphone: ${(e as Error).message}`;
+  }
+});
+
+$("tuner-close").addEventListener("click", () => {
+  tuner?.stop();
+  tunerUi.panel.hidden = true;
+});
+
+tunerUi.panel.querySelectorAll<HTMLButtonElement>("[data-midi]").forEach((b) =>
+  b.addEventListener("click", () => {
+    const on = b.getAttribute("aria-pressed") === "true";
+    tunerUi.panel.querySelectorAll("[data-midi]").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    if (!tuner) tuner = new Tuner(audio(), +ui.a4.value || 440);
+    tuner.a4 = +ui.a4.value || 440;
+    if (on) tuner.tone(null);
+    else {
+      b.setAttribute("aria-pressed", "true");
+      tuner.tone(+b.dataset.midi!);
+    }
+  }),
+);

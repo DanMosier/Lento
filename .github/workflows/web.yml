@@ -28,15 +28,14 @@ jobs:
       - run: npm test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
-        if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+        if: github.event_name != 'pull_request'
         with:
           path: web/dist
 
-  # Publishes main to GitHub Pages. Switch on with Settings > Pages > Source: GitHub Actions,
-  # then add the repository variable PAGES_ENABLED = true.
+  # Publishes main to GitHub Pages (Settings > Pages > Source: GitHub Actions).
   deploy:
     needs: test
-    if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       pages: write

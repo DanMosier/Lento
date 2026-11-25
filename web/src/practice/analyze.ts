@@ -24,7 +24,13 @@ export interface Settings {
   suspectRun: number;
 }
 
-export const DEFAULT_SETTINGS: Settings = { a4: 440, goodCents: 10, okCents: 25, wrongNoteCents: 70, timingMs: 70, suspectRun: 4 };
+export const DEFAULT_SETTINGS: Settings = { a4: 440, goodCents: 10, okCents: 25, wrongNoteCents: 70, timingMs: 100, suspectRun: 4 };
+
+export type Strictness = "strict" | "standard" | "relaxed";
+/** Cents for "in tune" and for "slightly off". */
+export const PITCH_WINDOWS: Record<Strictness, [number, number]> = { strict: [5, 15], standard: [10, 25], relaxed: [20, 40] };
+/** Milliseconds early or late before a note is flagged. */
+export const TIMING_WINDOWS: Record<Strictness, number> = { strict: 60, standard: 100, relaxed: 160 };
 
 export interface NoteResult {
   index: number;
@@ -62,6 +68,15 @@ const median = (v: number[]): number => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 const round = (v: number, digits = 1) => Math.round(v * 10 ** digits) / 10 ** digits;
+
+/** Line through the median of pairwise slopes: a few early or late neighbours barely move it. */
+function theilSen(x: number[], y: number[]): [number, number] | null {
+  const slopes: number[] = [];
+  for (let i = 0; i < x.length; i++) for (let j = i + 1; j < x.length; j++) if (x[j] !== x[i]) slopes.push((y[j] - y[i]) / (x[j] - x[i]));
+  if (!slopes.length) return null;
+  const slope = median(slopes);
+  return [slope, median(y.map((v, i) => v - slope * x[i]))];
+}
 
 function fitLine(x: number[], y: number[]): [number, number] | null {
   if (x.length < 2 || Math.max(...x) === Math.min(...x)) return null;
@@ -282,9 +297,11 @@ function timing(results: NoteResult[], onsets: [number, number][], settings: Set
   for (const r of results) {
     if (r.onsetSec === null || r.status === "double_stop") continue;
     const b = r.note.beat;
-    let idx = beats.map((x, i) => [Math.abs(x - b), i]).filter(([d]) => d <= 4).map(([, i]) => i);
-    if (idx.length < 4) idx = beats.map((x, i) => [Math.abs(x - b), i]).sort((p, q) => p[0] - q[0]).slice(0, 4).map(([, i]) => i);
-    const local = fitLine(idx.map((i) => beats[i]), idx.map((i) => secs[i])) ?? fit;
+    // neighbours only: a late note must not pull the line it is measured against
+    const others = beats.map((x, i) => [Math.abs(x - b), i]).filter(([d]) => d > 1e-6);
+    let idx = others.filter(([d]) => d <= 6).map(([, i]) => i);
+    if (idx.length < 4) idx = others.sort((p, q) => p[0] - q[0]).slice(0, 4).map(([, i]) => i);
+    const local = theilSen(idx.map((i) => beats[i]), idx.map((i) => secs[i])) ?? fit;
     const dev = (r.onsetSec - (local[0] * b + local[1])) * 1000;
     r.timingMs = Math.round(dev);
     r.timing = dev > settings.timingMs ? "late" : dev < -settings.timingMs ? "early" : null;

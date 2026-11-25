@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseScore } from "../src/core/score";
-import { analyze, DEFAULT_SETTINGS, type Analysis } from "../src/practice/analyze";
+import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type Strictness } from "../src/practice/analyze";
 import { trackPitch } from "../src/practice/pitch";
 import { coloredScore, problemSpots, summaryMarkdown } from "../src/practice/report";
 import { render, scoreXml, type Take } from "./synth";
@@ -40,7 +40,7 @@ describe("analyzer", () => {
   });
 
   it("finds planted mistakes", () => {
-    const a = run({ detune: { 2: 30, 7: -15, 16: 100 }, skip: [23], shiftMs: { 18: 150 } });
+    const a = run({ detune: { 2: 30, 7: -15, 16: 100 }, skip: [23], shiftMs: { 18: 200 } });
     const r = byIndex(a);
     expect(r.get(2)!.status).toBe("out_of_tune");
     expect(Math.abs(r.get(2)!.cents! - 30)).toBeLessThan(4);
@@ -55,6 +55,19 @@ describe("analyzer", () => {
     const spots = problemSpots(a);
     expect(spots.length).toBe(3);
     expect(summaryMarkdown(a)).toContain("F#3 30 cents sharp");
+  });
+
+  it("pitch and timing windows can be set separately", () => {
+    const score = parseScore(xml);
+    const tr = trackPitch(render(score, { detune: { 2: 8, 7: 18 }, shiftMs: { 16: 120 } }));
+    const judge = (p: Strictness, t: Strictness) => {
+      const s = { ...DEFAULT_SETTINGS, goodCents: PITCH_WINDOWS[p][0], okCents: PITCH_WINDOWS[p][1], timingMs: TIMING_WINDOWS[t] };
+      const r = byIndex(analyze(parseScore(xml), tr, s));
+      return [r.get(2)!.status, r.get(7)!.status, r.get(16)!.timing];
+    };
+    expect(judge("strict", "strict")).toEqual(["slightly_off", "out_of_tune", "late"]);
+    expect(judge("standard", "standard")).toEqual(["in_tune", "slightly_off", null]);
+    expect(judge("relaxed", "strict")).toEqual(["in_tune", "in_tune", "late"]);
   });
 
   it("splits repeated notes by rhythm", () => {
@@ -112,5 +125,20 @@ describe("analyzer", () => {
     const labels = Array.from(cello.getElementsByTagName("lyric")).map((l) => l.textContent);
     expect(labels.some((t) => t?.includes("+30"))).toBe(true);
     expect(labels.some((t) => t?.includes("miss"))).toBe(true);
+  });
+});
+
+describe("tuner", () => {
+  it("reads note and cents from a bowed-string-like tone", async () => {
+    const { detectPitch, reading } = await import("../src/practice/tuner");
+    for (const [midi, cents] of [[36, 0], [43, -12], [57, 7], [69, 20]]) {
+      const rate = 48000;
+      const f = 440 * 2 ** ((midi - 69) / 12 + cents / 1200);
+      const x = new Float32Array(4096);
+      for (let i = 0; i < x.length; i++) for (let k = 1; k <= 8; k++) x[i] += Math.sin((2 * Math.PI * f * k * i) / rate) / k;
+      const r = reading(detectPitch(x, rate)!, 440);
+      expect(r.name + r.octave).toBe(["C2", "G2", "A3", "A4"][[36, 43, 57, 69].indexOf(midi)]);
+      expect(Math.abs(r.cents - cents)).toBeLessThan(2);
+    }
   });
 });
