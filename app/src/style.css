@@ -145,3 +145,16 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .tuner-refs button { min-width: 48px; }
 .tuner-settings { color: var(--muted); margin: 12px 0 0; }
 .tuner-refs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.lib-list { list-style: none; padding: 0 max(16px, env(safe-area-inset-left)); margin: 0; display: grid; gap: 10px; max-width: 860px; }
+.piece { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.piece-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.piece-meta { color: var(--muted); }
+.piece-tags { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+.piece-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.piece-files button { min-height: 40px; padding: 6px 12px; }
+.saved { margin-left: 2px; }
+#lib-search { flex: 1 1 220px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
+.lib-setup { margin: 16px max(16px, env(safe-area-inset-left)) 40px; max-width: 640px; }
+.lib-setup label { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-weight: 600; }
+.lib-setup input { font: inherit; font-weight: 400; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; width: 100%; }

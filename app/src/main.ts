@@ -1,14 +1,15 @@
 /**
- * The Lento app shell. Each feature is its own folder under src/ (practice/, tuner/) and its own tab here.
+ * The Lento app shell. Each feature is its own folder under src/ (practice/, library/, tuner/) and its own tab here.
  * Features never import each other; shared code lives in core/.
  */
 import "./style.css";
-import { $ } from "./core/app";
+import { $, onOpenScore } from "./core/app";
+import { enterLibrary } from "./library/ui";
 import { enterPractice } from "./practice/ui";
 import { enterTuner, leaveTuner } from "./tuner/ui";
 
 const tabs = [...document.querySelectorAll<HTMLButtonElement>("[role=tab]")];
-const onEnter: Record<string, () => void> = { practice: enterPractice, tuner: enterTuner };
+const onEnter: Record<string, () => void> = { practice: enterPractice, library: () => void enterLibrary(), tuner: enterTuner };
 const onLeave: Record<string, () => void> = { tuner: leaveTuner };
 
 function show(name: string): void {
@@ -24,4 +25,6 @@ function show(name: string): void {
 }
 
 for (const t of tabs) t.addEventListener("click", () => show(t.dataset.tab!));
-show(location.hash === "#tuner" ? "tuner" : "practice");
+onOpenScore(() => show("practice"));
+const start = location.hash.slice(1);
+show(tabs.some((t) => t.dataset.tab === start) ? start : "practice");

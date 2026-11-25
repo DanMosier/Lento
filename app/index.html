@@ -14,6 +14,7 @@
       <h1>Lento</h1>
       <nav class="tabs" role="tablist" aria-label="Features">
         <button type="button" role="tab" data-tab="practice" aria-controls="view-practice" aria-selected="true">Practice</button>
+        <button type="button" role="tab" data-tab="library" aria-controls="view-library" aria-selected="false">Library</button>
         <button type="button" role="tab" data-tab="tuner" aria-controls="view-tuner" aria-selected="false">Tuner</button>
       </nav>
     </header>
@@ -99,6 +100,30 @@
       <section id="feedback" class="feedback" hidden></section>
       <div id="sheet" class="sheet" hidden></div>
     </main>
+    </div>
+
+    <div id="view-library" role="tabpanel" aria-label="Library" hidden>
+      <div class="bar">
+        <input id="lib-search" type="search" placeholder="Search title, composer, technique" aria-label="Search the library" />
+        <select id="lib-tag" aria-label="Technique" hidden></select>
+        <button id="lib-refresh" type="button">Refresh</button>
+      </div>
+      <p id="lib-status" class="status" role="status" aria-live="polite"></p>
+      <ul id="lib-list" class="lib-list"></ul>
+      <details id="lib-setup" class="lib-setup">
+        <summary>Library settings</summary>
+        <label>Library folder in Google Drive (paste its link)
+          <input id="lib-folder" type="url" inputmode="url" placeholder="https://drive.google.com/drive/folders/…" />
+        </label>
+        <label>Google client ID
+          <input id="lib-client" type="text" spellcheck="false" placeholder="….apps.googleusercontent.com" />
+        </label>
+        <div class="tools">
+          <button id="lib-connect" type="button" class="primary">Connect to Google Drive</button>
+          <button id="lib-signout" type="button" hidden>Sign out</button>
+        </div>
+        <p class="hint">The app only reads your Drive. Scores you open are saved on this device so they work offline.</p>
+      </details>
     </div>
 
     <div id="view-tuner" role="tabpanel" aria-label="Tuner" hidden>

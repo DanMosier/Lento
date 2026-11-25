@@ -7,9 +7,10 @@ Tools for practicing music, starting with cello. Each tool stands on its own:
 | `lento_convertpdf/` | **Lento_ConvertPDF**: Windows desktop app that turns sheet music PDFs into MusicXML (needs a GPU) |
 | `lento_core/` | Shared code: reads a MusicXML score into a list of notes |
 | `lento_practice/` | Python practice analyzer: compares a recording with the score |
-| `app/` | The Lento app for PC, phone and tablet, one tab per feature: Practice, Tuner ([live](https://danmosier.github.io/Lento/)) |
-| `tests/convertpdf/`, `tests/practice/` | Tests for each tool (`tests/fixtures/` holds the converter's test scores) |
-| `docs/` | Accuracy notes for the converter and the practice analyzer |
+| `lento_library/` | `lento-library` command: files scores into the Drive library and builds the `library.json` the app reads ([docs/library.md](docs/library.md)) |
+| `app/` | The Lento app for PC, phone and tablet, one tab per feature: Practice, Library, Tuner ([live](https://danmosier.github.io/Lento/)) |
+| `tests/convertpdf/`, `tests/practice/`, `tests/library/` | Tests for each tool (`tests/fixtures/` holds the converter's test scores) |
+| `docs/` | Library setup, and accuracy notes for the converter and the practice analyzer |
 
 ## Lento_ConvertPDF
 
@@ -41,7 +42,8 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
 ## Lento app (PC, phone and tablet)
 
 `app/` is the app that every feature goes into, each as its own tab and folder. **Practice**: slowed playback with
-loops, count-in and metronome, recording, and note-by-note intonation and timing feedback. **Tuner**: live note and
+loops, count-in and metronome, recording, and note-by-note intonation and timing feedback. **Library**: browse and search
+your score library in Google Drive and open a score into Practice ([setup](docs/library.md)). **Tuner**: live note and
 cents with C G D A reference tones. Everything runs in the browser. Live at https://danmosier.github.io/Lento/.
 See [app/README.md](app/README.md).
 
