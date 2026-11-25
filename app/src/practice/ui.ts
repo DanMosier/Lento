@@ -2,7 +2,8 @@
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $, onOpenScore, sharedAudio, store } from "../core/app";
 import { timed } from "../core/perf";
-import { parseScore, partXml, scoreText, type Score } from "../core/score";
+import { defaultPart, parseScore, partXml, quickPartList, scoreText, type Score } from "../core/score";
+import { choiceLabel, cleanChoice, pickParts, type PartChoice } from "./parts";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { type PitchTrack } from "./pitch";
 import { trackPitchAsync } from "./pitch-async";
@@ -13,7 +14,7 @@ import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } fr
 
 const ui = {
   scoreFile: $<HTMLInputElement>("score-file"),
-  part: $<HTMLSelectElement>("part"),
+  partsBtn: $<HTMLButtonElement>("parts-btn"),
   title: $("title"),
   controls: $("controls"),
   tempo: $<HTMLInputElement>("tempo"),
@@ -24,6 +25,7 @@ const ui = {
   countIn: $<HTMLInputElement>("count-in"),
   click: $<HTMLSelectElement>("click"),
   accomp: $<HTMLInputElement>("accomp"),
+  accompLabel: $("accomp-label"),
   play: $<HTMLButtonElement>("play"),
   record: $<HTMLButtonElement>("record"),
   audioFile: $<HTMLInputElement>("audio-file"),
@@ -40,7 +42,10 @@ const ui = {
 };
 
 let xml = "";
-let plainXml = ""; // the practised part only, as drawn
+let plainXml = ""; // the chosen parts only, as drawn
+let fullDoc: Document | null = null; // the whole file, parsed once and reused when parts change
+let choice: PartChoice | null = null;
+let accompParts: Score[] | null = null; // the other shown parts, parsed the first time they are played
 let fileName = "";
 let score: Score | null = null;
 let ctx: AudioContext | null = null;
@@ -109,12 +114,34 @@ async function render(text: string): Promise<void> {
   });
 }
 
-async function openScore(name: string, text: string, part?: string): Promise<void> {
-  return timed("open-score", () => openScoreNow(name, text, part));
+async function openScore(name: string, text: string, picked?: PartChoice): Promise<void> {
+  return timed("open-score", () => openScoreNow(name, text, picked));
 }
 
-async function openScoreNow(name: string, text: string, part?: string): Promise<void> {
-  const s = await timed("parse-score", () => parseScore(text, part, name.replace(/\.[^.]+$/, "")));
+/** Opens a file the user just picked: for a score with several parts, asks which parts first. */
+async function openFile(name: string, text: string): Promise<void> {
+  const parts = quickPartList(text);
+  let picked: PartChoice | undefined;
+  if (parts.length > 1) {
+    const first = defaultPart(parts).id;
+    const saved = store.get<PartChoice>(`parts:${name}`);
+    const c = await pickParts(parts, (saved && cleanChoice(parts, saved)) ?? { practise: first, shown: [first] });
+    if (!c) {
+      status(score ? "Kept the score you had open." : "Open a score to start.");
+      return;
+    }
+    picked = c;
+  }
+  await openScore(name, text, picked);
+}
+
+async function openScoreNow(name: string, text: string, picked?: PartChoice): Promise<void> {
+  const title = name.replace(/\.[^.]+$/, "");
+  const reuse = text === xml && fullDoc !== null;
+  const s = await timed("parse-score", () => parseScore(reuse ? fullDoc! : text, picked?.practise, title));
+  fullDoc = s.doc;
+  choice = (picked && cleanChoice(s.parts, picked)) ?? { practise: s.partId, shown: [s.partId] };
+  accompParts = null;
   xml = text;
   fileName = name;
   score = s;
@@ -125,17 +152,19 @@ async function openScoreNow(name: string, text: string, part?: string): Promise<
   ui.welcome.hidden = true;
   ui.controls.hidden = false;
   ui.title.textContent = s.title;
-  ui.part.hidden = s.parts.length < 2;
-  ui.part.replaceChildren(...s.parts.map((p) => new Option(p.name, p.id, false, p.id === s.partId)));
+  ui.partsBtn.hidden = s.parts.length < 2;
+  ui.partsBtn.textContent = choiceLabel(s.parts, choice);
+  ui.accompLabel.hidden = choice.shown.length < 2;
   const opts = () => s.measures.map((m, i) => new Option(m, String(i)));
   ui.from.replaceChildren(...opts());
   ui.to.replaceChildren(...opts());
   ui.to.value = String(s.measures.length - 1);
   updateTempoLabel();
-  plainXml = partXml(s.doc, s.partId); // only the practised part is drawn
+  plainXml = partXml(s.doc, choice.shown); // only the chosen parts are drawn
   await render(plainXml);
   status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.` : "This part has no notes.");
-  if (text.length < 3_000_000) store.set("score", { name, text, part: s.partId });
+  if (text.length < 3_000_000) store.set("score", { name, text, part: s.partId, shown: choice.shown });
+  if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
 
 ui.scoreFile.addEventListener("change", async () => {
@@ -143,7 +172,7 @@ ui.scoreFile.addEventListener("change", async () => {
   if (!f) return;
   try {
     status(`Opening ${f.name}…`);
-    await openScore(f.name, scoreText(f.name, await f.arrayBuffer()));
+    await openFile(f.name, scoreText(f.name, await f.arrayBuffer()));
   } catch (e) {
     status(`Could not open ${f.name}: ${(e as Error).message}`, "error");
   }
@@ -154,13 +183,18 @@ onOpenScore(async ({ name, data }) => {
   if (player?.playing) stopPlayback();
   try {
     status(`Opening ${name}…`);
-    await openScore(name, scoreText(name, data));
+    await openFile(name, scoreText(name, data));
   } catch (e) {
     status(`Could not open ${name}: ${(e as Error).message}`, "error");
   }
 });
 
-ui.part.addEventListener("change", () => openScore(fileName, xml, ui.part.value).catch((e) => status((e as Error).message, "error")));
+ui.partsBtn.addEventListener("click", async () => {
+  if (!score || !choice) return;
+  if (player?.playing) stopPlayback();
+  const c = await pickParts(score.parts, choice);
+  if (c) await openScore(fileName, xml, c).catch((e) => status((e as Error).message, "error"));
+});
 ui.tempo.addEventListener("input", updateTempoLabel);
 ui.from.addEventListener("change", () => {
   if (+ui.to.value < +ui.from.value) ui.to.value = ui.from.value;
@@ -201,7 +235,9 @@ async function startPlayback(mute = false): Promise<void> {
 async function startPlaybackNow(mute = false): Promise<void> {
   if (!score) return;
   audio();
-  const parts = ui.accomp.checked ? [score, ...score.parts.filter((p) => p.id !== score!.partId).map((p) => parseScore(xml, p.id))] : [score];
+  if (ui.accomp.checked && choice && fullDoc && !accompParts)
+    accompParts = choice.shown.filter((id) => id !== choice!.practise).map((id) => parseScore(fullDoc!, id));
+  const parts = ui.accomp.checked && accompParts ? [score, ...accompParts] : [score];
   await player!.play({
     parts,
     fromMeasure: +ui.from.value,
@@ -370,7 +406,7 @@ async function checkNow(): Promise<void> {
   if (!take || !score) return;
   await new Promise((r) => setTimeout(r, 30)); // let the status paint
   try {
-    const fresh = parseScore(xml, score.partId, fileName.replace(/\.[^.]+$/, ""));
+    const fresh = parseScore(plainXml, score.partId, score.title); // a copy of the shown parts, to color
     const s = settings();
     if (!track || track.take !== take || track.a4 !== s.a4) {
       const t = take;
@@ -382,7 +418,7 @@ async function checkNow(): Promise<void> {
     const pitch = track.pitch;
     analysis = await timed("analyze", () => analyze(fresh, pitch, s));
     coloredScore(analysis);
-    await render(partXml(analysis.score.doc, analysis.score.partId));
+    await render(new XMLSerializer().serializeToString(analysis.score.doc));
     showingColors = true;
     showFeedback(analysis);
     status("Done. Colored notes show how each one went.");
@@ -478,7 +514,7 @@ function showFeedback(a: Analysis): void {
   };
   btn(showingColors ? "Hide colors" : "Show colors", async () => {
     showingColors = !showingColors;
-    await render(showingColors && analysis ? partXml(analysis.score.doc, analysis.score.partId) : plainXml);
+    await render(showingColors && analysis ? new XMLSerializer().serializeToString(analysis.score.doc) : plainXml);
     showFeedback(a);
   });
   if (take) btn("Save recording", () => download(encodeWav(take!, 22050), `${a.score.title} take.wav`));
@@ -513,8 +549,8 @@ for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timing
 }
 const savedTempo = store.get<number>("tempo");
 if (savedTempo) ui.tempo.value = String(savedTempo);
-const saved = store.get<{ name: string; text: string; part: string }>("score");
-if (saved) openScore(saved.name, saved.text, saved.part).catch(() => status("Open a score to start."));
+const saved = store.get<{ name: string; text: string; part: string; shown?: string[] }>("score");
+if (saved) openScore(saved.name, saved.text, { practise: saved.part, shown: saved.shown ?? [saved.part] }).catch(() => status("Open a score to start."));
 else {
   // Load the renderer when the user reaches for "Open score", so it loads while the file picker is open.
   // (Loading it in the background at startup froze taps for about a quarter second on a phone.)

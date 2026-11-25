@@ -111,8 +111,8 @@ export function listParts(doc: Document): PartInfo[] {
  * Parse one part. `part` is a part id or part of its name; without it the first
  * part named like a cello is used, else the first part.
  */
-export function parseScore(xml: string, part?: string, fallbackTitle = "Untitled"): Score {
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
+export function parseScore(xml: string | Document, part?: string, fallbackTitle = "Untitled"): Score {
+  const doc = typeof xml === "string" ? new DOMParser().parseFromString(xml, "application/xml") : xml;
   const root = doc.documentElement;
   if (!root || root.localName === "parsererror" || doc.getElementsByTagName("parsererror").length) {
     throw new Error("this file is not valid MusicXML");
@@ -128,7 +128,7 @@ export function parseScore(xml: string, part?: string, fallbackTitle = "Untitled
     chosen = parts.find((p) => p.id === part || p.name.toLowerCase().includes(part.toLowerCase()));
     if (!chosen) throw new Error(`no part matches "${part}"; parts are: ${parts.map((p) => p.name).join(", ")}`);
   } else {
-    chosen = parts.find((p) => CELLO.test(p.name)) ?? parts[0];
+    chosen = defaultPart(parts);
   }
   const partEl = children(root, "part").find((p) => (p.getAttribute("id") ?? "") === chosen!.id)!;
 
@@ -293,22 +293,48 @@ export function parseScore(xml: string, part?: string, fallbackTitle = "Untitled
 }
 
 /**
- * The score as MusicXML with only one part kept. The sheet renderer gets this instead of the whole file:
+ * The score as MusicXML with only the given parts kept. The sheet renderer gets this instead of the whole file:
  * loading and drawing all 19 parts of an orchestral score took minutes on a phone.
  */
-export function partXml(doc: Document, partId: string): string {
+export function partXml(doc: Document, partIds: string | string[]): string {
+  const keep = new Set(typeof partIds === "string" ? [partIds] : partIds);
   const root = doc.documentElement;
   const out = new XMLSerializer();
   let body = "";
   for (const child of Array.from(root.children)) {
-    if (child.localName === "part" && child.getAttribute("id") !== partId) continue;
+    if (child.localName === "part" && !keep.has(child.getAttribute("id") ?? "")) continue;
     if (child.localName === "part-list") {
       const list = child.cloneNode(false) as Element;
       for (const item of Array.from(child.children))
-        if (item.localName === "score-part" && item.getAttribute("id") === partId) list.appendChild(item.cloneNode(true));
+        if (item.localName === "score-part" && keep.has(item.getAttribute("id") ?? "")) list.appendChild(item.cloneNode(true));
       body += out.serializeToString(list);
     } else body += out.serializeToString(child);
   }
   const attrs = Array.from(root.attributes).map((a) => ` ${a.name}="${a.value.replace(/"/g, "&quot;")}"`).join("");
   return `<?xml version="1.0" encoding="UTF-8"?><${root.localName}${attrs}>${body}</${root.localName}>`;
+}
+
+/** The part practised when nobody chose one: the first part named like a cello, else the first part. */
+export function defaultPart(parts: PartInfo[]): PartInfo {
+  return parts.find((p) => CELLO.test(p.name)) ?? parts[0];
+}
+
+/**
+ * The parts of a score, read from its part list alone, so a part picker can show before the whole
+ * (possibly huge) file is parsed. Falls back to a full parse when the part list can't be cut out.
+ */
+export function quickPartList(xml: string): PartInfo[] {
+  const a = xml.indexOf("<part-list");
+  const b = xml.indexOf("</part-list>", a);
+  if (a >= 0 && b > a) {
+    const doc = new DOMParser().parseFromString(xml.slice(a, b + 12), "application/xml");
+    if (!doc.getElementsByTagName("parsererror").length) {
+      const parts = Array.from(doc.getElementsByTagName("score-part")).map((sp) => {
+        const id = sp.getAttribute("id") ?? "";
+        return { id, name: (childText(sp, "part-name") || childText(sp, "score-instrument/instrument-name") || id).trim() };
+      });
+      if (parts.length) return parts;
+    }
+  }
+  return listParts(new DOMParser().parseFromString(xml, "application/xml"));
 }

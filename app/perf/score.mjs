@@ -1,9 +1,10 @@
 /**
- * Speed check on one real score file: how long the Practice tab takes to open it, switch parts, start playback,
+ * Speed check on one real score file: how long the Practice tab takes to open it, add parts, start playback,
  * keep the cursor moving, and switch tabs with it loaded. Same phone-speed CPU as perf/run.mjs. Reports only;
  * it has no budgets, because real scores vary too much.
  *
- *   npm run build && node perf/score.mjs path/to/score.mxl [part name]
+ *   npm run build && node perf/score.mjs path/to/score.mxl [practised part] [other parts to add, comma-separated]
+ *   e.g.  node perf/score.mjs concerto.mxl Violoncello "Piano,Violino I"
  */
 import { preview } from "vite";
 import { chromium } from "playwright";
@@ -12,7 +13,8 @@ import { fileURLToPath } from "node:url";
 
 const file = process.argv[2];
 const partName = process.argv[3] ?? "Violoncello";
-if (!file) throw new Error("usage: node perf/score.mjs <score.musicxml|.mxl> [part name]");
+const extras = (process.argv[4] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+if (!file) throw new Error("usage: node perf/score.mjs <score.musicxml|.mxl> [practised part] [other parts]");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const THROTTLE = Number(process.env.THROTTLE ?? 4);
 
@@ -39,34 +41,56 @@ try {
   await page.goto("http://localhost:4180/");
   await waitFor("ready", 1);
 
-  // Open (first part, as the app picks it)
+  // In the part picker: tick the practised part (and optionally others), then press Open
+  const choose = async (practise, show) => {
+    await page.waitForSelector("#parts-dialog[open]");
+    await page.evaluate(
+      ([practise, show]) => {
+        for (const row of document.querySelectorAll(".parts-row")) {
+          const name = row.firstChild.textContent.trim();
+          const [radio, box] = row.querySelectorAll("input");
+          if (name === practise) radio.click();
+          if (name !== practise) box.checked = show.includes(name);
+        }
+      },
+      [practise, show],
+    );
+    await page.click('#parts-dialog button[value="ok"]');
+  };
+
+  // Open with only the practised part
   let t = await now();
   await page.setInputFiles("#score-file", file);
+  const multi = await page.waitForSelector("#parts-dialog[open]", { timeout: 20_000 }).then(() => true, () => false);
+  if (multi) {
+    add("part picker shows", (await now()) - t);
+    add("  parts in file", await page.evaluate(() => document.querySelectorAll(".parts-row").length), "count");
+    await choose(partName, []);
+  }
   await waitFor("open-score", 1);
-  add("open score (total)", await last("open-score"));
+  add(`open score, ${multi ? partName : "only part"} (total)`, await last("open-score"));
   add("  parse", await last("parse-score"));
   add("  render", await last("render-score"));
   add("    OSMD load", await last("load-sheet"));
   add("    OSMD draw", await last("draw-sheet"));
   add("  longest freeze while opening", await longest(t));
-  add(`  opened part: ${await page.evaluate(() => document.querySelector("#part").selectedOptions[0]?.textContent)}`, 0, "count");
-  add("  parts found", await page.evaluate(() => document.querySelectorAll("#part option").length), "count");
 
-  // Switch to the cello part
-  const value = await page.evaluate((name) => [...document.querySelectorAll("#part option")].find((o) => o.textContent.trim() === name)?.value, partName);
-  if (value) {
+  // Add other parts with the Parts button (the file is not read again)
+  if (multi && extras.length) {
     t = await now();
-    await page.evaluate((v) => { const s = document.querySelector("#part"); s.value = v; s.dispatchEvent(new Event("change")); }, value);
+    await page.click("#parts-btn");
+    await choose(partName, extras);
     await waitFor("open-score", 2);
-    add(`switch part to ${partName}`, await last("open-score"));
+    add(`add ${extras.join(", ")}`, await last("open-score"));
     add("  longest freeze", await longest(t));
+    await page.check("#accomp");
   }
   add("page elements after render", await page.evaluate(() => document.getElementsByTagName("*").length), "count");
 
   // Playback: start, then 8 s of cursor movement
   await page.click("#play");
   await waitFor("start-playback", 1);
-  add("start playback", await last("start-playback"));
+  add(extras.length ? "start playback with the other parts" : "start playback", await last("start-playback"));
   const frames = await page.evaluate(
     () =>
       new Promise((res) => {
