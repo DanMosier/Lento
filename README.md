@@ -25,6 +25,19 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
      - **Percussion & Timpani**: *Geonkick Percussion & Timpani Synthesizer VST3*
      - **Universal Synth**: *Surge XT Open-Source Hybrid Synthesizer VST3*
 
+## Practice feedback
+
+`lento-practice` compares a recording of you playing with its MusicXML score and reports intonation in cents, early or
+late notes, and missed or wrong notes, with a colored copy of the score to open in MuseScore. See
+[docs/practice.md](docs/practice.md).
+
+```powershell
+uv pip install -e ".[practice]"
+.venv\Scripts\lento-practice.exe analyze score.musicxml take.wav
+```
+
+The repository holds independent features. `lento_core` is code they share; features may import it but never each other.
+
 ## Setup
 
 The app expects homr in a sibling folder (`..\homr`). To use another location, set `HOMR_PYTHON` or the path in the GUI.
