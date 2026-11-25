@@ -116,3 +116,9 @@ Any `name.pdf` with a matching `name.mxl` or `name.musicxml` under `tests/fixtur
 Export flags, measured accuracy and orchestral limits are described in [docs/convertpdf-accuracy.md](docs/convertpdf-accuracy.md).
 Minimum scores go in `tests/fixtures/baselines.json`, for example `{"name": {"pitch_f1": 0.9, "strict_f1": 0.85}}`.
 Scores without a baseline are measured and printed, then skipped.
+
+## Licence
+
+Lento is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+It comes with no warranty. See [LICENSE](LICENSE).
