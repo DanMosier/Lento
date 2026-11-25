@@ -139,18 +139,59 @@ class Batch:
                         break
 
 
+WAIT_CHECK = 10.0  # seconds between looks for a library folder that isn't there yet
+
+
+def wait_for_library(lib: Library, stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None) -> bool:
+    """Waits until the library folder is there. Google Drive for Desktop mounts G: a while after sign-in (or only
+    once it is opened) and unmounts it when it quits, so the watcher may start before its folder exists.
+    Returns False if `stop` was set while waiting."""
+    if lib.root.is_dir():
+        return True
+    print(f"waiting for the library folder {lib.root} (is Google Drive running?)", flush=True)
+    if on_status:
+        on_status({"state": "waiting", "root": str(lib.root)})
+    while not lib.root.is_dir():
+        if stop is not None:
+            if stop.wait(WAIT_CHECK):
+                return False
+        else:
+            time.sleep(WAIT_CHECK)
+    print("library folder found", flush=True)
+    return True
+
+
+def open_log(path: Path) -> None:
+    """Sends this process's output to the log (appending). Done here rather than by the shell, so the watcher can
+    start before Google Drive has mounted the library folder the log lives in."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(path, "a", encoding="utf-8", errors="replace", buffering=1)
+    sys.stdout = sys.stderr = f
+
+
 def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False, musescore: str | None = None,
-        stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None) -> int:
+        stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None, log: Path | None = None) -> int:
     """Watches until Ctrl+C or until `stop` is set (the tray's Quit, which also ends a conversion under way; its
-    requests stay queued for next time). on_status gets every status update."""
+    requests stay queued for next time). on_status gets every status update. It first waits for the library
+    folder if it isn't there (Google Drive not running yet), then sends its output to `log` if given."""
     from lento_library.cli import convert_pdfs, export_musescore
 
+    try:
+        if not wait_for_library(lib, stop, on_status):
+            return 0
+    except KeyboardInterrupt:
+        return 0
+    if log:
+        open_log(log)
     status = Status(lib, interval, on_status)
     tried: dict[Path, float] = {}  # MuseScore file -> its modified time when last exported or tried
     built: tuple | None = None  # the library's fingerprint when library.json was last written
     print(f"watching {lib.root / REQUESTS} every {interval:g} s (Ctrl+C to stop)", flush=True)
     try:
         while True:
+            if not lib.root.is_dir():  # Google Drive quit: wait for it to come back
+                if not wait_for_library(lib, stop, on_status):
+                    break
             wrote = False  # library.json written during this look
             stems = lib.requests()
             pdfs = [p for p in (lib.pdf_for(s) for s in stems) if p]
@@ -206,17 +247,17 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
     return 0
 
 
-def run_with_tray(lib: Library, cmd: list[str], gpu: str, interval: float = 30, musescore: str | None = None) -> int:
+def run_with_tray(lib: Library, cmd: list[str], gpu: str, interval: float = 30, musescore: str | None = None,
+                  log: Path | None = None) -> int:
     """Runs the watcher with a tray icon (Windows), or without one when pystray isn't there."""
     from lento_library import tray
 
     if not tray.available():
         print("no tray icon (pystray isn't installed): watching without one", flush=True)
-        return run(lib, cmd, gpu, interval, musescore=musescore)
+        return run(lib, cmd, gpu, interval, musescore=musescore, log=log)
     stop = threading.Event()
-    log = tray.log_path(lib.root)
-    icon = tray.Tray(lib.root, log if log.exists() else None, stop.set)
-    icon.run(lambda: run(lib, cmd, gpu, interval, musescore=musescore, stop=stop, on_status=icon.update))
+    icon = tray.Tray(lib.root, log or tray.log_path(lib.root), stop.set)
+    icon.run(lambda: run(lib, cmd, gpu, interval, musescore=musescore, stop=stop, on_status=icon.update, log=log))
     return 0
 
 
@@ -234,8 +275,9 @@ def install(root: Path, interval: float = 30, tray: bool = True) -> str:
     pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
     log = root.resolve() / REQUESTS / "_watch.log"
     flag = " --tray" if tray else ""
-    log.parent.mkdir(exist_ok=True)  # cmd opens the log before Python starts, so the folder must exist
-    cmd = f'cmd /c ""{pyw}" -m lento_library watch --root "{root.resolve()}" --interval {interval:g}{flag} >> "{log}" 2>&1"'
+    # Python opens the log itself once the library folder is there: at sign-in Google Drive may not have mounted
+    # G: yet, and a shell redirect into a missing folder would stop the watcher before it starts
+    cmd = f'"{pyw}" -m lento_library watch --root "{root.resolve()}" --interval {interval:g}{flag} --log "{log}"'
     vbs = 'CreateObject("WScript.Shell").Run "' + cmd.replace('"', '""') + '", 0, False\n'
     f = startup_file()
     f.write_text(vbs, encoding="utf-8")

@@ -158,3 +158,41 @@ def test_install_starts_with_the_tray_unless_asked_not_to(tmp_path: Path, monkey
     assert "--tray" in (startup / "Lento library watcher.vbs").read_text(encoding="utf-8")
     watch.install(tmp_path, tray=False)
     assert "--tray" not in (startup / "Lento library watcher.vbs").read_text(encoding="utf-8")
+
+
+def test_watcher_waits_for_the_library_folder_then_logs_there(tmp_path: Path, monkeypatch) -> None:
+    fake_pystray(monkeypatch)
+    root = tmp_path / "G" / "Cello"  # Google Drive hasn't mounted it yet
+    lib = Library(root)
+    log = root / "requests" / "_watch.log"
+    stop = threading.Event()
+    t = tray.Tray(root, log, stop.set)
+    monkeypatch.setattr(watch, "WAIT_CHECK", 0.05)
+    states: list[str] = []
+
+    def update(data: dict) -> None:
+        states.append(data["state"])
+        t.update(data)
+        if data["state"] == "idle":
+            stop.set()
+
+    threading.Timer(0.2, lambda: (root / "pieces").mkdir(parents=True)).start()
+    out, err = sys.stdout, sys.stderr
+    try:
+        t.run(lambda: watch.run(lib, ["true"], "no", interval=30, stop=stop, on_status=update, log=log))
+    finally:
+        sys.stdout.flush()
+        sys.stdout, sys.stderr = out, err
+    assert states[0] == "waiting" and "idle" in states and states[-1] == "stopped"
+    assert "watching" in log.read_text(encoding="utf-8")  # the log opens once the folder is there
+    assert t.icon.notes == []
+
+
+def test_install_has_python_open_the_log(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    startup = tmp_path / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    startup.mkdir(parents=True)
+    watch.install(tmp_path / "not-mounted-yet")
+    vbs = (startup / "Lento library watcher.vbs").read_text(encoding="utf-8")
+    assert "cmd /c" not in vbs and "--log" in vbs and "_watch.log" in vbs
+    assert not (tmp_path / "not-mounted-yet").exists()  # installing doesn't need the folder
