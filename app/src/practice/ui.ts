@@ -2,7 +2,7 @@
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $, onOpenScore, sharedAudio, store } from "../core/app";
 import { timed } from "../core/perf";
-import { parseScore, scoreText, type Score } from "../core/score";
+import { parseScore, partXml, scoreText, type Score } from "../core/score";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { type PitchTrack } from "./pitch";
 import { trackPitchAsync } from "./pitch-async";
@@ -40,6 +40,7 @@ const ui = {
 };
 
 let xml = "";
+let plainXml = ""; // the practised part only, as drawn
 let fileName = "";
 let score: Score | null = null;
 let ctx: AudioContext | null = null;
@@ -103,8 +104,8 @@ async function render(text: string): Promise<void> {
   ui.sheet.hidden = false; // OSMD measures the container, so it must be visible first
   const sheet = await sheetRenderer();
   await timed("render-score", async () => {
-    await sheet.load(text);
-    sheet.render();
+    await timed("load-sheet", () => sheet.load(text));
+    timed("draw-sheet", () => sheet.render());
   });
 }
 
@@ -131,7 +132,8 @@ async function openScoreNow(name: string, text: string, part?: string): Promise<
   ui.to.replaceChildren(...opts());
   ui.to.value = String(s.measures.length - 1);
   updateTempoLabel();
-  await render(text);
+  plainXml = partXml(s.doc, s.partId); // only the practised part is drawn
+  await render(plainXml);
   status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.` : "This part has no notes.");
   if (text.length < 3_000_000) store.set("score", { name, text, part: s.partId });
 }
@@ -379,7 +381,8 @@ async function checkNow(): Promise<void> {
     }
     const pitch = track.pitch;
     analysis = await timed("analyze", () => analyze(fresh, pitch, s));
-    await render(coloredScore(analysis));
+    coloredScore(analysis);
+    await render(partXml(analysis.score.doc, analysis.score.partId));
     showingColors = true;
     showFeedback(analysis);
     status("Done. Colored notes show how each one went.");
@@ -475,7 +478,7 @@ function showFeedback(a: Analysis): void {
   };
   btn(showingColors ? "Hide colors" : "Show colors", async () => {
     showingColors = !showingColors;
-    await render(showingColors && analysis ? new XMLSerializer().serializeToString(analysis.score.doc) : xml);
+    await render(showingColors && analysis ? partXml(analysis.score.doc, analysis.score.partId) : plainXml);
     showFeedback(a);
   });
   if (take) btn("Save recording", () => download(encodeWav(take!, 22050), `${a.score.title} take.wav`));

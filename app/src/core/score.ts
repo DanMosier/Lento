@@ -291,3 +291,24 @@ export function parseScore(xml: string, part?: string, fallbackTitle = "Untitled
     },
   };
 }
+
+/**
+ * The score as MusicXML with only one part kept. The sheet renderer gets this instead of the whole file:
+ * loading and drawing all 19 parts of an orchestral score took minutes on a phone.
+ */
+export function partXml(doc: Document, partId: string): string {
+  const root = doc.documentElement;
+  const out = new XMLSerializer();
+  let body = "";
+  for (const child of Array.from(root.children)) {
+    if (child.localName === "part" && child.getAttribute("id") !== partId) continue;
+    if (child.localName === "part-list") {
+      const list = child.cloneNode(false) as Element;
+      for (const item of Array.from(child.children))
+        if (item.localName === "score-part" && item.getAttribute("id") === partId) list.appendChild(item.cloneNode(true));
+      body += out.serializeToString(list);
+    } else body += out.serializeToString(child);
+  }
+  const attrs = Array.from(root.attributes).map((a) => ` ${a.name}="${a.value.replace(/"/g, "&quot;")}"`).join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><${root.localName}${attrs}>${body}</${root.localName}>`;
+}
