@@ -1,121 +1,129 @@
 # Lento
 
-Tools for practicing music, starting with cello. Each tool stands on its own:
+Lento is a set of tools for practising music, starting with the cello. With it you can:
 
-| Folder | What it is |
+- keep all your sheet music (PDFs) in one Google Drive folder and browse it from your phone, tablet or PC,
+- turn a PDF into **MusicXML** (sheet music a computer can read note by note) on your PC,
+- play a score back slowly, loop a passage, and record yourself,
+- get note-by-note feedback on your intonation (how in tune you are) and timing,
+- tune your instrument.
+
+The app runs in a web browser and can be installed like a normal app: https://danmosier.github.io/Lento/
+
+New to the code? Start with **[How Lento works](docs/how-it-works.md)**. It explains every part in plain language,
+with diagrams of what happens when you press each button.
+
+## The big picture
+
+Lento runs in three places. They never talk to each other directly: everything passes through files in one Google
+Drive folder.
+
+```mermaid
+flowchart LR
+    subgraph Phone["Lento app (phone, tablet or PC browser)"]
+        Library[Library]
+        Practice[Practice]
+        Convert[Convert PDF]
+        Tuner[Tuner]
+    end
+    subgraph Drive["Google Drive library folder"]
+        Index["library.json (the index)"]
+        Pieces["pieces/ (PDFs, MusicXML, marks)"]
+        Requests["requests/ (PDFs waiting to convert)"]
+        Status["requests/_status.json (what the PC is doing)"]
+    end
+    subgraph PC["Windows PC with a graphics card"]
+        Watcher["Watcher (lento-library watch)"]
+        Converter["Lento_ConvertPDF + homr"]
+    end
+    GitHub["GitHub (this code)"]
+
+    Index -- "list of pieces" --> Library
+    Pieces -- "download a score" --> Library
+    Library -- "open score" --> Practice
+    Practice -- "save fingerings and bowings" --> Pieces
+    Convert -- "queue a PDF" --> Requests
+    Status -- "show progress" --> Convert
+    Requests -- "checked every 30 s" --> Watcher
+    Watcher --> Converter
+    Converter -- "MusicXML beside the PDF" --> Pieces
+    Watcher -- "rebuild" --> Index
+    Watcher -- "write" --> Status
+    GitHub -- "publishes the app" --> Phone
+    GitHub -- "watcher updates itself" --> Watcher
+```
+
+The PC sees the Drive folder as an ordinary folder (usually on the `G:` drive) through **Google Drive for Desktop**,
+so Drive for Desktop must be running for the PC side to work. Your scores live only in your own Drive, never in this
+repository.
+
+## The parts
+
+| Part | What it does | Runs on | Code |
+| --- | --- | --- | --- |
+| **Lento app** | Home screen with one module per job: Practice, Library, Convert PDF, Tuner, Settings | Any modern browser | [`app/`](app/) ([details](app/README.md)) |
+| **lento-library** | Files scores into the library folder, builds `library.json`, and runs the **watcher** that converts PDFs you queue from the app | Windows PC | [`lento_library/`](lento_library/) ([details](docs/library.md)) |
+| **Lento_ConvertPDF** | Turns PDFs into MusicXML using **homr** (music-reading software that needs a graphics card). Also has its own desktop window | Windows PC | [`lento_convertpdf/`](lento_convertpdf/) ([details](docs/convertpdf.md)) |
+| **lento-practice** | The original practice analyzer in Python. The app's Practice module is a copy of it that runs in the browser | Any PC | [`lento_practice/`](lento_practice/) ([details](docs/practice.md)) |
+| **lento_core** | Shared code: reads a MusicXML score into a list of notes | (used by the others) | [`lento_core/`](lento_core/) |
+
+One rule holds the code together: **features never use each other's code.** Anything two features need goes into a
+shared "core" (`lento_core/` for Python, `app/src/core/` for the app). That keeps each part simple and replaceable.
+
+## Getting started
+
+**Just using the app:** open https://danmosier.github.io/Lento/ on your phone or PC and choose *Install* (or *Add to
+Home screen*). Practice and Tuner work straight away with a MusicXML file. To see your Drive library, follow
+[Score library: in the app](docs/library.md#in-the-app).
+
+**Setting up the PC** (needed only for converting PDFs and for keeping `library.json` up to date): follow the
+step-by-step [PC setup guide](docs/pc-setup.md).
+
+**Working on the code:** read [How Lento works](docs/how-it-works.md), then the README of the part you are changing.
+
+## All the documentation
+
+| Read this | To learn |
 | --- | --- |
-| `lento_convertpdf/` | **Lento_ConvertPDF**: Windows desktop app that turns sheet music PDFs into MusicXML (needs a GPU) |
-| `lento_core/` | Shared code: reads a MusicXML score into a list of notes |
-| `lento_practice/` | Python practice analyzer: compares a recording with the score |
-| `lento_library/` | `lento-library` command: files scores into the Drive library and builds the `library.json` the app reads ([docs/library.md](docs/library.md)) |
-| `app/` | The Lento app for PC, phone and tablet, one tab per feature: Practice, Library, Tuner ([live](https://danmosier.github.io/Lento/)) |
-| `tests/convertpdf/`, `tests/practice/`, `tests/library/` | Tests for each tool (`tests/fixtures/` holds the converter's test scores) |
-| `docs/` | Library setup, and accuracy notes for the converter and the practice analyzer |
+| [docs/how-it-works.md](docs/how-it-works.md) | How everything fits together, step by step, with diagrams and a tour of every code file |
+| [docs/pc-setup.md](docs/pc-setup.md) | Installing Lento, homr and the watcher on a Windows PC, and fixing common problems |
+| [docs/library.md](docs/library.md) | The Drive library folder: its layout, the `lento-library` commands, the watcher, connecting the app |
+| [app/README.md](app/README.md) | The app's features and how its code is organized |
+| [docs/convertpdf.md](docs/convertpdf.md) | Lento_ConvertPDF: its window, command line, PDF splitter and tests |
+| [docs/convertpdf-accuracy.md](docs/convertpdf-accuracy.md) | How accurate the PDF conversion is, and its known mistakes |
+| [docs/practice.md](docs/practice.md) | How the practice feedback listens and judges each note |
 
-## Lento_ConvertPDF
+## Folders in this repository
 
-A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` files using **[homr](https://github.com/liebharc/homr)**, and preview the converted scores with an integrated **MusicXML Player** powered by the most popular open-source `.vst` / `.vst3` instrument plugins.
-
-## Key Features
-
-1. **Batch Folder Import & Per-File Selection**:
-   - Imports all `.pdf` sheet music files from any chosen directory (with optional recursive subfolder scanning).
-   - Interactive **`☑` / `☐` checkbox column** (plus *Select All*, *Deselect All*, *Invert Selection*, and *Select Unconverted Only* buttons) to choose which PDFs in the folder to convert.
-2. **homr transcription on the GPU**:
-   - Runs the real homr from its own environment, one call per PDF, with CUDA required by default.
-   - No fallback: if homr cannot read a PDF, the file is marked failed with homr's reason and nothing is written.
-3. **Integrated MusicXML Preview Player**:
-   - Toggle between **5-Line Grand Staff Notation View** and **Multi-Instrument Color Piano-Roll View**.
-   - Full transport controls: **Play ▶**, **Pause ⏸**, **Stop ⏹**, **Interactive Seek Slider**, **Tempo (BPM) override**, **Live Playhead Cursor**, and **Export to WAV**.
-4. **Open-Source `.VST` / `.VST3` Instrument Sourcing & Rack**:
-   - Automatically detects each instrument part in the converted MusicXML and assigns the top-recommended open-source VST plugin:
-     - **Piano**: *Sfizz VST3 + Salamander Grand Piano V3* / *Dexed FM Synth VST3*
-     - **Strings**: *Sfizz VST3 + Sonatina Symphonic / Virtual Playing Orchestra Strings* / *String Machine VST3*
-     - **Woodwinds**: *Sfizz VST3 + Sonatina Symphonic Woodwinds*
-     - **Brass**: *Sfizz VST3 + Virtual Playing Orchestra Brass* / *Odin 2 Hybrid Synth VST3*
-     - **Guitar & Harp**: *Sfizz VST3 + FreePats Spanish Classical Guitar & Concert Harp*
-     - **Organ & Harpsichord**: *setBfree Tonewheel & Pipe Organ VST3*
-     - **Choir / Voice**: *Sfizz VST3 + Sonatina Symphonic Choir (SATB)*
-     - **Percussion & Timpani**: *Geonkick Percussion & Timpani Synthesizer VST3*
-     - **Universal Synth**: *Surge XT Open-Source Hybrid Synthesizer VST3*
-
-## Lento app (PC, phone and tablet)
-
-`app/` is the app that every feature goes into, each as its own tab and folder. **Practice**: slowed playback with
-loops, count-in and metronome, recording, and note-by-note intonation and timing feedback. **Library**: browse and search
-your score library in Google Drive and open a score into Practice ([setup](docs/library.md)). **Tuner**: live note and
-cents with C G D A reference tones. Everything runs in the browser. Live at https://danmosier.github.io/Lento/.
-See [app/README.md](app/README.md).
-
-## Practice feedback
-
-`lento-practice` compares a recording of you playing with its MusicXML score and reports intonation in cents, early or
-late notes, and missed or wrong notes, with a colored copy of the score to open in MuseScore. See
-[docs/practice.md](docs/practice.md).
-
-```powershell
-uv pip install -e ".[practice]"
-.venv\Scripts\lento-practice.exe analyze score.musicxml take.wav
+```
+app/                 the Lento app (TypeScript, built with Vite, published to GitHub Pages)
+lento_library/       the library tools and the PC watcher (Python)
+lento_convertpdf/    the PDF to MusicXML converter (Python, Windows)
+lento_practice/      the Python practice analyzer
+lento_core/          Python code the features share
+tests/               Python tests, one folder per feature (tests/fixtures/ holds test scores)
+docs/                the guides listed above
+.github/workflows/   GitHub Actions: tests the app, checks its speed, and publishes it
+pyproject.toml       the Python package: its dependencies and the three commands it installs
 ```
 
-The repository holds independent features. `lento_core` is code they share; features may import it but never each other.
+## Running the tests
 
-## Setup
-
-The app expects homr in a sibling folder (`..\homr`). To use another location, set `HOMR_PYTHON` or the path in the GUI.
+Python (from the repository folder, after the [PC setup](docs/pc-setup.md)):
 
 ```powershell
-# homr, from the parent folder of this project (needs Git, uv and Poetry)
-git clone https://github.com/liebharc/homr
-cd homr
-$env:POETRY_VIRTUALENVS_IN_PROJECT = 'true'
-poetry env use (uv python find 3.12)
-poetry install --only main --extras cuda
-poetry run homr --gpu force --init      # downloads the models
-
-# this project
-cd ..\Lento
-uv venv --python 3.12
-uv pip install -e ".[dev]"
-uv pip install winrt-runtime winrt-Windows.Foundation winrt-Windows.Foundation.Collections winrt-Windows.Globalization winrt-Windows.Graphics.Imaging winrt-Windows.Media.Ocr winrt-Windows.Storage.Streams
+.venv\Scripts\python.exe -m pytest -m "not homr_gpu"     # the fast tests
 ```
 
-No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN libraries.
+The app (needs Node.js):
 
-## Running
-
-```powershell
-.venv\Scripts\python.exe -m lento_convertpdf                              # GUI
-.venv\Scripts\Lento_ConvertPDF.exe "C:\path\to\pdfs" --output-dir "C:\out"  # command line
-.venv\Scripts\python.exe -m lento_convertpdf.build_exe                    # build dist\Lento_ConvertPDF.exe
+```bash
+cd app
+npm install
+npm test
 ```
 
-`--gpu force` (default) fails unless CUDA is really in use. `--gpu auto` and `--gpu no` allow the CPU.
-
-### Splitting a PDF of several pieces
-
-A quick tool of its own (no homr or GPU needed). It proposes the pieces beside a preview of the pages; nothing is
-written until you press Split, and the original is never changed. Check the proposals: scans are often cut wrongly.
-
-```powershell
-.venv\Scripts\python.exe -m lento_convertpdf.split_tool "C:\path\to\album.pdf"  # or no file, to browse for one
-.venv\Scripts\python.exe -m lento_convertpdf.split_tool --install                 # right-click > Send to, and a desktop icon to drop PDFs on
-```
-
-The pieces go to a new folder beside the PDF, or to `inbox/` for a PDF in a Lento library's `pieces/`.
-
-## Tests
-
-```powershell
-.venv\Scripts\python.exe -m pytest -m "not homr_gpu"                 # fast
-.venv\Scripts\python.exe -m pytest -m homr_gpu -s -W ignore          # real homr, prints accuracy
-.venv\Scripts\python.exe tests\convertpdf\compare_musicxml.py reference.mxl output.musicxml
-```
-
-Any `name.pdf` with a matching `name.mxl` or `name.musicxml` under `tests/fixtures` becomes an accuracy test.
-Export flags, measured accuracy and orchestral limits are described in [docs/convertpdf-accuracy.md](docs/convertpdf-accuracy.md).
-Minimum scores go in `tests/fixtures/baselines.json`, for example `{"name": {"pitch_f1": 0.9, "strict_f1": 0.85}}`.
-Scores without a baseline are measured and printed, then skipped.
+GitHub runs the app's tests and a speed check on every pull request, and only publishes the app when both pass.
 
 ## Licence
 

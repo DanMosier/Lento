@@ -1,5 +1,11 @@
 # Practice feedback (`lento-practice`)
 
+**In plain words:** you record yourself playing a passage, and Lento tells you, note by note, which notes were out of
+tune (and by how much), which came early or late, and which were missed. This page describes the Python version, a
+command you run on a PC. The app's Practice module does the same thing in the browser with a copy of this code; the
+Python version stays the reference. The diagram in [How Lento works](how-it-works.md#practice-feedback-listening-and-comparing)
+shows the steps.
+
 Compares a recording of you playing with its MusicXML score and reports, note by note, how far each note was from the
 written pitch (in cents), whether it came early or late, and which notes were missed or wrong. It is tuned for cello but
 works for any instrument that plays one note at a time.
@@ -52,7 +58,7 @@ or exact values with `--in-tune`, `--slightly-off` and `--timing-ms`.
 
 ## Limits (first version)
 
-- Tested on synthetic cello-like recordings (`tests/practice_synth.py`), including vibrato, bow noise, room echo,
+- Tested on synthetic cello-like recordings (`tests/practice/practice_synth.py`), including vibrato, bow noise, room echo,
   slowing down and planted mistakes. Not yet tested on real cello recordings.
 - Double stops: only one of the two notes is measured.
 - Repeats are read once, as written.
