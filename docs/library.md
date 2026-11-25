@@ -1,5 +1,10 @@
 # Score library (Google Drive)
 
+**In plain words:** all your sheet music lives in one Google Drive folder with a fixed layout. A PC program,
+`lento-library`, keeps that folder tidy and writes `library.json`, a list of every piece that the app reads to show
+your Library. The same program's **watcher** converts PDFs you queue from the app. New here? Read
+[How Lento works](how-it-works.md) for the big picture and [PC setup](pc-setup.md) to install it.
+
 Your scores live in one Google Drive folder. You organize it on your PC (Google Drive for Desktop shows it as a normal
 folder), and the app's **Library** tab reads it on your phone, tablet or PC.
 
@@ -107,7 +112,7 @@ An existing score folder (say one folder per composer, files named any old way) 
 one top folder at a time, with nothing moving until you say so:
 
 ```
-lento-library organize plan --root "G:\My Drive\Sheet Music\Cello"     # writes organize-plan.csv, moves nothing
+lento-library organize plan --root "G:\My Drive\Old Scores"     # writes organize-plan.csv, moves nothing
 lento-library organize status --root ...                               # the batches, and how many files each
 lento-library organize apply "Villa-Lobos, Heitor" --root ...          # files that one batch
 lento-library organize undo "Villa-Lobos, Heitor" --root ...           # puts it back

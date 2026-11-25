@@ -2,6 +2,11 @@
 
 The Lento app for a PC, phone or tablet. Each feature is a tab.
 
+**In plain words:** this folder is a website that installs like an app. There is no server: GitHub Pages hosts the
+files, your browser downloads them once, and from then on everything (playing, recording, judging your notes) runs on
+your own device. The only thing it talks to is your Google Drive, for the score library. For how the app fits with
+the PC and Drive, read [How Lento works](../docs/how-it-works.md) first.
+
 **Practice:** practise with your own sheet music. Open a MusicXML score, play it back slowly with loops and a
 count-in and a metronome (whole notes down to 16ths) and a moving cursor that can allow for headphone delay, record yourself, and see every note colored by intonation and
 timing, judged as strictly as you choose (pitch and timing separately).
@@ -36,6 +41,24 @@ the https site from `npm run build` + GitHub Pages instead, or use a tunnel.
 
 ## Layout
 
+```mermaid
+flowchart TD
+    Main["main.ts: Home screen and switching screens"] -- "loads on first open" --> Practice["practice/"]
+    Main -- "loads on first open" --> Library["library/"]
+    Main -- "loads on first open" --> Convert["convert/"]
+    Main -- "loads on first open" --> Tuner["tuner/"]
+    Main -- "loads on first open" --> Settings["settings/"]
+    Practice --> Core["core/: score reading, sounds, mic pitch, settings, Drive library"]
+    Library --> Core
+    Convert --> Core
+    Tuner --> Core
+    Settings --> Core
+    Library -. "requestOpenScore (through core/app.ts)" .-> Practice
+```
+
+Arrows into `core/` are imports. Features never import each other: the Library asks the core to open a score, and
+Practice, which listens for that request, opens it.
+
 The app opens on a home screen with a button per feature; the Home button in the header is always there (leaving
 Practice with a score open asks first, then closes the score). Each feature is one folder with a `ui.ts` for its
 screen. Features never import each other.
@@ -46,7 +69,7 @@ screen. Features never import each other.
   connection Library, Convert and Settings share).
 - `src/practice/` Practice: `pitch.ts` (YIN pitch tracking, in a worker), `align.ts` and `analyze.ts` (ports of
   `lento_practice` in Python, which stays the reference), `report.ts`, `player.ts` (playback and metronome),
-  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `marks.ts` and `marks-view.ts` (score marks), `recorder.ts`, `latency.ts`, `ui.ts`.
+  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `marks.ts` and `marks-view.ts` (score marks), `layout.ts` (score size for the screen), `focus.ts` (the Hide controls mode), `recorder.ts`, `latency.ts` (headphone delay), `ui.ts`.
 - `src/library/` Library: browse and open scores. It hands a score to Practice with `requestOpenScore` from core.
 - `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status.
 - `src/tuner/` Tuner. `src/settings/` Settings (library connection, tuning, headphone delay, sounds).
