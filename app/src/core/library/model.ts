@@ -17,6 +17,8 @@ export interface LibraryFile {
   requested?: boolean;
   /** For a PDF with no MusicXML: the last conversion on the PC failed. */
   convert_failed?: boolean;
+  /** Why it failed, when the PC said. */
+  convert_error?: string;
 }
 
 /** requests/_status.json, written by `lento-library watch` on the PC. */
@@ -28,7 +30,7 @@ export interface PcStatus {
   /** PDF names still to come in this batch, in the order they will convert. */
   queue: string[];
   current: string | null;
-  results: { pdf: string; ok: boolean; at: string; seconds?: number }[];
+  results: { pdf: string; ok: boolean; at: string; seconds?: number; error?: string }[];
   musescore?: boolean; // false when MuseScore files are waiting but MuseScore isn't installed on the PC
   /** Version 2 and later: the PDFs converting now, since when, and how far the batch has got. */
   current_files?: string[];

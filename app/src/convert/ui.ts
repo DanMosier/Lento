@@ -39,6 +39,11 @@ const ui = {
   qNone: $<HTMLButtonElement>("cv-q-none"),
   qRemove: $<HTMLButtonElement>("cv-q-remove"),
   review: $<HTMLUListElement>("cv-review"),
+  failedBox: $<HTMLDetailsElement>("cv-failed-box"),
+  failedTitle: $("cv-failed-title"),
+  failed: $<HTMLUListElement>("cv-failed"),
+  failedAll: $<HTMLButtonElement>("cv-failed-all"),
+  retry: $<HTMLButtonElement>("cv-retry"),
   reviewBox: $<HTMLDetailsElement>("cv-review-box"),
 };
 
@@ -50,6 +55,7 @@ const removedHere = new Set<string>(); // PDF names taken off the queue on this 
 const qSelected = new Set<string>(); // PDF names ticked in the Queue tab
 let removable: string[] = []; // the PDF names that have a checkbox right now
 const selected = new Map<string, Item>(); // by request file name
+const retrySel = new Map<string, Item>(); // failed ones ticked for "Try again", kept apart from the main selection
 
 function status(text: string, kind: "info" | "error" = "info"): void {
   ui.status.textContent = text;
@@ -74,10 +80,49 @@ function label(it: Item): [string, string] {
   return [it.piece.title, [it.piece.composer, ed].filter(Boolean).join(" · ")];
 }
 
+/** Why the PC's last try failed, if it said: from library.json, or from the watcher's recent results. */
+function reason(it: Item): string {
+  if (it.file.convert_error) return it.file.convert_error;
+  const r = pc?.results ? [...pc.results].reverse().find((x) => x.pdf === it.file.name && !x.ok) : undefined;
+  return r?.error ?? "";
+}
+
+/** A row with a checkbox that adds the item to `sel` (by request file name). */
+function checkRow(it: Item, sel: Map<string, Item>, sub: string, onChange: () => void, warn = ""): HTMLLIElement {
+  const [t] = label(it);
+  const row = li(t, sub);
+  if (warn) row.append(Object.assign(document.createElement("small"), { className: "cv-reason", textContent: warn }));
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = sel.has(requestName(it.file));
+  box.setAttribute("aria-label", `Convert ${t}`);
+  box.addEventListener("change", () => {
+    if (box.checked) sel.set(requestName(it.file), it);
+    else sel.delete(requestName(it.file));
+    onChange();
+  });
+  const lab = document.createElement("label");
+  lab.className = "cv-row";
+  lab.append(box, ...Array.from(row.childNodes));
+  row.replaceChildren(lab);
+  return row;
+}
+
+/** Keeps only the selected items still on offer, matched by file name (rows are rebuilt on every render). */
+function prune(sel: Map<string, Item>, offer: Item[]): void {
+  const open = new Map(offer.map((it) => [requestName(it.file), it] as const));
+  for (const k of [...sel.keys()]) {
+    const it = open.get(k);
+    if (it) sel.set(k, it);
+    else sel.delete(k);
+  }
+}
+
 function render(): void {
   if (!index) return;
   const mine = requestedHere.all();
   const todo: Item[] = [];
+  const failed: Item[] = [];
   const waiting: Item[] = [];
   const review: Item[] = [];
   let done = 0;
@@ -89,55 +134,49 @@ function render(): void {
         done++;
         if (xml.quality === "REVIEW" || xml.quality === "UNRELIABLE") review.push({ piece, file: xml });
       } else if ((file.requested || mine.has(requestName(file))) && !removedHere.has(file.name)) waiting.push({ piece, file });
-      else todo.push({ piece, file }); // includes ones whose last conversion failed, so they can be queued again
+      else if (file.convert_failed) failed.push({ piece, file }); // set apart, so "Select all shown" can't pick them
+      else todo.push({ piece, file });
     }
-  ui.counts.textContent = `${todo.length} PDFs without MusicXML · ${waiting.length} waiting for your PC · ${done} converted`;
-
   const q = fold(ui.search.value.trim());
-  const shown = q ? todo.filter((it) => fold(`${it.piece.title} ${it.piece.composer}`).includes(q)) : todo;
-  ui.todo.replaceChildren(
-    ...shown.slice(0, SHOWN).map((it) => {
-      const [t, sub] = label(it);
-      const row = li(t, it.file.convert_failed ? `${sub ? `${sub} · ` : ""}last try failed on your PC` : sub);
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = selected.has(requestName(it.file));
-      box.setAttribute("aria-label", `Convert ${t}`);
-      box.addEventListener("change", () => {
-        if (box.checked) selected.set(requestName(it.file), it);
-        else selected.delete(requestName(it.file));
-        updateGo();
-      });
-      const lab = document.createElement("label");
-      lab.className = "cv-row";
-      lab.append(box, ...Array.from(row.childNodes));
-      row.replaceChildren(lab);
-      return row;
-    }),
-  );
+  const match = (it: Item) => !q || fold(`${it.piece.title} ${it.piece.composer}`).includes(q);
+  const shown = todo.filter(match);
+  // set first, so "Select all shown" works even if drawing below were to fail
+  allVisible = shown.slice(0, SHOWN); // the rows on screen, not every match
+  prune(selected, todo);
+  prune(retrySel, failed);
+  updateGo();
+
+  ui.counts.textContent =
+    `${todo.length} PDFs without MusicXML · ${waiting.length} waiting for your PC · ${done} converted` + (failed.length ? ` · ${failed.length} failed` : "");
+  ui.todo.replaceChildren(...allVisible.map((it) => checkRow(it, selected, label(it)[1], updateGo)));
   if (shown.length > SHOWN) ui.todo.append(li(`…and ${shown.length - SHOWN} more. Search to narrow the list.`));
-  if (!todo.length) ui.todo.append(li("Every PDF in the library has MusicXML."));
+  if (!todo.length) ui.todo.append(li(failed.length ? "Every other PDF has MusicXML." : "Every PDF in the library has MusicXML."));
+
+  const failedShown = failed.filter(match);
+  ui.failedBox.hidden = !failed.length;
+  ui.failedTitle.textContent = `Failed on your PC (${failed.length})`;
+  allFailed = failedShown.slice(0, SHOWN);
+  ui.failed.replaceChildren(
+    ...allFailed.map((it) => checkRow(it, retrySel, label(it)[1], updateGo, reason(it) ? `Failed: ${reason(it)}` : "Failed (no reason given)")),
+  );
+  if (failed.length && !failedShown.length) ui.failed.append(li("None match the search."));
+  if (failedShown.length > SHOWN) ui.failed.append(li(`…and ${failedShown.length - SHOWN} more. Search to narrow the list.`));
+
   ui.tabQueue.textContent = waiting.length ? `Queue (${waiting.length})` : "Queue";
   ui.reviewBox.hidden = !review.length;
   ui.review.replaceChildren(
     ...review.map((it) => li(label(it)[0], it.file.quality === "REVIEW" ? "some measures may be wrong" : "probably wrong in many places")),
   );
-  // rows are rebuilt on every render, so match the selection by file name, not by object
-  const open = new Map(todo.map((it) => [requestName(it.file), it] as const));
-  for (const k of [...selected.keys()]) {
-    const it = open.get(k);
-    if (it) selected.set(k, it);
-    else selected.delete(k);
-  }
-  updateGo();
-  allVisible = shown.slice(0, SHOWN); // "Select all shown" means the rows on screen, not every match
 }
 
+let allFailed: Item[] = [];
 let allVisible: Item[] = [];
 
 function updateGo(): void {
   ui.go.textContent = selected.size ? `Queue ${selected.size} for my PC` : "Queue for my PC";
   ui.go.disabled = selected.size === 0;
+  ui.retry.textContent = retrySel.size ? `Try ${retrySel.size} again on my PC` : "Try again on my PC";
+  ui.retry.disabled = retrySel.size === 0;
 }
 
 function ago(iso: string): string {
@@ -217,11 +256,11 @@ async function load(fromDrive: boolean): Promise<void> {
   }
 }
 
-async function queue(): Promise<void> {
+async function queue(sel: Map<string, Item> = selected): Promise<void> {
   const lib = library();
-  if (!lib || !selected.size) return;
-  const items = [...selected.values()];
-  ui.go.disabled = true;
+  if (!lib || !sel.size) return;
+  const items = [...sel.values()];
+  ui.go.disabled = ui.retry.disabled = true;
   status(`Queueing ${items.length} PDF${items.length > 1 ? "s" : ""}…`);
   try {
     await lib.requestConversion(items);
@@ -231,7 +270,7 @@ async function queue(): Promise<void> {
       removedHere.delete(it.file.name); // queued again after being removed
     }
     requestedHere.save(mine);
-    selected.clear();
+    sel.clear();
     render();
     libraryChanged();
     status(`Queued ${items.length}. Your PC converts them when its watcher next looks (or run "lento-library convert" there). Press Refresh to see progress.`);
@@ -421,6 +460,11 @@ document.addEventListener("visibilitychange", () => {
 
 ui.refresh.addEventListener("click", () => void load(true));
 ui.go.addEventListener("click", () => void queue());
+ui.retry.addEventListener("click", () => void queue(retrySel));
+ui.failedAll.addEventListener("click", () => {
+  for (const it of allFailed) retrySel.set(requestName(it.file), it);
+  render();
+});
 ui.all.addEventListener("click", () => {
   for (const it of allVisible) selected.set(requestName(it.file), it);
   render();
