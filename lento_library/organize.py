@@ -213,7 +213,6 @@ def apply(lib: Library, batch: str, rebuild: bool = True) -> tuple[list[str], li
     if problems:
         return [], problems
     log_new = not (lib.root / LOG).is_file()
-    catalog_new = not lib.catalog_path.is_file()
     cat_rows = []
     moved = []
     today = datetime.date.today().isoformat()
@@ -243,12 +242,7 @@ def apply(lib: Library, batch: str, rebuild: bool = True) -> tuple[list[str], li
         while folder != lib.root and folder.is_dir() and not any(folder.iterdir()):  # emptied folders go (undo remakes them)
             folder.rmdir()
             folder = folder.parent
-    if cat_rows:
-        with lib.catalog_path.open("a", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=COLUMNS)
-            if catalog_new:
-                w.writeheader()
-            w.writerows(cat_rows)
+    lib.append_catalog(cat_rows)
     if rebuild:
         lib.write_index()
     return moved, []
@@ -273,7 +267,7 @@ def undo(lib: Library, batch: str) -> list[str]:
     write_csv(lib.root / LOG, LOG_COLUMNS, log)
     if names and lib.catalog_path.is_file():
         rows = [r for r in lib.catalog() if r["file"] not in names]
-        write_csv(lib.catalog_path, COLUMNS, rows)
+        lib.write_catalog(rows)
     if (lib.root / INDEX_NAME).exists() or back:
         lib.write_index()
     return back
