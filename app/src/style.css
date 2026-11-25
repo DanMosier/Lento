@@ -157,4 +157,3 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .tuner-refs button { min-width: 48px; }
 .tuner-settings { color: var(--muted); margin: 12px 0 0; }
 .tuner-refs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-
