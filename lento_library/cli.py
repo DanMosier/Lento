@@ -21,6 +21,11 @@
       Writes requests/_status.json so the app can show what the PC is doing. --install starts it hidden
       at every Windows sign-in (Startup folder); --uninstall removes that.
 
+  lento-library organize plan | status | apply BATCH | undo BATCH [--root FOLDER]
+      Files an existing, unorganized score folder into pieces/, one batch (top folder) at a time. "plan" writes
+      organize-plan.csv (nothing moves; edit ids there, or set action to skip); "status" lists the batches;
+      "apply" moves one batch and logs it to organize-log.csv; "undo" puts a batch back.
+
 FOLDER defaults to the current folder.
 """
 
@@ -39,7 +44,7 @@ from lento_library.library import Library
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="lento-library", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("build", "check", "add", "convert", "watch"):
+    for name in ("build", "check", "add", "convert", "watch", "organize"):
         p = sub.add_parser(name)
         p.add_argument("--root", default=".", help="library folder (default: current folder)")
         if name == "check":
@@ -57,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--once", action="store_true", help="look once, convert what is queued, and stop")
             p.add_argument("--install", action="store_true", help="start the watcher at every Windows sign-in")
             p.add_argument("--uninstall", action="store_true", help="stop starting it at sign-in")
+        if name == "organize":
+            p.add_argument("step", choices=["plan", "status", "apply", "undo"])
+            p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo")
         if name == "add":
             p.add_argument("file")
             p.add_argument("piece_id")
@@ -78,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(watch.install(lib.root, args.interval) if args.install else watch.uninstall())
                 return 0
             return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
+        if args.cmd == "organize":
+            return organize(lib, args.step, args.batch)
         if args.cmd == "add":
             src = Path(args.file)
             if not src.exists():
@@ -101,6 +111,39 @@ def main(argv: list[str] | None = None) -> int:
         print("PROBLEM:", p)
     print(f"{len(rep.problems)} problem(s), {len(rep.notes)} note(s)")
     return 1 if rep.problems else 0
+
+
+def organize(lib: Library, step: str, batch: str | None) -> int:
+    from lento_library import organize as org
+
+    if step == "plan":
+        path, n = org.plan(lib)
+        print(f"wrote {path} ({n} files). Check it, then: lento-library organize status")
+        step = "status"
+    if step == "status":
+        rows = org.batches(lib)
+        if not rows:
+            print("nothing planned: run lento-library organize plan")
+        for name, (todo, done) in sorted(rows.items()):
+            print(f"{todo:4d} to move  {done:4d} moved   {name}")
+        return 0
+    if not batch:
+        print(f"error: say which batch to {step}, e.g. lento-library organize {step} \"Villa-Lobos, Heitor\"", file=sys.stderr)
+        return 2
+    if step == "undo":
+        back = org.undo(lib, batch)
+        print(f"put back {len(back)} file(s) from '{batch}'")
+        return 0
+    moved, problems = org.apply(lib, batch)
+    for p in problems:
+        print("PROBLEM:", p)
+    if problems:
+        print(f"nothing moved: fix these in {org.PLAN} and run it again", file=sys.stderr)
+        return 1
+    for m in moved:
+        print("moved", m)
+    print(f"{len(moved)} file(s) filed from '{batch}'; library.json rebuilt. To put them back: lento-library organize undo \"{batch}\"")
+    return 0
 
 
 def converter_cmd(args: argparse.Namespace) -> list[str]:

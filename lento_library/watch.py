@@ -123,6 +123,7 @@ def install(root: Path, interval: float = 30) -> str:
     exe = Path(sys.executable)
     pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
     log = root.resolve() / REQUESTS / "_watch.log"
+    log.parent.mkdir(exist_ok=True)  # cmd opens the log before Python starts, so the folder must exist
     cmd = f'cmd /c ""{pyw}" -m lento_library watch --root "{root.resolve()}" --interval {interval:g} >> "{log}" 2>&1"'
     vbs = 'CreateObject("WScript.Shell").Run "' + cmd.replace('"', '""') + '", 0, False\n'
     f = startup_file()
