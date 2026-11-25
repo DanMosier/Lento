@@ -151,8 +151,18 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .piece-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .piece-meta { color: var(--muted); }
 .piece-tags { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
-.piece-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.piece-files button { min-height: 40px; padding: 6px 12px; }
+.piece-files { display: grid; gap: 8px; margin-top: 10px; }
+.edition { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.edition-name { color: var(--muted); font-size: 0.9rem; min-width: 7em; }
+.edition button { min-height: 40px; padding: 6px 12px; }
+.quality { font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; cursor: help; }
+.quality.review { color: var(--slightly_off); border: 1px solid var(--slightly_off); }
+.quality.unreliable { color: var(--out_of_tune); border: 1px solid var(--out_of_tune); }
+.requested { color: var(--muted); font-size: 0.9rem; font-style: italic; }
+.pick { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; color: var(--accent); font-weight: 600; }
+.pick input { width: 20px; height: 20px; accent-color: var(--accent); }
+#lib-batch[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.batch-bar { background: var(--panel); border-block: 1px solid var(--line); color: var(--muted); }
 .saved { margin-left: 2px; }
 #lib-search { flex: 1 1 220px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
 .lib-setup { margin: 16px max(16px, env(safe-area-inset-left)) 40px; max-width: 640px; }

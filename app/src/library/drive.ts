@@ -20,9 +20,11 @@ export class Drive {
     private readonly fetcher: typeof fetch = (...a) => fetch(...a),
   ) {}
 
-  private async request(url: string): Promise<Response> {
-    let res = await this.fetcher(url, { headers: { Authorization: `Bearer ${await this.token()}` } });
-    if (res.status === 401) res = await this.fetcher(url, { headers: { Authorization: `Bearer ${await this.token(true)}` } });
+  private async request(url: string, init: RequestInit = {}): Promise<Response> {
+    const go = async (fresh: boolean) =>
+      this.fetcher(url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${await this.token(fresh)}` } });
+    let res = await go(false);
+    if (res.status === 401) res = await go(true);
     if (!res.ok) {
       let why = `${res.status}`;
       try {
@@ -41,6 +43,29 @@ export class Drive {
     const url = `${API}?${new URLSearchParams({ q, fields: `files(${FIELDS})`, pageSize: "10", supportsAllDrives: "true", includeItemsFromAllDrives: "true" })}`;
     const { files } = (await (await this.request(url)).json()) as { files: DriveFile[] };
     return files[0] ?? null;
+  }
+
+  /** Creates a folder, or a small JSON file, inside `parentId`. */
+  async create(parentId: string, name: string, content?: object): Promise<DriveFile> {
+    const meta = { name, parents: [parentId], mimeType: content ? "application/json" : "application/vnd.google-apps.folder" };
+    if (!content) {
+      const res = await this.request(`${API}?fields=${FIELDS}&supportsAllDrives=true`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(meta),
+      });
+      return (await res.json()) as DriveFile;
+    }
+    const boundary = "lento" + Math.random().toString(36).slice(2);
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(content)}\r\n--${boundary}--`;
+    const res = await this.request(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=${FIELDS}&supportsAllDrives=true`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    return (await res.json()) as DriveFile;
   }
 
   async download(id: string): Promise<ArrayBuffer> {

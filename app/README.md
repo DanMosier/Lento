@@ -6,7 +6,8 @@ The Lento app for a PC, phone or tablet. Each feature is a tab.
 count-in and a metronome (whole notes down to 16ths), record yourself, and see every note colored by intonation and
 timing, judged as strictly as you choose (pitch and timing separately).
 
-**Library:** browse your score library in Google Drive, open a MusicXML into Practice or a PDF in Drive's viewer.
+**Library:** browse your score library in Google Drive, open a MusicXML into Practice or a PDF in Drive's viewer, and
+queue PDFs (one or a batch) for MusicXML conversion on your PC.
 Scores you've opened work offline. Setup: [docs/library.md](../docs/library.md).
 
 **Tuner:** live note and cents from the microphone, with reference tones for the open strings.

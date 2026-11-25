@@ -107,6 +107,13 @@
         <input id="lib-search" type="search" placeholder="Search title, composer, technique" aria-label="Search the library" />
         <select id="lib-tag" aria-label="Technique" hidden></select>
         <button id="lib-refresh" type="button">Refresh</button>
+        <button id="lib-batch" type="button" aria-pressed="false">Batch convert</button>
+      </div>
+      <div id="lib-batch-bar" class="bar batch-bar" hidden>
+        <span>Tick the PDFs to turn into MusicXML on your PC.</span>
+        <button id="lib-batch-all" type="button">Select all without MusicXML</button>
+        <button id="lib-batch-none" type="button">Clear</button>
+        <button id="lib-batch-go" type="button" class="primary" disabled>Request MusicXML</button>
       </div>
       <p id="lib-status" class="status" role="status" aria-live="polite"></p>
       <ul id="lib-list" class="lib-list"></ul>
@@ -122,7 +129,7 @@
           <button id="lib-connect" type="button" class="primary">Connect to Google Drive</button>
           <button id="lib-signout" type="button" hidden>Sign out</button>
         </div>
-        <p class="hint">The app only reads your Drive. Scores you open are saved on this device so they work offline.</p>
+        <p class="hint">The app reads your library and only ever creates its own small request files in <code>requests/</code>. Scores you open are saved on this device so they work offline.</p>
       </details>
     </div>
 

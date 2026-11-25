@@ -7,6 +7,12 @@ export interface LibraryFile {
   edition?: string;
   source?: string;
   pages?: number;
+  /** For a PDF: the MusicXML of the same name beside it, if there is one. */
+  musicxml?: string;
+  /** Lento_ConvertPDF's rating of that MusicXML. */
+  quality?: "OK" | "REVIEW" | "UNRELIABLE" | string;
+  /** For a PDF with no MusicXML: conversion already asked for. */
+  requested?: boolean;
 }
 
 export interface Piece {
@@ -19,6 +25,8 @@ export interface Piece {
   positions?: string;
   notes?: string;
   tags?: string[];
+  /** True when any edition has a MusicXML. */
+  musicxml?: boolean;
   files: LibraryFile[];
 }
 
@@ -77,4 +85,15 @@ export function folderIdFromLink(text: string): string | null {
   const m = t.match(/\/folders\/([\w-]{10,})/) ?? t.match(/[?&]id=([\w-]{10,})/);
   if (m) return m[1];
   return /^[\w-]{10,}$/.test(t) ? t : null;
+}
+
+/** The MusicXML to practise from for this file: the file itself, or the one beside a PDF. */
+export function musicxmlOf(f: LibraryFile): LibraryFile | null {
+  if (f.kind === "musicxml") return f;
+  return f.musicxml ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality } : null;
+}
+
+/** "convert__<pdf name without .pdf>.json", the file `lento-library convert` looks for. */
+export function requestName(f: LibraryFile): string {
+  return `convert__${f.name.replace(/\.pdf$/i, "")}.json`;
 }

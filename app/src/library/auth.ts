@@ -1,6 +1,9 @@
-/** Google sign-in with Google Identity Services (token model): read-only Drive access, no server needed. */
+/**
+ * Google sign-in with Google Identity Services (token model), no server needed.
+ * Scopes: read the library, and create only the app's own small request files (drive.file cannot touch anything else).
+ */
 
-const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const SCOPE = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
 
 interface TokenResponse {
   access_token?: string;

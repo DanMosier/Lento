@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Drive, MemoryCache, type DriveFile } from "../src/library/drive";
 import { DriveLibrary } from "../src/library/library";
-import { folderIdFromLink, parseIndex, search, type Piece } from "../src/library/model";
+import { folderIdFromLink, musicxmlOf, parseIndex, requestName, search, type Piece } from "../src/library/model";
 
 const INDEX = {
   format: "lento-library",
@@ -53,10 +53,20 @@ function fakeDrive(files: Record<string, { id: string; body?: string; modifiedTi
   const byId = new Map(Object.entries(files).map(([path, f]) => [f.id, { ...f, path }]));
   const calls: string[] = [];
   let online = true;
-  const fetcher = (async (input: RequestInfo | URL) => {
+  let next = 0;
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    calls.push(url.pathname + url.search);
+    calls.push((init?.method ?? "GET") + " " + url.pathname + url.search);
     if (!online) throw new TypeError("Failed to fetch");
+    if (init?.method === "POST") {
+      const text = String(init.body);
+      const meta = JSON.parse(text.includes("--lento") ? text.split("\r\n\r\n")[1].split("\r\n")[0] : text) as { name: string; parents: string[] };
+      const parent = meta.parents[0] === "ROOT" ? "" : byId.get(meta.parents[0])!.path + "/";
+      const f = { id: `NEW${next++}`, body: text };
+      files[parent + meta.name] = f;
+      byId.set(f.id, { ...f, path: parent + meta.name });
+      return new Response(JSON.stringify({ id: f.id, name: meta.name, mimeType: "x" }), { status: 200 });
+    }
     if (url.searchParams.get("alt") === "media") {
       const f = byId.get(decodeURIComponent(url.pathname.split("/").pop()!));
       return new Response(f?.body ?? "", { status: f ? 200 : 404 });
@@ -67,7 +77,7 @@ function fakeDrive(files: Record<string, { id: string; body?: string; modifiedTi
     const out: DriveFile[] = f ? [{ id: f.id, name: m[2], mimeType: "x", modifiedTime: f.modifiedTime, webViewLink: `https://drive/${f.id}` }] : [];
     return new Response(JSON.stringify({ files: out }), { status: 200 });
   }) as typeof fetch;
-  return { fetcher, calls, setOnline: (v: boolean) => (online = v) };
+  return { fetcher, calls, files, setOnline: (v: boolean) => (online = v) };
 }
 
 describe("Drive library", () => {
@@ -102,5 +112,25 @@ describe("Drive library", () => {
     expect(new TextDecoder().decode(offline.data)).toBe("<score-partwise/>");
     expect((await lib.cachedIndex())!.pieces).toHaveLength(2);
     await expect(lib.open(swan, swan.files[1], true)).rejects.toThrow();
+  });
+});
+
+describe("MusicXML beside the PDF, and conversion requests", () => {
+  it("practises from the MusicXML of the same name, and queues PDFs without one", async () => {
+    const pdfWithXml = { name: "a_b__ed.pdf", kind: "pdf" as const, variant: "ed", musicxml: "a_b__ed.musicxml", quality: "REVIEW" };
+    expect(musicxmlOf(pdfWithXml)).toEqual({ name: "a_b__ed.musicxml", kind: "musicxml", variant: "ed", quality: "REVIEW" });
+    expect(musicxmlOf({ name: "a_b__x.pdf", kind: "pdf", variant: "x" })).toBeNull();
+    expect(requestName({ name: "faure_elegie_op24__imslp.pdf", kind: "pdf", variant: "imslp" })).toBe("convert__faure_elegie_op24__imslp.json");
+
+    const d = fakeDrive({ "library.json": { id: "IDX", body: JSON.stringify(INDEX) } });
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    const idx = await lib.loadIndex();
+    const bach = idx.pieces.find((p) => p.id.startsWith("bach"))!;
+    expect(await lib.requestConversion([{ piece: bach, file: bach.files[0] }], new Date("2026-11-25T00:00:00Z"))).toBe(1);
+    expect(d.files["requests"]).toBeDefined(); // the folder was made
+    const req = d.files["requests/convert__bach_cello-suite-1-prelude_bwv1007__barenreiter.json"];
+    expect(req.body).toContain('"pdf":"bach_cello-suite-1-prelude_bwv1007__barenreiter.pdf"');
+    // asking again does not make a second file
+    expect(await lib.requestConversion([{ piece: bach, file: bach.files[0] }])).toBe(0);
   });
 });

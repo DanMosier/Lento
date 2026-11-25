@@ -7,8 +7,9 @@ Layout (see docs/library.md):
       catalog.csv       one row per PDF: titles, editions, technique tags
       tags.md           allowed technique tags
       inbox/            new downloads waiting to be filed
+      requests/         convert__<pdf name without .pdf>.json, left by the app's "Make MusicXML" button
       pieces/<piece_id>/<piece_id>__<variant>.pdf
-                        <piece_id>.musicxml  or  <piece_id>__<variant>.musicxml / .mxl
+                        <piece_id>__<variant>.musicxml   (same name as its PDF, right beside it)
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ COLUMNS = ["piece_id", "file", "variant", "composer", "title", "catalog_no",
            "added", "notes"]
 KINDS = {".pdf": "pdf", ".musicxml": "musicxml", ".mxl": "musicxml", ".xml": "musicxml"}
 INDEX_NAME = "library.json"
+REQUESTS = "requests"
 FORMAT = "lento-library"
 VERSION = 1
 
@@ -158,6 +160,7 @@ class Library:
         rows: dict[str, list[dict[str, str]]] = {}
         for r in self.catalog():
             rows.setdefault(r["piece_id"], []).append(r)
+        requested = set(self.requests())
         pieces = []
         for folder in self.folders():
             pid = folder.name
@@ -166,21 +169,31 @@ class Library:
             meta = rows.get(pid, [])
             first = meta[0] if meta else {}
             by_file = {r["file"]: r for r in meta}
+            on_disk = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in KINDS)
+            xml_by_stem = {p.stem: p for p in on_disk if KINDS[p.suffix.lower()] == "musicxml"}
             files = []
-            for p in sorted(folder.iterdir()):
-                kind = KINDS.get(p.suffix.lower())
-                if not p.is_file() or not kind:
+            paired: set[str] = set()
+            for p in on_disk:
+                if KINDS[p.suffix.lower()] != "pdf":
                     continue
-                stem = p.name[: -len(p.suffix)]
-                entry: dict = {"name": p.name, "kind": kind, "variant": stem.split("__", 1)[1] if "__" in stem else ""}
-                r = by_file.get(p.name)
-                if r:
-                    for k in ("edition", "source"):
-                        if r[k]:
-                            entry[k] = r[k]
-                    if r["pages"].isdigit():
-                        entry["pages"] = int(r["pages"])
+                entry = file_entry(p, by_file.get(p.name))
+                xml = xml_by_stem.get(p.stem)
+                if xml:
+                    paired.add(xml.name)
+                    entry["musicxml"] = xml.name
+                    level = quality_level(folder / f"{p.stem}.quality.json")
+                    if level:
+                        entry["quality"] = level
+                elif p.stem in requested:
+                    entry["requested"] = True
                 files.append(entry)
+            for x in xml_by_stem.values():  # MusicXML with no PDF beside it
+                if x.name not in paired:
+                    entry = file_entry(x, None)
+                    level = quality_level(folder / f"{x.stem}.quality.json")
+                    if level:
+                        entry["quality"] = level
+                    files.append(entry)
             if not files:
                 continue
             tags = sorted({t for r in meta for t in split_tags(r["tags"])})
@@ -188,6 +201,7 @@ class Library:
                 "id": pid,
                 "title": first.get("title") or title_from_id(pid),
                 "composer": first.get("composer") or composer_from_id(pid),
+                "musicxml": any(f["kind"] == "musicxml" or "musicxml" in f for f in files),
                 "files": files,
             }
             for k in ("catalog_no", "key", "clefs", "positions", "notes"):
@@ -203,6 +217,32 @@ class Library:
             "pieces": pieces,
         }
 
+    def requests(self) -> list[str]:
+        """PDF names (without .pdf) the app asked to convert to MusicXML."""
+        d = self.root / REQUESTS
+        if not d.is_dir():
+            return []
+        return sorted({p.stem.removeprefix("convert__") for p in d.glob("convert__*.json")})
+
+    def clear_request(self, stem: str) -> None:
+        (self.root / REQUESTS / f"convert__{stem}.json").unlink(missing_ok=True)
+
+    def pdfs_without_musicxml(self) -> list[Path]:
+        """PDFs with no MusicXML of the same name beside them."""
+        out = []
+        for folder in self.folders():
+            if not ID_RE.match(folder.name):
+                continue
+            for pdf in sorted(folder.glob("*.pdf")):
+                if not any((folder / f"{pdf.stem}{ext}").is_file() for ext in (".musicxml", ".mxl", ".xml")):
+                    out.append(pdf)
+        return out
+
+    def pdf_for(self, stem: str) -> Path | None:
+        """The PDF called <stem>.pdf, in the piece folder its name starts with."""
+        p = self.pieces / stem.split("__", 1)[0] / f"{stem}.pdf"
+        return p if p.is_file() else None
+
     def write_index(self) -> tuple[Path, int]:
         data = self.index()
         path = self.root / INDEX_NAME
@@ -210,6 +250,26 @@ class Library:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         tmp.replace(path)  # atomic, so Drive never syncs a half-written index
         return path, len(data["pieces"])
+
+
+def file_entry(p: Path, row: dict[str, str] | None) -> dict:
+    stem = p.name[: -len(p.suffix)]
+    entry: dict = {"name": p.name, "kind": KINDS[p.suffix.lower()], "variant": stem.split("__", 1)[1] if "__" in stem else ""}
+    if row:
+        for k in ("edition", "source"):
+            if row[k]:
+                entry[k] = row[k]
+        if row["pages"].isdigit():
+            entry["pages"] = int(row["pages"])
+    return entry
+
+
+def quality_level(path: Path) -> str:
+    """OK / REVIEW / UNRELIABLE from Lento_ConvertPDF's quality report, or blank."""
+    try:
+        return str(json.loads(path.read_text(encoding="utf-8")).get("level") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
 
 
 def split_tags(text: str) -> list[str]:

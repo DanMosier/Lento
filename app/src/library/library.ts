@@ -1,6 +1,6 @@
 /** A library folder in Google Drive: reads library.json and fetches files, keeping offline copies. */
 import { Drive, type FileCache } from "./drive";
-import { parseIndex, type LibraryFile, type LibraryIndex, type Piece } from "./model";
+import { parseIndex, requestName, type LibraryFile, type LibraryIndex, type Piece } from "./model";
 
 export const INDEX_KEY = "library.json";
 
@@ -33,6 +33,24 @@ export class DriveLibrary {
     const index = parseIndex(new TextDecoder().decode(data)); // check before saving over a good copy
     await this.cache.put(INDEX_KEY, { data, modifiedTime: f.modifiedTime });
     return index;
+  }
+
+  /**
+   * Asks the PC to make MusicXML for these PDFs: one small file each in requests/, which
+   * `lento-library convert` picks up. Returns how many were newly requested.
+   */
+  async requestConversion(items: { piece: Piece; file: LibraryFile }[], when = new Date()): Promise<number> {
+    let requests = this.ids.get("requests") ?? (await this.drive.child(this.rootId, "requests"))?.id;
+    if (!requests) requests = (await this.drive.create(this.rootId, "requests")).id;
+    this.ids.set("requests", requests);
+    let made = 0;
+    for (const { piece, file } of items) {
+      const name = requestName(file);
+      if (await this.drive.child(requests, name)) continue;
+      await this.drive.create(requests, name, { piece_id: piece.id, pdf: file.name, requested: when.toISOString() });
+      made++;
+    }
+    return made;
   }
 
   private async folder(path: string[]): Promise<string> {

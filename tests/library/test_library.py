@@ -15,7 +15,7 @@ def make_library(root: Path) -> None:
     (root / "pieces" / "Bad Folder").mkdir(parents=True)
     p = root / "pieces" / "bach_cello-suite-1-prelude_bwv1007"
     (p / "bach_cello-suite-1-prelude_bwv1007__barenreiter.pdf").write_bytes(b"%PDF /Type /Page /Type /Page")
-    (p / "bach_cello-suite-1-prelude_bwv1007.musicxml").write_text("<score-partwise/>")
+    (p / "bach_cello-suite-1-prelude_bwv1007__barenreiter.musicxml").write_text("<score-partwise/>")
     (p / "notes.txt").write_text("ignored")
     (root / "pieces" / "saint-saens_the-swan" / "saint-saens_the-swan__imslp.mxl").write_bytes(b"PK")
     (root / "tags.md").write_text("- shifting\n- vibrato\n- string-crossings\n")
@@ -38,11 +38,13 @@ def test_index_combines_folders_and_catalog(tmp_path: Path) -> None:
     bach, swan = data["pieces"]
     assert bach["title"] == "Cello Suite No. 1: Prelude" and bach["composer"] == "J. S. Bach"
     assert bach["tags"] == ["shifting", "string-crossings"]
-    assert [(f["name"], f["kind"]) for f in bach["files"]] == [
-        ("bach_cello-suite-1-prelude_bwv1007.musicxml", "musicxml"),
-        ("bach_cello-suite-1-prelude_bwv1007__barenreiter.pdf", "pdf"),
-    ]
-    assert bach["files"][1]["edition"] == "Bärenreiter" and bach["files"][1]["pages"] == 2
+    # the MusicXML beside a PDF (same name) is attached to it, not listed on its own
+    assert bach["files"] == [{
+        "name": "bach_cello-suite-1-prelude_bwv1007__barenreiter.pdf", "kind": "pdf", "variant": "barenreiter",
+        "edition": "Bärenreiter", "pages": 2, "musicxml": "bach_cello-suite-1-prelude_bwv1007__barenreiter.musicxml",
+    }]
+    assert bach["musicxml"] is True and swan["musicxml"] is True
+    assert swan["files"][0]["kind"] == "musicxml"  # MusicXML with no PDF is listed on its own
     # uncatalogued pieces still appear, with a readable name from the id
     assert swan["title"] == "The swan" and swan["composer"] == "Saint-Saens"
     assert swan["files"][0]["variant"] == "imslp"
@@ -68,3 +70,43 @@ def test_check_and_add(tmp_path: Path) -> None:
     dest = lib.add(src, "faure_elegie_op24", "imslp")
     assert dest == tmp_path / "pieces" / "faure_elegie_op24" / "faure_elegie_op24__imslp.pdf"
     assert lib.catalog()[-1]["file"] == dest.name and lib.catalog()[-1]["pages"] == "1"
+
+
+def test_musicxml_flag_quality_and_requests(tmp_path: Path) -> None:
+    make_library(tmp_path)
+    bach = tmp_path / "pieces" / "bach_cello-suite-1-prelude_bwv1007"
+    (bach / "bach_cello-suite-1-prelude_bwv1007__barenreiter.quality.json").write_text(json.dumps({"level": "REVIEW"}))
+    faure = tmp_path / "pieces" / "faure_elegie_op24"
+    faure.mkdir()
+    (faure / "faure_elegie_op24__imslp.pdf").write_bytes(b"%PDF")
+    (tmp_path / "requests").mkdir()
+    (tmp_path / "requests" / "convert__faure_elegie_op24__imslp.json").write_text("{}")
+    lib = Library(tmp_path)
+    pieces = {p["id"]: p for p in lib.index()["pieces"]}
+    assert pieces["bach_cello-suite-1-prelude_bwv1007"]["musicxml"] is True
+    assert pieces["bach_cello-suite-1-prelude_bwv1007"]["files"][0]["quality"] == "REVIEW"
+    assert pieces["faure_elegie_op24"]["musicxml"] is False
+    assert pieces["faure_elegie_op24"]["files"][0]["requested"] is True
+    assert [p.name for p in lib.pdfs_without_musicxml()] == ["faure_elegie_op24__imslp.pdf"]
+
+
+def test_convert_runs_the_converter_and_clears_requests(tmp_path: Path) -> None:
+    make_library(tmp_path)
+    faure = tmp_path / "pieces" / "faure_elegie_op24"
+    faure.mkdir()
+    (faure / "faure_elegie_op24__imslp.pdf").write_bytes(b"%PDF")
+    (tmp_path / "requests").mkdir()
+    (tmp_path / "requests" / "convert__faure_elegie_op24__imslp.json").write_text("{}")
+    # a stand-in converter: writes <pdf stem>.musicxml next to each PDF in the folder it is given
+    fake = tmp_path / "fake_convert.py"
+    fake.write_text(
+        "import sys, pathlib\n"
+        "for p in pathlib.Path(sys.argv[1]).glob('*.pdf'):\n"
+        "    p.with_suffix('.musicxml').write_text('<score-partwise/>')\n"
+    )
+    import sys as _sys
+    assert main(["convert", "--root", str(tmp_path), "--converter", f'"{_sys.executable}" "{fake}"']) == 0
+    assert (faure / "faure_elegie_op24__imslp.musicxml").is_file()
+    assert not (tmp_path / "requests" / "convert__faure_elegie_op24__imslp.json").exists()
+    data = json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))
+    assert {p["id"]: p["musicxml"] for p in data["pieces"]}["faure_elegie_op24"] is True

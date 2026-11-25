@@ -3,7 +3,7 @@ import { $, requestOpenScore, store } from "../core/app";
 import { GoogleAuth } from "./auth";
 import { Drive, IdbCache } from "./drive";
 import { DriveLibrary, fileKey } from "./library";
-import { allTags, folderIdFromLink, search, type LibraryFile, type LibraryIndex, type Piece } from "./model";
+import { allTags, folderIdFromLink, musicxmlOf, requestName, search, type LibraryFile, type LibraryIndex, type Piece } from "./model";
 
 const SHOWN = 150;
 
@@ -11,6 +11,11 @@ const ui = {
   search: $<HTMLInputElement>("lib-search"),
   tag: $<HTMLSelectElement>("lib-tag"),
   refresh: $<HTMLButtonElement>("lib-refresh"),
+  batch: $<HTMLButtonElement>("lib-batch"),
+  batchBar: $("lib-batch-bar"),
+  batchAll: $<HTMLButtonElement>("lib-batch-all"),
+  batchNone: $<HTMLButtonElement>("lib-batch-none"),
+  batchGo: $<HTMLButtonElement>("lib-batch-go"),
   status: $("lib-status"),
   list: $<HTMLUListElement>("lib-list"),
   setup: $<HTMLDetailsElement>("lib-setup"),
@@ -25,6 +30,12 @@ const cache = new IdbCache();
 let library: DriveLibrary | null = null;
 let index: LibraryIndex | null = null;
 let offlineKeys = new Set<string>();
+let batch = false;
+const selected = new Map<string, { piece: Piece; file: LibraryFile }>(); // by request file name
+const requestedHere = new Set<string>(store.get<string[]>("library.requested") ?? []); // asked from this device, not yet in the index
+
+const needsXml = (f: LibraryFile) => f.kind === "pdf" && !f.musicxml;
+const isRequested = (f: LibraryFile) => !!f.requested || requestedHere.has(requestName(f));
 
 ui.folder.value = store.get<string>("library.folder") ?? "";
 ui.client.value = store.get<string>("library.client") ?? (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? "";
@@ -56,6 +67,9 @@ async function refresh(): Promise<void> {
   try {
     index = await lib.loadIndex();
     offlineKeys = new Set(await cache.keys());
+    const stillWaiting = new Set(index.pieces.flatMap((p) => p.files.filter(needsXml).map(requestName)));
+    for (const r of [...requestedHere]) if (!stillWaiting.has(r)) requestedHere.delete(r);
+    store.set("library.requested", [...requestedHere]);
     ui.setup.open = false;
     render();
   } catch (e) {
@@ -73,11 +87,22 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: 
   return e;
 }
 
-function label(f: LibraryFile): string {
-  const what = f.kind === "musicxml" ? "Practice" : "PDF";
-  const v = f.edition || f.variant;
-  return v ? `${what} · ${v}` : what;
+function edition(f: LibraryFile): string {
+  return f.edition || f.variant;
 }
+
+function button(text: string, cls: string | undefined, onClick: (b: HTMLButtonElement) => void, title?: string): HTMLButtonElement {
+  const b = el("button", text, cls);
+  b.type = "button";
+  if (title) b.title = title;
+  b.addEventListener("click", () => onClick(b));
+  return b;
+}
+
+const QUALITY: Record<string, string> = {
+  REVIEW: "Converted automatically: some measures may be wrong",
+  UNRELIABLE: "Converted automatically and probably wrong in many places",
+};
 
 function render(): void {
   if (!index) return;
@@ -93,7 +118,11 @@ function render(): void {
       : `${found.length} of ${index.pieces.length} pieces${found.length > SHOWN ? `, showing the first ${SHOWN}` : ""}`,
   );
   ui.list.replaceChildren(...found.slice(0, SHOWN).map(item));
+  lastFound = found;
+  updateBatchBar();
 }
+
+let lastFound: Piece[] = [];
 
 function item(p: Piece): HTMLLIElement {
   const li = el("li", undefined, "piece");
@@ -102,14 +131,43 @@ function item(p: Piece): HTMLLIElement {
   li.append(head);
   if (p.tags?.length) li.append(el("div", p.tags.join(" · "), "piece-tags"));
   const files = el("div", undefined, "piece-files");
-  const ordered = [...p.files].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "musicxml" ? -1 : 1));
-  for (const f of ordered) {
-    const b = el("button", label(f), f.kind === "musicxml" ? "primary" : undefined);
-    b.type = "button";
-    if (offlineKeys.has(fileKey(p, f))) b.title = "Saved on this device, opens offline";
-    if (offlineKeys.has(fileKey(p, f))) b.append(el("span", " ✓", "saved"));
-    b.addEventListener("click", () => void openFile(p, f, b));
-    files.append(b);
+  for (const f of p.files) {
+    const row = el("div", undefined, "edition");
+    const name = edition(f);
+    if (p.files.length > 1 && name) row.append(el("span", name, "edition-name"));
+    const xml = musicxmlOf(f);
+    if (xml) {
+      const key = fileKey(p, xml);
+      const b = button("Practice", "primary", (b) => void openFile(p, xml, b), offlineKeys.has(key) ? "Saved on this device, opens offline" : undefined);
+      if (offlineKeys.has(key)) b.append(el("span", " ✓", "saved"));
+      row.append(b);
+      if (xml.quality && QUALITY[xml.quality]) {
+        const q = el("span", xml.quality === "REVIEW" ? "check" : "unreliable", `quality ${xml.quality.toLowerCase()}`);
+        q.title = QUALITY[xml.quality];
+        row.append(q);
+      }
+    }
+    if (f.kind === "pdf") row.append(button("PDF", undefined, (b) => void openFile(p, f, b)));
+    if (needsXml(f)) {
+      if (batch && !isRequested(f)) {
+        const box = el("label", undefined, "pick");
+        const cb = el("input");
+        cb.type = "checkbox";
+        cb.checked = selected.has(requestName(f));
+        cb.addEventListener("change", () => {
+          if (cb.checked) selected.set(requestName(f), { piece: p, file: f });
+          else selected.delete(requestName(f));
+          updateBatchBar();
+        });
+        box.append(cb, " Convert");
+        row.append(box);
+      } else if (isRequested(f)) {
+        row.append(el("span", "MusicXML requested", "requested"));
+      } else {
+        row.append(button("Make MusicXML", undefined, (b) => void request([{ piece: p, file: f }], b), "Ask your PC to make MusicXML from this PDF with homr"));
+      }
+    }
+    files.append(row);
   }
   li.append(files);
   return li;
@@ -141,6 +199,54 @@ async function openFile(p: Piece, f: LibraryFile, button: HTMLButtonElement): Pr
     button.disabled = false;
   }
 }
+
+async function request(items: { piece: Piece; file: LibraryFile }[], button?: HTMLButtonElement): Promise<void> {
+  const lib = setup();
+  if (!lib || !items.length) return;
+  if (button) button.disabled = true;
+  ui.batchGo.disabled = true;
+  status(`Asking for MusicXML for ${items.length} PDF${items.length > 1 ? "s" : ""}…`);
+  try {
+    const made = await lib.requestConversion(items);
+    for (const it of items) {
+      requestedHere.add(requestName(it.file));
+      selected.delete(requestName(it.file));
+    }
+    store.set("library.requested", [...requestedHere]);
+    render();
+    status(
+      `${made || items.length} PDF${items.length > 1 ? "s" : ""} queued. On your PC, run "lento-library convert" in the library folder; ` +
+        "the MusicXML appears here after the next Refresh.",
+    );
+  } catch (e) {
+    status(`${(e as Error).message} You can also run "lento-library convert --missing" on your PC.`, "error");
+  } finally {
+    if (button) button.disabled = false;
+    updateBatchBar();
+  }
+}
+
+function updateBatchBar(): void {
+  ui.batchBar.hidden = !batch;
+  ui.batch.setAttribute("aria-pressed", String(batch));
+  ui.batchGo.textContent = `Request MusicXML for ${selected.size} PDF${selected.size === 1 ? "" : "s"}`;
+  ui.batchGo.disabled = selected.size === 0;
+}
+
+ui.batch.addEventListener("click", () => {
+  batch = !batch;
+  if (!batch) selected.clear();
+  render();
+});
+ui.batchAll.addEventListener("click", () => {
+  for (const p of lastFound) for (const f of p.files) if (needsXml(f) && !isRequested(f)) selected.set(requestName(f), { piece: p, file: f });
+  render();
+});
+ui.batchNone.addEventListener("click", () => {
+  selected.clear();
+  render();
+});
+ui.batchGo.addEventListener("click", () => void request([...selected.values()]));
 
 let typing = 0;
 ui.search.addEventListener("input", () => {
