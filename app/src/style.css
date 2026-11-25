@@ -145,3 +145,16 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .tuner-refs button { min-width: 48px; }
 .tuner-settings { color: var(--muted); margin: 12px 0 0; }
 .tuner-refs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.delay { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 16px 6px 0; }
+.delay > label { font-weight: 600; }
+#av-delay { width: 180px; accent-color: var(--accent); }
+#av-delay-out { min-width: 5em; font-variant-numeric: tabular-nums; color: var(--muted); }
+.delay button { min-width: 44px; padding: 6px 10px; }
+.av-test { flex-basis: 100%; max-width: 560px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 6px 0; }
+.av-test p { margin: 0 0 10px; }
+.av-row { display: flex; align-items: center; gap: 18px; margin-bottom: 10px; }
+.av-tap { width: 140px; height: 96px; font-size: 1.2rem; font-weight: 700; touch-action: manipulation; user-select: none; }
+.av-tap.hit { background: var(--accent); color: var(--accent-ink); }
+.av-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); }
+.av-dot.on { background: var(--accent); border-color: var(--accent); }

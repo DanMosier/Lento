@@ -80,6 +80,23 @@
         <summary>Settings</summary>
         <label>Tuning A = <input id="a4" type="number" min="400" max="480" step="0.5" value="440" /> Hz</label>
         <label><input id="play-while-recording" type="checkbox" /> Play the part while recording (use headphones)</label>
+        <div class="delay">
+          <label for="av-delay" title="Wireless headphones play sound late; this holds the moving cursor back to match">Headphone delay</label>
+          <input id="av-delay" type="range" min="-100" max="500" step="5" value="0" />
+          <output id="av-delay-out" for="av-delay">0 ms</output>
+          <button id="av-minus" type="button" aria-label="10 ms less">−</button>
+          <button id="av-plus" type="button" aria-label="10 ms more">+</button>
+          <button id="av-measure" type="button">Measure</button>
+        </div>
+        <div id="av-test" class="av-test" hidden>
+          <p>Put your headphones on. You'll hear 16 clicks: tap the big button (or press Space) exactly with each one.</p>
+          <div class="av-row">
+            <button id="av-tap" type="button" class="av-tap">Tap</button>
+            <span id="av-dot" class="av-dot" aria-hidden="true"></span>
+          </div>
+          <p id="av-result" class="hint" role="status" aria-live="polite"></p>
+          <button id="av-close" type="button">Close</button>
+        </div>
       </details>
     </section>
 
