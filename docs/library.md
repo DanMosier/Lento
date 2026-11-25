@@ -43,7 +43,8 @@ lento-library watch --install                       # convert queued PDFs automa
 
 **The watcher.** `lento-library watch` keeps running and looks at `requests/` every 30 seconds (`--interval` to
 change). When the app queues a PDF, the watcher converts it and rebuilds `library.json`, so it shows up on the phone
-after a Refresh. It writes `requests/_status.json` on every look; the app's Convert PDF screen reads it to show
+after a Refresh. It also rebuilds `library.json` when it starts and whenever score files, `catalog.csv` or `tags.md`
+change by hand (added, moved or renamed in Drive), so `lento-library build` is never needed while it runs. It writes `requests/_status.json` on every look; the app's Convert PDF screen reads it to show
 whether the PC is on, what it is converting and what finished. A PDF that fails is set aside as
 `requests/failed__<name>.json` (shown in the app as "last try failed"), so it isn't retried forever; queueing it again
 tries once more. `--install` starts the watcher hidden at every Windows sign-in (a small file in your Startup folder,
@@ -64,8 +65,9 @@ Lento_ConvertPDF's own window for a batch; run `lento-library build` afterwards 
 
 ## In the app
 
-Settings > Google Drive library: paste the folder's Drive link and your Google client ID, then **Connect to Google
-Drive**. After that, **Refresh** in the Library or Convert PDF screen picks up a new `library.json`.
+Settings > Google Drive library: paste the folder's Drive link (the client ID is already filled in), then **Connect to
+Google Drive**. Or open `https://danmosier.github.io/Lento/?library=<folder link>` once on each device, which saves the
+folder, and press Connect in Settings. After that, **Refresh** in the Library or Convert PDF screen picks up a new `library.json`.
 
 - Each edition shows **PDF** (opens in Drive's viewer). If it has MusicXML it also shows **Practice**, which opens it
   in the Practice tab; a **check** or **unreliable** badge means the MusicXML was converted automatically and may
@@ -96,5 +98,6 @@ The app runs entirely in your browser, so Google needs to know it is allowed to 
 6. Paste it in the app's Library settings. The first sign-in shows "Google hasn't verified this app"; that's expected
    for your own testing app: choose **Continue**.
 
-The client ID is not a secret. To build it into the app instead of pasting it on each device, add a repository
-variable `VITE_GOOGLE_CLIENT_ID` (or put it in `app/.env.local` for local builds).
+The client ID is not a secret, and the one for danmosier.github.io is built into the app
+(`app/src/core/library/connection.ts`). A fork can set its own with a repository variable `VITE_GOOGLE_CLIENT_ID`, in
+`app/.env.local`, or in Settings.

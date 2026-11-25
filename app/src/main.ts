@@ -4,7 +4,7 @@
  * here. Features never import each other; shared code lives in core/.
  */
 import "./style.css";
-import { $, onOpenScore } from "./core/app";
+import { $, onOpenScore, store } from "./core/app";
 import { mark, timed } from "./core/perf";
 
 /**
@@ -110,6 +110,12 @@ try {
   localStorage.removeItem("lento.score"); // older versions kept the last score here; the app now starts at home
 } catch {
   /* storage blocked */
+}
+// A setup link (…/Lento/?library=<Drive folder link or id>) connects this device to a library folder in one tap,
+// so the folder never has to be typed on a phone.
+{
+  const lib = new URLSearchParams(location.search).get("library");
+  if (lib) store.set("library.folder", lib);
 }
 // The app always starts at home.
 history.replaceState(null, "", location.pathname);
