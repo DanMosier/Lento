@@ -25,6 +25,12 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
      - **Percussion & Timpani**: *Geonkick Percussion & Timpani Synthesizer VST3*
      - **Universal Synth**: *Surge XT Open-Source Hybrid Synthesizer VST3*
 
+## Practice web app
+
+`web/` is the practice app for PC, phone and tablet: slowed playback with loops, count-in and metronome,
+recording, note-by-note intonation and timing feedback, and a tuner, all in the browser. Live at
+https://danmosier.github.io/Lento/. See [web/README.md](web/README.md).
+
 ## Practice feedback
 
 `lento-practice` compares a recording of you playing with its MusicXML score and reports intonation in cents, early or

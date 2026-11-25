@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Practice with your sheet music: slowed playback, loops, and note-by-note intonation and timing feedback." />
+    <meta name="theme-color" content="#7a3e1d" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <title>Lento</title>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Lento</h1>
+      <button id="tuner-open" type="button">Tuner</button>
+      <label class="button primary" for="score-file">Open score</label>
+      <input id="score-file" type="file" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden />
+      <select id="part" aria-label="Part to practise" hidden></select>
+      <span id="title" class="title"></span>
+    </header>
+
+    <section id="controls" class="controls" hidden>
+      <div class="group">
+        <label for="tempo">Tempo</label>
+        <input id="tempo" type="range" min="30" max="120" step="5" value="70" />
+        <output id="tempo-out" for="tempo"></output>
+      </div>
+      <div class="group">
+        <label for="from">Measures</label>
+        <select id="from" aria-label="First measure"></select>
+        <span>to</span>
+        <select id="to" aria-label="Last measure"></select>
+      </div>
+      <div class="group checks">
+        <label><input id="loop" type="checkbox" /> Loop</label>
+        <label><input id="count-in" type="checkbox" checked /> Count-in</label>
+        <label><input id="accomp" type="checkbox" /> All parts</label>
+      </div>
+      <div class="group">
+        <label for="click">Click</label>
+        <select id="click" aria-label="Metronome click">
+          <option value="0">Off</option>
+          <option value="4">Whole notes</option>
+          <option value="2">Half notes</option>
+          <option value="1">Quarter notes</option>
+          <option value="0.5">Eighth notes</option>
+          <option value="0.25">16th notes</option>
+        </select>
+      </div>
+      <div class="group">
+        <label for="pitch-strict">Pitch</label>
+        <select id="pitch-strict" aria-label="How strict to be about pitch">
+          <option value="strict">Strict (±5 cents)</option>
+          <option value="standard" selected>Standard (±10 cents)</option>
+          <option value="relaxed">Relaxed (±20 cents)</option>
+        </select>
+      </div>
+      <div class="group">
+        <label for="timing-strict">Timing</label>
+        <select id="timing-strict" aria-label="How strict to be about timing">
+          <option value="strict">Strict (±60 ms)</option>
+          <option value="standard" selected>Standard (±100 ms)</option>
+          <option value="relaxed">Relaxed (±160 ms)</option>
+        </select>
+      </div>
+      <div class="group actions">
+        <button id="play" type="button">Play</button>
+        <button id="record" type="button" class="record">Record</button>
+        <label class="button" for="audio-file">Check a recording</label>
+        <input id="audio-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" hidden />
+      </div>
+      <details class="group more">
+        <summary>Settings</summary>
+        <label>Tuning A = <input id="a4" type="number" min="400" max="480" step="0.5" value="440" /> Hz</label>
+        <label><input id="play-while-recording" type="checkbox" /> Play the part while recording (use headphones)</label>
+      </details>
+    </section>
+
+    <section id="tuner" class="tuner" hidden aria-label="Tuner">
+      <div class="tuner-note"><span id="tuner-name">–</span><small id="tuner-octave"></small></div>
+      <div class="tuner-meter" aria-hidden="true">
+        <div class="tuner-scale"><span>−50</span><span>−25</span><span>0</span><span>+25</span><span>+50</span></div>
+        <div class="tuner-track"><div class="tuner-zone"></div><div id="tuner-needle" class="tuner-needle"></div></div>
+      </div>
+      <p id="tuner-readout" class="tuner-readout">Play a note</p>
+      <div class="tuner-refs">
+        <span>Reference tone:</span>
+        <button type="button" data-midi="36">C</button>
+        <button type="button" data-midi="43">G</button>
+        <button type="button" data-midi="50">D</button>
+        <button type="button" data-midi="57">A</button>
+      </div>
+      <button id="tuner-close" type="button">Close tuner</button>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+
+    <main>
+      <section id="welcome" class="welcome">
+        <h2>Practise with your own sheet music</h2>
+        <ol>
+          <li>Open a MusicXML score (.musicxml, .xml or .mxl). MuseScore and most notation apps can export one.</li>
+          <li>Play it back slowly, loop a few measures, and play along.</li>
+          <li>Record yourself, or open a recording, to see every note colored by how in tune and on time it was.</li>
+        </ol>
+        <p class="hint">Everything stays on this device. Nothing is uploaded.</p>
+      </section>
+      <section id="feedback" class="feedback" hidden></section>
+      <div id="sheet" class="sheet" hidden></div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
