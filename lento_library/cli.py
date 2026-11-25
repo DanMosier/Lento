@@ -64,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--uninstall", action="store_true", help="stop starting it at sign-in")
         if name == "organize":
             p.add_argument("step", choices=["plan", "status", "apply", "undo"])
-            p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo")
+            p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo, or all")
+            p.add_argument("--fresh", action="store_true", help="plan: start over instead of keeping an existing plan's edits")
         if name == "add":
             p.add_argument("file")
             p.add_argument("piece_id")
@@ -87,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
         if args.cmd == "organize":
-            return organize(lib, args.step, args.batch)
+            return organize(lib, args.step, args.batch, args.fresh)
         if args.cmd == "add":
             src = Path(args.file)
             if not src.exists():
@@ -113,11 +114,11 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if rep.problems else 0
 
 
-def organize(lib: Library, step: str, batch: str | None) -> int:
+def organize(lib: Library, step: str, batch: str | None, fresh: bool = False) -> int:
     from lento_library import organize as org
 
     if step == "plan":
-        path, n = org.plan(lib)
+        path, n = org.plan(lib, fresh)
         print(f"wrote {path} ({n} files). Check it, then: lento-library organize status")
         step = "status"
     if step == "status":
@@ -134,6 +135,21 @@ def organize(lib: Library, step: str, batch: str | None) -> int:
         back = org.undo(lib, batch)
         print(f"put back {len(back)} file(s) from '{batch}'")
         return 0
+    if batch == "all":  # every batch with files left to move; one with problems is skipped, the rest go ahead
+        todo = [b for b, (left, _) in sorted(org.batches(lib).items()) if left]
+        total, stuck = 0, []
+        for b in todo:
+            moved, problems = org.apply(lib, b, rebuild=False)
+            total += len(moved)
+            if problems:
+                stuck.append(b)
+                for p in problems:
+                    print(f"PROBLEM ({b}):", p)
+        lib.write_index()
+        print(f"{total} file(s) filed from {len(todo) - len(stuck)} batch(es); library.json rebuilt.")
+        if stuck:
+            print(f"{len(stuck)} batch(es) not moved because of the problems above: fix them in {org.PLAN} and run it again")
+        return 1 if stuck else 0
     moved, problems = org.apply(lib, batch)
     for p in problems:
         print("PROBLEM:", p)

@@ -18,6 +18,7 @@ import datetime
 import re
 import shutil
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 from lento_library.library import (
@@ -29,7 +30,6 @@ from lento_library.library import (
     REQUESTS,
     VARIANT_RE,
     Library,
-    count_pages,
 )
 
 PLAN = "organize-plan.csv"
@@ -45,26 +45,81 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
-def composer_slug(folder: str) -> str:
-    """'Villa-Lobos, Heitor' -> 'villa-lobos'; 'Bach, Johann Sebastian' -> 'bach'."""
-    return slug(folder.split(",")[0]) or "unknown"
-
-
-def split_stem(stem: str) -> tuple[str, str]:
-    """('34 - Brahms Symphony 2 mvt 4', '1') for '34 - Brahms Symphony 2 mvt 4-1': a trailing -N is a part number."""
-    m = re.match(r"^(.*\S)-(\d{1,2})$", stem)
-    return (m.group(1), m.group(2)) if m else (stem, "")
+PARTICLES = {"von", "van", "de", "der", "den", "d", "la", "le", "du", "da", "di", "jr", "sr", "zu"}
+MAX_TITLE = 60  # keeps pieces/<id>/<id>__<variant>.pdf well inside Windows' 260-character path limit
 
 
 def strip_number(stem: str) -> str:
     return re.sub(r"^\s*\d+\s*[-.)]\s*", "", stem)  # "74 - Mozart ..." -> "Mozart ..."
 
 
-def title_slug(stem: str, composer: str) -> str:
-    s = slug(strip_number(stem))
-    if composer and s.startswith(composer + "-"):  # "mozart-magic-flute" -> "magic-flute"
-        s = s[len(composer) + 1:]
-    return s or "untitled"
+def initials(first: str) -> str:
+    """'Johann Sebastian' -> 'js', 'J.S' -> 'js', 'CPE' -> 'cpe', 'Fr' -> 'f', 'Ludwig van' -> 'l'."""
+    out = ""
+    for tok in re.split(r"[\s.\-]+", unicodedata.normalize("NFKD", first)):
+        tok = re.sub(r"[^A-Za-z]", "", tok)
+        if not tok or tok.lower() in PARTICLES:
+            continue
+        out += tok.lower() if tok.isupper() and len(tok) <= 4 else tok[0].lower()
+    return out
+
+
+@dataclass
+class Name:
+    composer: str  # "Bach, Johann Sebastian" as written, or ""
+    surname: str  # slug
+    first: str  # initials
+    title: str  # what is left of the file name
+    variant: str
+
+
+def parse(parts: tuple[str, ...], stem: str) -> Name:
+    """Reads composer, title and part from where a file is and what it is called.
+
+    "Bach, Johann Sebastian/Bach, Johann Sebastian - Cello Suite No.1 C.pdf" -> bach / js / Cello Suite No.1 / cello
+    "Compilations/.../02 - Bartok Concerto for Orchestra-1.pdf"            -> bartok / Concerto for Orchestra excerpt 1
+    """
+    folder = parts[0] if len(parts) > 1 else ""
+    text = strip_number(stem).strip()
+    numbered = text != stem.strip()
+    composer = ""
+    m = re.match(r"^([^,]+,.+?)\s+-\s+(.+)$", text)  # "Last, First - Title": the name as written beats a garbled folder name
+    if m:
+        composer, text = m.group(1).strip(), m.group(2).strip()
+    elif "," in folder:
+        composer = folder
+        pre, sep, rest = text.partition(" - ")  # "di Lasso - I know a Young Maiden" in "Lasso, di"
+        if sep and slug(folder.split(",")[0]) in slug(pre).split("-"):
+            text = rest.strip()
+    variant = "score"
+    text = re.sub(r"\s+P\s*&\s*C$", "", text)  # "P & C": piano and cello, i.e. the whole score
+    pm = re.match(r"^(.*?)(?:\s+|(?<=[\d.]))([CP])$", text)  # "Op.65P", "Op. 31 C": the piano or cello part
+    wm = re.match(r"^(.*\S)\s+(cello|piano)$", text, re.IGNORECASE)
+    if pm and pm.group(1):
+        text, variant = pm.group(1).rstrip(" .,-"), "cello" if pm.group(2) == "C" else "piano"
+    elif wm and wm.group(1).split()[-1].lower() not in {"for", "and", "solo", "et", "pour", "violoncelle", "&"}:
+        text, variant = wm.group(1).rstrip(" .,-"), wm.group(2).lower()
+    # "Bartok Concerto for Orchestra-5": excerpt 5. After a digit only in numbered files ("34 - ... mvt 4-1"),
+    # since "Op.4 nos. 1-5" is a range
+    em = re.match(r"^(.*[A-Za-z)])-(\d{1,2})$", text) or (numbered and re.match(r"^(.*\S)-(\d{1,2})$", text))
+    if em:
+        text = f"{em.group(1)} excerpt {em.group(2)}"
+    if composer:
+        last, _, first = composer.partition(",")
+        surname, first = slug(last) or "unknown", initials(first)
+    else:  # no composer given: the first word of the title ("Bartok Concerto for Orchestra")
+        word = text.split(" ")[0]
+        surname, first = slug(word) or "unknown", ""
+        if " " in text and slug(word):
+            text = text.split(" ", 1)[1]
+    return Name(composer, surname, first, text, variant)
+
+
+def title_slug(text: str) -> str:
+    s = slug(text) or "untitled"
+    if len(s) > MAX_TITLE:
+        s = s[:MAX_TITLE].rsplit("-", 1)[0]
+    return s
 
 
 def scan(lib: Library) -> list[Path]:
@@ -78,35 +133,41 @@ def scan(lib: Library) -> list[Path]:
     return out
 
 
-def plan(lib: Library) -> tuple[Path, int]:
-    """Writes organize-plan.csv, keeping the rows of a plan already there (so edits survive a re-run)."""
+def plan(lib: Library, fresh: bool = False) -> tuple[Path, int]:
+    """Writes organize-plan.csv, keeping the rows of a plan already there (so edits survive a re-run) unless
+    `fresh`. Files already moved (in organize-log.csv) are never planned again."""
     path = lib.root / PLAN
-    old = {r["source"]: r for r in read_csv(path)}
+    old = {} if fresh else {r["source"]: r for r in read_csv(path)}
+    files = scan(lib)
+    names = {p: parse(p.relative_to(lib.root).parts, p.stem) for p in files}
+    # a surname shared by composers with different first names (the Bachs, the Rombergs) gets their initials
+    firsts: dict[str, set[str]] = {}
+    for n in names.values():
+        if n.first:
+            firsts.setdefault(n.surname, set()).add(n.first)
+    families = {s for s, f in firsts.items() if len(f) > 1}
     rows: list[dict[str, str]] = []
     taken: set[tuple[str, str, str]] = set()  # (piece_id, variant, ext) already planned
     for r in old.values():
         taken.add((r["piece_id"], r["variant"], Path(r["source"]).suffix.lower()))
-    for p in scan(lib):
+    for p in files:
         rel = p.relative_to(lib.root).as_posix()
         if rel in old:
             rows.append(old[rel])
             continue
         parts = p.relative_to(lib.root).parts
         batch = parts[0] if len(parts) > 1 else "(top folder)"
-        composer_folder = parts[0] if len(parts) > 1 and "," in parts[0] else ""
-        stem, part = split_stem(p.stem)
-        # the composer from a "Last, First" folder, else the first word of the name ("74 - Mozart Magic Flute")
-        comp = composer_slug(composer_folder) if composer_folder else (slug(strip_number(stem).split(" ")[0]) or "unknown")
-        title = title_slug(stem, comp)
-        pid = f"{comp}_{title}"
-        variant = f"part-{part}" if part else "score"
+        nm = names[p]
+        comp = f"{nm.surname}-{nm.first}" if nm.surname in families and nm.first else nm.surname
+        pid = f"{comp}_{title_slug(nm.title)}"
+        variant = nm.variant
         ext = p.suffix.lower()
         n, base = 2, variant
         while (pid, variant, ext) in taken:  # two files would get the same name: number the later one
             variant, n = f"{base}-{n}", n + 1
         taken.add((pid, variant, ext))
         rows.append({"batch": batch, "source": rel, "piece_id": pid, "variant": variant, "action": "move",
-                     "composer": composer_folder, "title": stem})
+                     "composer": nm.composer, "title": nm.title})
     rows.sort(key=lambda r: (r["batch"], r["source"]))
     write_csv(path, PLAN_COLUMNS, rows)
     return path, len(rows)
@@ -124,7 +185,7 @@ def batches(lib: Library) -> dict[str, tuple[int, int]]:
     return out
 
 
-def apply(lib: Library, batch: str) -> tuple[list[str], list[str]]:
+def apply(lib: Library, batch: str, rebuild: bool = True) -> tuple[list[str], list[str]]:
     """Moves one batch. Returns (moved, problems). Checks every row first, so a bad id moves nothing."""
     rows = [r for r in read_csv(lib.root / PLAN) if r["batch"] == batch and r["action"].strip().lower() == "move"]
     if not rows:
@@ -151,7 +212,7 @@ def apply(lib: Library, batch: str) -> tuple[list[str], list[str]]:
             todo.append((r, src, dest))
     if problems:
         return [], problems
-    log = read_csv(lib.root / LOG)
+    log_new = not (lib.root / LOG).is_file()
     catalog_new = not lib.catalog_path.is_file()
     cat_rows = []
     moved = []
@@ -159,26 +220,37 @@ def apply(lib: Library, batch: str) -> tuple[list[str], list[str]]:
     for r, src, dest in todo:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), dest)
-        log.append({"batch": batch, "source": r["source"], "dest": dest.relative_to(lib.root).as_posix(), "moved": "yes"})
+        entries = [{"batch": batch, "source": r["source"], "dest": dest.relative_to(lib.root).as_posix(), "moved": "yes"}]
         report = src.with_name(f"{src.stem}.quality.json")  # Lento_ConvertPDF's quality report travels with its file
         if report.is_file() and not dest.with_name(f"{dest.stem}.quality.json").exists():
             shutil.move(str(report), dest.with_name(f"{dest.stem}.quality.json"))
-            log.append({"batch": batch, "source": report.relative_to(lib.root).as_posix(),
+            entries.append({"batch": batch, "source": report.relative_to(lib.root).as_posix(),
                         "dest": dest.with_name(f"{dest.stem}.quality.json").relative_to(lib.root).as_posix(), "moved": "yes"})
         moved.append(dest.relative_to(lib.root).as_posix())
         if dest.suffix == ".pdf":
             row = {c: "" for c in COLUMNS}
             row.update(piece_id=r["piece_id"].strip(), file=dest.name, variant=r["variant"].strip(), composer=r.get("composer", ""),
-                       title=r.get("title", ""), source=r["source"], pages=count_pages(dest), added=today)
+                       title=r.get("title", ""), source=r["source"], added=today)
+            # no page count: reading every PDF would download the whole library from Drive
             cat_rows.append(row)
-        write_csv(lib.root / LOG, LOG_COLUMNS, log)  # after every move, so a crash leaves an exact record
+        with (lib.root / LOG).open("a", newline="", encoding="utf-8-sig" if log_new else "utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=LOG_COLUMNS)  # after every move, so a crash leaves an exact record
+            if log_new:
+                w.writeheader()
+                log_new = False
+            w.writerows(entries)
+    for folder in sorted({src.parent for _, src, _ in todo}, key=lambda d: -len(d.parts)):
+        while folder != lib.root and folder.is_dir() and not any(folder.iterdir()):  # emptied folders go (undo remakes them)
+            folder.rmdir()
+            folder = folder.parent
     if cat_rows:
         with lib.catalog_path.open("a", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=COLUMNS)
             if catalog_new:
                 w.writeheader()
             w.writerows(cat_rows)
-    lib.write_index()
+    if rebuild:
+        lib.write_index()
     return moved, []
 
 
