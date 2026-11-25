@@ -29,7 +29,7 @@ def test_plan_names_files_and_moves_nothing(tmp_path: Path) -> None:
     assert (aria["piece_id"], aria["variant"], aria["batch"]) == ("villa-lobos_aria-bachianas-5", "score", "Villa-Lobos, Heitor")
     assert rows["Siklós, Albert/Etude.pdf"]["piece_id"] == "siklos_etude"
     brahms = rows["Excerpts/Brahms/36 - Brahms Symphony 3 mvt 1-4.musicxml"]
-    assert (brahms["piece_id"], brahms["variant"]) == ("brahms_symphony-3-mvt-1", "part-4")
+    assert (brahms["piece_id"], brahms["variant"]) == ("brahms_symphony-3-mvt-1-excerpt-4", "score")
     assert (tmp_path / "Siklós, Albert" / "Etude.pdf").exists()
 
 
@@ -91,3 +91,42 @@ def test_files_already_in_pieces_are_not_planned(tmp_path: Path) -> None:
     (tmp_path / "pieces" / "bach_x").mkdir(parents=True)
     (tmp_path / "pieces" / "bach_x" / "bach_x__score.pdf").write_bytes(b"%PDF")
     assert org.plan(Library(tmp_path))[1] == 0
+
+
+def test_names_from_real_file_names() -> None:
+    def name(path: str) -> tuple[str, str, str, str]:
+        parts = tuple(path.split("/"))
+        n = org.parse(parts, parts[-1].rsplit(".", 1)[0])
+        return n.surname, n.first, org.title_slug(n.title), n.variant
+
+    assert name("K„mpf, Karl/Kämpf, Karl - Legende., Op. 31 C.pdf") == ("kampf", "k", "legende-op-31", "cello")
+    assert name("Chopin, Frédéric/Chopin, Frédéric - Cello Sonata, Op.65P.pdf") == ("chopin", "f", "cello-sonata-op-65", "piano")
+    assert name("Albinoni, Tomaso/Albinoni, Tomaso - Sonata Op 6 No 3 Piano.pdf")[2:] == ("sonata-op-6-no-3", "piano")
+    assert name("Bach, J.S/Bach, J.S - 6 Suites for Solo Cello.pdf")[1:] == ("js", "6-suites-for-solo-cello", "score")
+    assert name("Bach, CPE/Bach, CPE - Concerto.pdf")[1] == "cpe"
+    assert name("Brahms, Johannes/Brahms, Johannes - 21 Hungarian Dances (Piano), WoO 1no 1-5.pdf")[2] == "21-hungarian-dances-piano-woo-1no-1-5"
+    assert name("Compilations/X/Split Files/02 - Bartok Concerto for Orchestra-5.pdf") == ("bartok", "", "concerto-for-orchestra-excerpt-5", "score")
+    assert len(name("A, B/A, B - " + "very long title " * 10 + ".pdf")[2]) <= org.MAX_TITLE
+
+
+def test_composer_families_get_initials(tmp_path: Path) -> None:
+    for folder, file in [("Bach, Johann Sebastian", "Bach, Johann Sebastian - Suite.pdf"), ("Bach, CPE", "Bach, CPE - Concerto.pdf"),
+                         ("Bach, J.S", "Bach, J.S - Suite.pdf"), ("Popper, David", "Popper, David - Etude.pdf")]:
+        (tmp_path / folder).mkdir(exist_ok=True)
+        (tmp_path / folder / file).write_bytes(b"%PDF")
+    path, _ = org.plan(Library(tmp_path))
+    rows = {r["source"].split("/")[0]: (r["piece_id"], r["variant"]) for r in org.read_csv(path)}
+    assert {rows["Bach, Johann Sebastian"], rows["Bach, J.S"]} == {("bach-js_suite", "score"), ("bach-js_suite", "score-2")}
+    assert rows["Bach, CPE"][0] == "bach-cpe_concerto"
+    assert rows["Popper, David"][0] == "popper_etude"
+
+
+def test_names_with_hyphens_particles_and_full_scores() -> None:
+    def name(path: str) -> tuple[str, str, str, str]:
+        parts = tuple(path.split("/"))
+        n = org.parse(parts, parts[-1].rsplit(".", 1)[0])
+        return n.surname, n.first, org.title_slug(n.title), n.variant
+
+    assert name("Duport, Jean-Louis/Duport, Jean-Louis - Nocturne en Duo No. 1 cello.pdf") == ("duport", "jl", "nocturne-en-duo-no-1", "cello")
+    assert name("Lasso, di/di Lasso - I know a Young Maiden.pdf")[2] == "i-know-a-young-maiden"
+    assert name("Ariosti, Attilio/Ariosti, Attilio - Sonata No.3 (in E minor) P & C.pdf")[2:] == ("sonata-no-3-in-e-minor", "score")

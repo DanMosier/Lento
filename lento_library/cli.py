@@ -64,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--uninstall", action="store_true", help="stop starting it at sign-in")
         if name == "organize":
             p.add_argument("step", choices=["plan", "status", "apply", "undo"])
-            p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo")
+            p.add_argument("batch", nargs="?", help="the batch (top folder name) for apply and undo, or all")
+            p.add_argument("--fresh", action="store_true", help="plan: start over instead of keeping an existing plan's edits")
         if name == "add":
             p.add_argument("file")
             p.add_argument("piece_id")
@@ -87,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             return watch.run(lib, converter_cmd(args), args.gpu, args.interval, once=args.once, musescore=args.musescore)
         if args.cmd == "organize":
-            return organize(lib, args.step, args.batch)
+            return organize(lib, args.step, args.batch, args.fresh)
         if args.cmd == "add":
             src = Path(args.file)
             if not src.exists():
@@ -113,11 +114,11 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if rep.problems else 0
 
 
-def organize(lib: Library, step: str, batch: str | None) -> int:
+def organize(lib: Library, step: str, batch: str | None, fresh: bool = False) -> int:
     from lento_library import organize as org
 
     if step == "plan":
-        path, n = org.plan(lib)
+        path, n = org.plan(lib, fresh)
         print(f"wrote {path} ({n} files). Check it, then: lento-library organize status")
         step = "status"
     if step == "status":
