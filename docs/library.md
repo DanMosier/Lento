@@ -63,6 +63,25 @@ installed, the app's Convert PDF screen says so. All the files go in one MuseSco
 MusicXML that already exists, clears the finished requests and rebuilds `library.json`. You can still use
 Lento_ConvertPDF's own window for a batch; run `lento-library build` afterwards so the app sees the results.
 
+## Filing an existing folder
+
+An existing score folder (say one folder per composer, files named any old way) is filed into `pieces/` in batches,
+one top folder at a time, with nothing moving until you say so:
+
+```
+lento-library organize plan --root "G:\My Drive\Sheet Music\Cello"     # writes organize-plan.csv, moves nothing
+lento-library organize status --root ...                               # the batches, and how many files each
+lento-library organize apply "Villa-Lobos, Heitor" --root ...          # files that one batch
+lento-library organize undo "Villa-Lobos, Heitor" --root ...           # puts it back
+```
+
+`organize-plan.csv` has one row per score file: its batch, the `piece_id` and `variant` it will get, and `action`.
+Open it in Excel or Sheets, fix any ids (files with the same `piece_id` become editions of one piece), and set
+`action` to `skip` for anything that should stay put. Running `plan` again adds new files and keeps your edits.
+`apply` checks the whole batch first, so one bad id moves nothing; it then moves the files (a PDF's MusicXML and
+quality report move with it), adds catalog rows with the composer and the original name as the title, logs every
+move to `organize-log.csv` and rebuilds `library.json`.
+
 ## In the app
 
 Settings > Google Drive library: paste the folder's Drive link (the client ID is already filled in), then **Connect to

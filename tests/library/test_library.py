@@ -234,7 +234,7 @@ def test_watch_rebuilds_index_when_files_change_by_hand(tmp_path: Path, monkeypa
     make_library(tmp_path)
     lib = Library(tmp_path)
     index = tmp_path / "library.json"
-    pieces = lambda: [p["id"] for p in json.loads(index.read_text(encoding="utf-8"))["pieces"]]  # noqa: E731
+    pieces = lambda: [p["id"] for p in json.loads(index.read_text(encoding="utf-8"))["pieces"]]
     looks = []
 
     def sleep(_s: float) -> None:  # between looks: check, then change the folder by hand
