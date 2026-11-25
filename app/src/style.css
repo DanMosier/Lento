@@ -38,6 +38,7 @@
 }
 
 * { box-sizing: border-box; }
+html { scrollbar-gutter: stable; } /* the score's width doesn't change (and re-layout) when a scrollbar appears */
 [hidden] { display: none !important; }
 body {
   margin: 0;
@@ -235,6 +236,29 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 @media (max-width: 600px) {
   .controls { position: static; }
   #tempo { width: 120px; }
+  /* On a phone the score uses the full width of the screen: every pixel is room for another measure. */
+  .sheet { margin-inline: calc(-1 * max(16px, env(safe-area-inset-left))); border-radius: 0; border-inline: 0; }
+}
+/* A phone on its side: the controls would cover the whole screen if they stayed pinned at the top. */
+@media (max-height: 560px) {
+  .controls { position: static; gap: 6px 18px; padding-block: 6px; }
+  .bar { padding-block: 6px; }
+}
+
+/* Score focus: just the score and a slim playback bar. */
+.view.focus .bar, .view.focus .controls, .view.focus .status { display: none; }
+body:has(#view-practice.focus:not([hidden])) .top { display: none; }
+.view.focus .sheet { margin-top: 0; }
+.mini-bar {
+  position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 6px;
+  padding: 4px max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.mini-bar button { min-height: 40px; padding: 6px 12px; flex: none; }
+.mini-info { flex: 1; min-width: 0; color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#focus-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+@media (max-width: 420px) {
+  .mini-bar button { padding: 6px 9px; }
 }
 
 .tuner {

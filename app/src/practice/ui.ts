@@ -19,6 +19,8 @@ import { clearNote, emptyMarks, marksIn, newer, parseMarks, toggleMark, type Mar
 import { drawMarks, nearestNote, notePlaces, type NotePlace } from "./marks-view";
 import { library } from "../core/library/connection";
 import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
+import { pageLayout, parseScoreSize, phoneScreen, SCORE_SIZES } from "./layout";
+import { setUpFocus } from "./focus";
 
 const ui = {
   scoreFile: $<HTMLInputElement>("score-file"),
@@ -49,6 +51,9 @@ const ui = {
   welcome: $("welcome"),
   feedback: $("feedback"),
   sheet: $("sheet"),
+  view: $("view-practice"),
+  focusBtn: $<HTMLButtonElement>("focus-btn"),
+  scoreSize: $<HTMLSelectElement>("score-size"),
 };
 
 let xml = "";
@@ -73,7 +78,7 @@ let osmdLoading: Promise<OpenSheetMusicDisplay> | null = null;
 function sheetRenderer(): Promise<OpenSheetMusicDisplay> {
   osmdLoading ??= import("opensheetmusicdisplay").then(
     ({ OpenSheetMusicDisplay }) =>
-      (osmd = new OpenSheetMusicDisplay(ui.sheet, { autoResize: true, backend: "svg", drawTitle: true, drawPartNames: true, followCursor: true })),
+      (osmd = new OpenSheetMusicDisplay(ui.sheet, { autoResize: false, backend: "svg", drawTitle: true, drawPartNames: true, followCursor: true })),
   );
   return osmdLoading;
 }
@@ -118,15 +123,71 @@ function settings() {
   };
 }
 
+// ---- fitting the score to the screen ----
+
+let drawnWidth = 0; // the score area's width when the score was last laid out
+let rendering = false; // a score is being loaded and drawn; it measures the width itself
+
+/** Sizes the page for the score area's width (smaller notes and margins on a phone) before a layout. */
+function fitPage(sheet: OpenSheetMusicDisplay): void {
+  drawnWidth = ui.sheet.clientWidth;
+  const l = pageLayout(drawnWidth, parseScoreSize(ui.scoreSize.value), choice?.shown.length ?? 1, phoneScreen());
+  sheet.Zoom = l.zoom;
+  sheet.EngravingRules.PageLeftMargin = sheet.EngravingRules.PageRightMargin = l.margin;
+  sheet.EngravingRules.RenderPartNames = l.partNames;
+}
+
 async function render(text: string): Promise<void> {
   ui.sheet.hidden = false; // OSMD measures the container, so it must be visible first
-  const sheet = await sheetRenderer();
-  await timed("render-score", async () => {
-    await timed("load-sheet", () => sheet.load(text));
-    timed("draw-sheet", () => sheet.render());
-  });
+  rendering = true;
+  try {
+    const sheet = await sheetRenderer();
+    await timed("render-score", async () => {
+      await timed("load-sheet", () => sheet.load(text));
+      fitPage(sheet);
+      timed("draw-sheet", () => sheet.render());
+    });
+  } finally {
+    rendering = false;
+  }
   drawScoreMarks();
 }
+
+/** Lays the loaded score out again (after the width or the size setting changed), keeping the scroll position. */
+function relayout(): void {
+  if (rendering || !osmd || !score || ui.sheet.hidden || !osmd.IsReadyToRender()) return;
+  const at = window.scrollY / Math.max(1, document.body.scrollHeight);
+  fitPage(osmd);
+  timed("relayout-score", () => osmd!.render());
+  window.scrollTo({ top: document.body.scrollHeight * at, behavior: "instant" });
+  drawScoreMarks();
+}
+
+{
+  // Only a change of width needs a new layout. (The renderer's own auto-resize redrew the whole score on every
+  // resize, including the phone's address bar sliding in and out while scrolling.)
+  let t = 0;
+  new ResizeObserver(() => {
+    if (!score || ui.sheet.hidden || Math.abs(ui.sheet.clientWidth - drawnWidth) < 2) return;
+    clearTimeout(t);
+    t = window.setTimeout(() => Math.abs(ui.sheet.clientWidth - drawnWidth) >= 2 && relayout(), 250);
+  }).observe(ui.sheet);
+}
+
+ui.scoreSize.replaceChildren(...SCORE_SIZES.map((v) => new Option(v === "auto" ? "Fit the screen" : `${v}%`, String(v))));
+ui.scoreSize.value = String(parseScoreSize(store.get<string>("scoreSize")));
+ui.scoreSize.addEventListener("change", () => {
+  store.set("scoreSize", ui.scoreSize.value);
+  relayout();
+});
+
+const scoreFocus = setUpFocus({
+  view: ui.view,
+  play: ui.play,
+  record: ui.record,
+  info: () => (score ? `${ui.tempo.value}% · m. ${score.measures[+ui.from.value]}–${score.measures[+ui.to.value]}` : ""),
+});
+for (const el of [ui.tempo, ui.from, ui.to]) el.addEventListener("change", scoreFocus.refresh);
 
 async function openScore(name: string, text: string, picked?: PartChoice): Promise<void> {
   return timed("open-score", () => openScoreNow(name, text, picked));
@@ -180,6 +241,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   ui.feedback.hidden = true;
   ui.welcome.hidden = true;
   ui.controls.hidden = false;
+  ui.focusBtn.hidden = false;
   ui.title.textContent = s.title;
   ui.partsBtn.hidden = s.parts.length < 2;
   ui.marksBtn.hidden = false;
@@ -1004,14 +1066,6 @@ mk.show.addEventListener("change", () => {
   drawScoreMarks();
 });
 mk.show.checked = store.get<boolean>("marks.show") ?? true;
-{
-  // the score is redrawn to fit when the window changes size; put the marks back on it afterwards
-  let t = 0;
-  window.addEventListener("resize", () => {
-    clearTimeout(t);
-    t = window.setTimeout(drawScoreMarks, 700);
-  });
-}
 
 // ---- restore the last session ----
 
@@ -1063,6 +1117,8 @@ export function closeScore(): void {
   ui.feedback.hidden = true;
   ui.feedback.replaceChildren();
   ui.controls.hidden = true;
+  scoreFocus.set(false);
+  ui.focusBtn.hidden = true;
   ui.partsBtn.hidden = true;
   ui.marksBtn.hidden = true;
   setMarking(false);
