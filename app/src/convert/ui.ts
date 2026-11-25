@@ -103,9 +103,15 @@ function render(): void {
   ui.review.replaceChildren(
     ...review.map((it) => li(label(it)[0], it.file.quality === "REVIEW" ? "some measures may be wrong" : "probably wrong in many places")),
   );
-  for (const [k, it] of selected) if (!todo.includes(it)) selected.delete(k);
+  // rows are rebuilt on every render, so match the selection by file name, not by object
+  const open = new Map(todo.map((it) => [requestName(it.file), it] as const));
+  for (const k of [...selected.keys()]) {
+    const it = open.get(k);
+    if (it) selected.set(k, it);
+    else selected.delete(k);
+  }
   updateGo();
-  allVisible = shown;
+  allVisible = shown.slice(0, SHOWN); // "Select all shown" means the rows on screen, not every match
 }
 
 let allVisible: Item[] = [];
