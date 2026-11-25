@@ -25,6 +25,11 @@ A standalone desktop tool to batch-transcribe sheet music PDFs into `.musicxml` 
      - **Percussion & Timpani**: *Geonkick Percussion & Timpani Synthesizer VST3*
      - **Universal Synth**: *Surge XT Open-Source Hybrid Synthesizer VST3*
 
+## Practice web app
+
+`web/` is the practice app for PC, phone and tablet: slowed playback with loops and a count-in, recording, and
+note-by-note intonation and timing feedback, all in the browser. See [web/README.md](web/README.md).
+
 ## Setup
 
 The app expects homr in a sibling folder (`..\homr`). To use another location, set `HOMR_PYTHON` or the path in the GUI.
