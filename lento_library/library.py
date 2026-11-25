@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(_[a-z0-9]+(-[a-z0-9]+)*){1,2}$")
+VARIANT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")  # no path separators, no ".." on its own
 VARIANT_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 COLUMNS = ["piece_id", "file", "variant", "composer", "title", "catalog_no",
            "edition", "source", "pages", "key", "clefs", "positions", "tags",
@@ -255,9 +256,20 @@ class Library:
         return out
 
     def pdf_for(self, stem: str) -> Path | None:
-        """The PDF called <stem>.pdf, in the piece folder its name starts with."""
-        p = self.pieces / stem.split("__", 1)[0] / f"{stem}.pdf"
-        return p if p.is_file() else None
+        """The PDF called <stem>.pdf, in the piece folder its name starts with.
+
+        Request names come from files anyone with write access to the Drive folder could create, so only a
+        well-formed <piece_id>__<variant> is accepted, and the result must be a real file inside pieces/.
+        """
+        pid, _, variant = stem.partition("__")
+        if not ID_RE.match(pid) or not VARIANT_RE.match(variant):
+            return None
+        p = self.pieces / pid / f"{stem}.pdf"
+        try:
+            inside = p.resolve().is_relative_to(self.pieces.resolve())
+        except OSError:
+            return None
+        return p if inside and p.is_file() and not p.is_symlink() else None
 
     def write_index(self) -> tuple[Path, int]:
         data = self.index()
