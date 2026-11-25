@@ -205,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         gpu=args.gpu,
         homr_python=args.homr_python,
         review_below=args.review_below,
+        # "page 2/5: name.pdf" lines let lento-library show how far a PDF has got
+        on_page=lambda pdf, page, pages: print(f"      page {page}/{pages}: {pdf.name}", flush=True),
     )
 
     avail = check_homr(config)

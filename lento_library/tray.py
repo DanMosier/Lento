@@ -84,12 +84,17 @@ def describe(data: dict, name: Callable[[str], str]) -> tuple[str, str]:
         busy = data.get("current_files") or ([data["current"]] if data.get("current") else [])
         batch = data.get("batch") or {}
         tip = f"Lento: converting {name(busy[0])}" if busy else "Lento: converting"
+        page = data.get("page") or {}
+        if busy and page.get("pdf") == busy[0] and page.get("pages", 0) > 1:
+            tip += f", page {page['page']} of {page['pages']}"
         total, done = batch.get("total", 0), batch.get("done", 0)
         if total > 1:
-            tip += f" ({min(done + 1, total)} of {total})"
+            tip += f" (piece {min(done + 1, total)} of {total})"
         avg = data.get("avg_s")
         if avg and total:
-            tip += f", {minutes(avg * max(1, total - done))}"
+            # the PDF converting now is (page - 1) / pages through, when homr says which page it is on
+            through = (page["page"] - 1) / page["pages"] if busy and page.get("pdf") == busy[0] and page.get("pages") else 0
+            tip += f", {minutes(avg * (max(1, total - done) - through))}"
         return "busy", tip
     if state == "exporting":
         return "busy", f"Lento: exporting {data.get('current') or 'MuseScore files'} with MuseScore"
@@ -111,7 +116,8 @@ def finished_message(r: dict, name: Callable[[str], str], data: dict) -> tuple[s
     if r.get("ok"):
         kind = "Exported" if r["pdf"].lower().endswith((".mscz", ".mscx")) else "Converted"
         return f"{kind}{of}", f"{what}{took}. The MusicXML is in the library."
-    return f"Couldn't convert{of}", f"{what}. It's marked as failed in the app's Queue."
+    why = r.get("error") or "see the log"
+    return f"Couldn't convert{of}", f"{what}: {why}"
 
 
 class Tray:
@@ -164,6 +170,9 @@ class Tray:
 
     def update(self, data: dict) -> None:
         with self.lock:
+            if data.get("state") == "restarting":
+                self.notify("Lento updated", f"{data.get('update', 'New version')}. Restarting with it now.")
+                return
             state, tip = describe(data, self.names)
             self.set(state, tip)
             if "results" not in data:  # waiting for the library folder: nothing to compare yet

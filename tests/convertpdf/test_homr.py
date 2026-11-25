@@ -66,13 +66,15 @@ def fake_homr(monkeypatch, tmp_path):
     calls: list[list[str]] = []
 
     def install(xml: str | None = None, returncode: int = 0, stderr: str = ""):
-        def run(python, args, cwd, timeout):
+        def run(python, args, cwd, timeout, on_line):
             calls.append(args)
+            for line in stderr.splitlines():
+                on_line(line)
             if xml is not None:
                 (cwd / "score.musicxml").write_text(xml, encoding="utf-8")
-            return subprocess.CompletedProcess(args, returncode, "", stderr)
+            return returncode, stderr
 
-        monkeypatch.setattr(homr_runner, "_run_in_homr_env", run)
+        monkeypatch.setattr(homr_runner, "_stream_in_homr_env", run)
         return OMRConfig(homr_python=str(exe)), calls
 
     return install
@@ -110,6 +112,22 @@ def test_failures_are_reported_and_keep_the_earlier_result(fake_homr, tmp_path, 
     assert expected in item.error_message
     assert item.output_musicxml_path is None
     assert earlier.read_text(encoding="utf-8") == "earlier result"
+
+
+def test_pages_are_reported_as_homr_starts_them(fake_homr, tmp_path):
+    config, _ = fake_homr(SCORE.format(NOTE), stderr="LENTO_PAGE 1/2\nsome homr output\nLENTO_PAGE 2/2\n")
+    pages = []
+    config.on_page = lambda pdf, page, total: pages.append((pdf.name, page, total))
+    item = convert_single_pdf(item_for(blank_pdf(tmp_path / "a.pdf")), config, READY)
+    assert item.status == "converted" and pages == [("a.pdf", 1, 2), ("a.pdf", 2, 2)]
+
+
+def test_stream_hands_over_lines_as_they_come(tmp_path):
+    import sys
+
+    seen = []
+    code, log = homr_runner._stream_in_homr_env(Path(sys.executable), ["-c", "print('LENTO_PAGE 1/3'); print('x')"], tmp_path, 30, seen.append)
+    assert code == 0 and seen == ["LENTO_PAGE 1/3", "x"] and "x" in log
 
 
 def test_flagged_export_is_written_with_a_report(fake_homr, tmp_path):

@@ -283,7 +283,7 @@ def test_run_converter_reports_each_pdf_and_ticks(tmp_path: Path) -> None:
     lines, ticks = [], []
     code = run_converter([_sys.executable, str(fake)], lambda *a: lines.append(a), lambda: ticks.append(1), tick=0.1)
     assert code == 0
-    assert lines == [("a__x.pdf", "converted", 12.5), ("b__x.pdf", "failed", 3.0)]
+    assert lines == [("a__x.pdf", "converted", 12.5, "a__x.musicxml"), ("b__x.pdf", "failed", 3.0, "homr could not read page 1")]
     assert ticks  # the heartbeat kept going while it worked
 
 

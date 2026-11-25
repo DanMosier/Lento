@@ -14,8 +14,10 @@ import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .quality import REVIEW_BELOW, QualityReport, assess
 
@@ -69,6 +71,8 @@ class OMRConfig:
     review_below: float = REVIEW_BELOW  # flag exports whose quality estimate is lower
     timeout_base_sec: int = 180
     timeout_per_page_sec: int = 90
+    # called with (pdf, page, pages) as homr starts each page of a PDF
+    on_page: Callable[[Path, int, int], None] | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -113,6 +117,48 @@ def _run_in_homr_env(python: Path, args: list[str], cwd: Path, timeout: float) -
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+
+
+_PAGE = re.compile(r"^LENTO_PAGE (\d+)/(\d+)\s*$")
+
+
+def _stream_in_homr_env(python: Path, args: list[str], cwd: Path, timeout: float, on_line: Callable[[str], None]) -> tuple[int, str]:
+    """Like _run_in_homr_env, but hands each output line to on_line as it comes. Returns (exit code, all output)."""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV")}
+    proc = subprocess.Popen(
+        [str(python), "-I", "-X", "utf8", *args],
+        cwd=str(cwd),
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    lines: list[str] = []
+
+    def read() -> None:
+        assert proc.stdout
+        for line in proc.stdout:
+            lines.append(line)
+            try:
+                on_line(line.rstrip("\r\n"))
+            except Exception:  # a display problem must not stop the conversion
+                pass
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        code = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        reader.join(timeout=5)
+        raise
+    reader.join(timeout=5)
+    return code, "".join(lines)
 
 
 def check_homr(config: OMRConfig | None = None) -> EngineAvailability:
@@ -197,18 +243,22 @@ def run_homr(
         shutil.copyfile(pdf_path, source)  # homr writes beside its input
         trace_path = work / "trace.json"
         args = [str(BRIDGE), str(trace_path), "--gpu", config.gpu, str(source)]
+        def on_line(line: str) -> None:
+            m = _PAGE.match(line)
+            if m and config.on_page:
+                config.on_page(pdf_path, int(m.group(1)), int(m.group(2)))
+
         try:
-            res = _run_in_homr_env(python, args, work, timeout)
+            returncode, log = _stream_in_homr_env(python, args, work, timeout, on_line)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(f"homr did not finish within {timeout} seconds.") from exc
-        log = f"{res.stdout}\n{res.stderr}"
         if config.gpu == "force":
             for message in GPU_FALLBACK_MESSAGES:
                 if message in log:
                     raise RuntimeError(f"GPU required, but homr fell back to the CPU: {message}")
         produced = work / "score.musicxml"
-        if res.returncode != 0 or not produced.is_file():
-            raise RuntimeError(_homr_error(log, res.returncode))
+        if returncode != 0 or not produced.is_file():
+            raise RuntimeError(_homr_error(log, returncode))
         parts = _check_output(produced)
         report = assess(produced, _read_trace(trace_path), config.review_below)
 

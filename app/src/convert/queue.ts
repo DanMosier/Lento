@@ -16,6 +16,8 @@ export interface NowItem extends QueueItem {
   /** 0..1 estimate from recent conversion times, or null before there are any. */
   fraction: number | null;
   left_s: number | null;
+  /** The page homr is on, when the PC says. */
+  page?: { page: number; pages: number };
 }
 
 export interface QueueView {
@@ -23,7 +25,7 @@ export interface QueueView {
   next: QueueItem[];
   /** Asked for (here or on another device) but not in the PC's current batch yet. */
   pickup: QueueItem[];
-  recent: (QueueItem & { ok: boolean; at: string; seconds?: number })[];
+  recent: (QueueItem & { ok: boolean; at: string; seconds?: number; error?: string })[];
   batch: { done: number; total: number; left_s: number | null } | null;
 }
 
@@ -51,7 +53,8 @@ export function buildQueue(s: PcStatus | null, index: LibraryIndex | null, names
   const nowItems: NowItem[] = busy.map((n, i) => {
     // a folder's PDFs convert one after another; only the first is under way
     const e = i === 0 ? elapsed : 0;
-    return { ...item(n, names), elapsed_s: e, fraction: avg ? Math.min(0.95, e / avg) : null, left_s: avg ? Math.max(0, avg - e) : null };
+    const p = s?.page && s.page.pdf === n && s.page.pages > 0 ? { page: s.page.page, pages: s.page.pages } : undefined;
+    return { ...item(n, names), elapsed_s: e, fraction: avg ? Math.min(0.95, e / avg) : null, left_s: avg ? Math.max(0, avg - e) : null, ...(p ? { page: p } : {}) };
   });
   const queue = (s?.state === "converting" ? s.queue : []).filter((n) => !removed.has(n));
   const inBatch = new Set([...busy, ...queue]);
@@ -70,7 +73,7 @@ export function buildQueue(s: PcStatus | null, index: LibraryIndex | null, names
     now: nowItems,
     next: queue.map((n) => item(n, names)),
     pickup,
-    recent: [...(s?.results ?? [])].reverse().slice(0, 10).map((r) => ({ ...item(r.pdf, names), ok: r.ok, at: r.at, seconds: r.seconds })),
+    recent: [...(s?.results ?? [])].reverse().slice(0, 10).map((r) => ({ ...item(r.pdf, names), ok: r.ok, at: r.at, seconds: r.seconds, error: r.error })),
     batch: batch ? { done: batch.done, total: batch.total, left_s: left } : null,
   };
 }
