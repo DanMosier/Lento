@@ -151,3 +151,12 @@ def test_watch_once_converts_queue_and_reports_status(tmp_path: Path) -> None:
     (tmp_path / "pieces" / "fail_piece" / "fail_piece__imslp.musicxml").write_text("<score-partwise/>")
     assert main(["watch", "--root", str(tmp_path), "--once", "--converter", cmd]) == 0
     assert not (req / "failed__fail_piece__imslp.json").exists()
+
+
+def test_request_names_cannot_point_outside_pieces(tmp_path: Path) -> None:
+    make_library(tmp_path)
+    lib = Library(tmp_path)
+    (tmp_path / "evil__x.pdf").write_bytes(b"%PDF")  # in the library root, not a piece folder
+    for stem in ["..__x", "../evil__x", "..\\\\evil__x", "bach_cello-suite-1-prelude_bwv1007__../../evil", "Bad Folder__x", ""]:
+        assert lib.pdf_for(stem) is None, stem
+    assert lib.pdf_for("bach_cello-suite-1-prelude_bwv1007__barenreiter") is not None
