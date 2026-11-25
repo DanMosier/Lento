@@ -31,6 +31,7 @@ from .staff_detection import detect_staves_in_image
 
 try:
     import pypdfium2 as pdfium
+    from pypdfium2.raw import FPDF_REMOVE_SECURITY
 except ImportError:  # pragma: no cover
     pdfium = None  # type: ignore[assignment]
 
@@ -142,6 +143,34 @@ def _sanitize_filename(name: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", name)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .-_")
     return cleaned[:110] if cleaned else "Untitled Piece"
+
+
+def open_pdf(pdf_path: Path) -> pypdf.PdfReader:
+    """A pypdf reader for the PDF. Many scores (IMSLP's among them) are AES-encrypted with no password, which pypdf
+    can't read without an extra package; pdfium can, so those are read from an unlocked copy in memory."""
+    reader = pypdf.PdfReader(str(pdf_path))
+    if not reader.is_encrypted or pdfium is None:
+        return reader
+    try:
+        doc = pdfium.PdfDocument(str(pdf_path))
+    except pdfium.PdfiumError as e:
+        raise ValueError(f"{pdf_path.name} needs a password, or is damaged ({e})") from e
+    buf = io.BytesIO()
+    try:
+        doc.save(buf, flags=FPDF_REMOVE_SECURITY)
+    finally:
+        doc.close()
+    return pypdf.PdfReader(buf)
+
+
+def default_output_dir(pdf_path: Path) -> Path:
+    """Where the split PDFs go unless changed: a folder of their own beside the PDF or, for a score filed in a Lento
+    library's pieces/ (which only holds named scores), in that library's inbox/."""
+    name = f"{pdf_path.stem} (split)"
+    for folder in pdf_path.resolve().parents:
+        if folder.name == "pieces" and (folder.parent / "library.json").is_file():
+            return folder.parent / "inbox" / name
+    return pdf_path.resolve().parent / name
 
 
 def _extract_outline_bookmarks(reader: pypdf.PdfReader) -> list[tuple[str, int, float]]:
@@ -769,7 +798,7 @@ def analyze_multi_piece_pdf(
 ) -> SplitAnalysisReport:
     """Analyze a PDF to determine whether it can be split easily via `pypdf` vs. a Vision System, and detect piece ranges."""
     pdf_path = pdf_path.resolve()
-    reader = pypdf.PdfReader(str(pdf_path))
+    reader = open_pdf(pdf_path)
     total_pages = len(reader.pages)
 
     if total_pages == 0:
@@ -969,7 +998,7 @@ def execute_pdf_split(
     # Ensure any overlapping page ranges have resolved mid-page cutoff ratios
     resolve_overlapping_page_cutoffs(pdf_path, segments)
 
-    reader = pypdf.PdfReader(str(pdf_path))
+    reader = open_pdf(pdf_path)
     total_pages = len(reader.pages)
     created_files: list[Path] = []
     used_paths: set[Path] = set()
@@ -996,7 +1025,7 @@ def execute_pdf_split(
 
         candidate_path = dest_dir / base_name
         counter = 2
-        while candidate_path in used_paths or (candidate_path.exists() and candidate_path.resolve() == pdf_path):
+        while candidate_path in used_paths or candidate_path.exists():  # never over a file already there
             candidate_path = dest_dir / f"{Path(base_name).stem} ({counter}).pdf"
             counter += 1
 
