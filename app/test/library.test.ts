@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Drive, MemoryCache, type DriveFile } from "../src/library/drive";
-import { DriveLibrary } from "../src/library/library";
-import { folderIdFromLink, musicxmlOf, parseIndex, requestName, search, type Piece } from "../src/library/model";
+import { Drive, MemoryCache, type DriveFile } from "../src/core/library/drive";
+import { DriveLibrary } from "../src/core/library/library";
+import { folderIdFromLink, musicxmlOf, parseIndex, requestName, search, type Piece } from "../src/core/library/model";
 
 const INDEX = {
   format: "lento-library",

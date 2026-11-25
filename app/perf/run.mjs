@@ -62,17 +62,19 @@ try {
 
   // 2. Switching tabs
   results["tab-switch-ms"] = await page.evaluate(async () => {
-    const tab = (n) => document.querySelector(`[data-tab="${n}"]`);
+    // home -> Tuner -> back home
     const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const t0 = performance.now();
-    tab("tuner").click();
+    document.querySelector('.home-card[data-go="tuner"]').click();
     await frame();
-    tab("practice").click();
+    document.getElementById("home-btn").click();
+    while (document.getElementById("view-home").hidden) await new Promise((r) => requestAnimationFrame(r)); // Home goes back through history
     await frame();
     return (performance.now() - t0) / 2;
   });
 
   // 3. Opening a 3-minute score, then a 400-measure score
+  await page.click('.home-card[data-go="practice"]');
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
   await waitFor("open-score", 1);
   results["open-score-ms"] = (await measure("open-score"))[0];
@@ -97,6 +99,7 @@ try {
   await waitFor("check", 1);
   results["check-3min-ms"] = (await measure("check"))[0];
   results["check-3min-longest-block-ms"] = await longestTask(t);
+  results["  load-sound-pack-ms"] = (await measure("load-sound")).at(-1);
   for (const step of ["decode-audio", "track-pitch", "analyze", "render-score"]) {
     const d = await measure(step);
     results[`  ${step}-ms`] = d[d.length - 1];

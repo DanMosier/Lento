@@ -11,15 +11,24 @@
   </head>
   <body>
     <header class="top">
+      <button id="home-btn" type="button" class="home-btn" aria-label="Home" title="Home">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h5v-6h3v6h5V9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <h1>Lento</h1>
-      <nav class="tabs" role="tablist" aria-label="Features">
-        <button type="button" role="tab" data-tab="practice" aria-controls="view-practice" aria-selected="true">Practice</button>
-        <button type="button" role="tab" data-tab="library" aria-controls="view-library" aria-selected="false">Library</button>
-        <button type="button" role="tab" data-tab="tuner" aria-controls="view-tuner" aria-selected="false">Tuner</button>
-      </nav>
+      <span id="screen-name" class="screen-name"></span>
     </header>
 
-    <div id="view-practice" role="tabpanel" aria-label="Practice">
+    <main id="view-home" class="home" aria-label="Home">
+      <nav class="home-grid" aria-label="Features">
+        <button type="button" class="home-card" data-go="practice"><strong>Practice</strong><span>Play along slowly, loop passages, record and get note-by-note feedback</span></button>
+        <button type="button" class="home-card" data-go="library"><strong>Library</strong><span>Your scores in Google Drive, ready to practise on any device</span></button>
+        <button type="button" class="home-card" data-go="convert"><strong>Convert PDF</strong><span>Queue PDFs to turn into MusicXML on your PC</span></button>
+        <button type="button" class="home-card" data-go="tuner"><strong>Tuner</strong><span>Tune your strings and play reference notes</span></button>
+        <button type="button" class="home-card" data-go="settings"><strong>Settings</strong><span>Library connection, tuning, headphone delay and instrument sounds</span></button>
+      </nav>
+    </main>
+
+    <div id="view-practice" class="view" aria-label="Practice" hidden>
     <div class="bar">
       <label class="button primary" for="score-file">Open score</label>
       <input id="score-file" type="file" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden />
@@ -134,38 +143,18 @@
     </main>
     </div>
 
-    <div id="view-library" role="tabpanel" aria-label="Library" hidden>
+    <div id="view-library" class="view" aria-label="Library" hidden>
       <div class="bar">
         <input id="lib-search" type="search" placeholder="Search title, composer, technique" aria-label="Search the library" />
         <select id="lib-tag" aria-label="Technique" hidden></select>
         <button id="lib-refresh" type="button">Refresh</button>
-        <button id="lib-batch" type="button" aria-pressed="false">Batch convert</button>
-      </div>
-      <div id="lib-batch-bar" class="bar batch-bar" hidden>
-        <span>Tick the PDFs to turn into MusicXML on your PC.</span>
-        <button id="lib-batch-all" type="button">Select all without MusicXML</button>
-        <button id="lib-batch-none" type="button">Clear</button>
-        <button id="lib-batch-go" type="button" class="primary" disabled>Request MusicXML</button>
       </div>
       <p id="lib-status" class="status" role="status" aria-live="polite"></p>
       <ul id="lib-list" class="lib-list"></ul>
-      <details id="lib-setup" class="lib-setup">
-        <summary>Library settings</summary>
-        <label>Library folder in Google Drive (paste its link)
-          <input id="lib-folder" type="url" inputmode="url" placeholder="https://drive.google.com/drive/folders/…" />
-        </label>
-        <label>Google client ID
-          <input id="lib-client" type="text" spellcheck="false" placeholder="….apps.googleusercontent.com" />
-        </label>
-        <div class="tools">
-          <button id="lib-connect" type="button" class="primary">Connect to Google Drive</button>
-          <button id="lib-signout" type="button" hidden>Sign out</button>
-        </div>
-        <p class="hint">The app reads your library and only ever creates its own small request files in <code>requests/</code>. Scores you open are saved on this device so they work offline.</p>
-      </details>
+      <p id="lib-setup-hint" class="hint" hidden>Add your Google Drive library folder in <button type="button" class="link" data-go="settings">Settings</button> to browse your scores here.</p>
     </div>
 
-    <div id="view-tuner" role="tabpanel" aria-label="Tuner" hidden>
+    <div id="view-tuner" class="view" aria-label="Tuner" hidden>
     <section id="tuner" class="tuner" aria-label="Tuner">
       <div class="tuner-note"><span id="tuner-name">–</span><small id="tuner-octave"></small></div>
       <div class="tuner-meter" aria-hidden="true">
@@ -184,6 +173,89 @@
       <p class="tuner-settings"><label>Tuning A = <input id="tuner-a4" type="number" min="400" max="480" step="0.5" value="440" /> Hz</label></p>
     </section>
     </div>
+    <div id="view-convert" class="view" aria-label="Convert PDF" hidden>
+      <div class="bar">
+        <input id="cv-search" type="search" placeholder="Search PDFs without MusicXML" aria-label="Search PDFs" />
+        <button id="cv-refresh" type="button">Refresh</button>
+      </div>
+      <p id="cv-status" class="status" role="status" aria-live="polite"></p>
+      <section class="page">
+        <p id="cv-setup-hint" class="hint" hidden>Add your Google Drive library folder in <button type="button" class="link" data-go="settings">Settings</button> first.</p>
+        <div id="cv-pc" class="cv-pc" aria-live="polite"></div>
+        <p id="cv-counts" class="hint"></p>
+        <div class="tools">
+          <button id="cv-all" type="button">Select all shown</button>
+          <button id="cv-none" type="button">Clear</button>
+          <button id="cv-go" type="button" class="primary" disabled>Queue for my PC</button>
+        </div>
+        <ul id="cv-todo" class="cv-list"></ul>
+        <details id="cv-waiting-box" class="cv-box" hidden><summary>Waiting for your PC</summary><ul id="cv-waiting" class="cv-list"></ul></details>
+        <details id="cv-review-box" class="cv-box" hidden><summary>Converted, worth checking</summary><ul id="cv-review" class="cv-list"></ul></details>
+        <details class="cv-box">
+          <summary>How converting works</summary>
+          <p>Reading a PDF into MusicXML (with homr) needs your PC's graphics card, so it runs there, not on the phone. This screen leaves a small note in the library's <code>requests/</code> folder for each PDF you queue.</p>
+          <ol>
+            <li>On your PC, the watcher converts queued PDFs by itself whenever the PC is on. Set it up once, in the library folder: <code>lento-library watch --install</code>. Without it, run <code>lento-library convert</code> by hand (or <code>lento-library convert --missing</code> for every PDF without MusicXML).</li>
+            <li>It saves each MusicXML beside its PDF with the same name, then rebuilds <code>library.json</code>.</li>
+            <li>Press Refresh here or in the Library, and the new scores are ready to practise.</li>
+          </ol>
+        </details>
+      </section>
+    </div>
+
+    <div id="view-settings" class="view" aria-label="Settings" hidden>
+      <section class="page settings">
+        <h2>Google Drive library</h2>
+        <label>Library folder (paste its link)
+          <input id="set-folder" type="url" inputmode="url" placeholder="https://drive.google.com/drive/folders/…" />
+        </label>
+        <label>Google client ID
+          <input id="set-client" type="text" spellcheck="false" placeholder="….apps.googleusercontent.com" />
+        </label>
+        <div class="tools">
+          <button id="set-connect" type="button" class="primary">Connect to Google Drive</button>
+          <button id="set-signout" type="button" hidden>Sign out</button>
+        </div>
+        <p id="set-drive-status" class="status" role="status" aria-live="polite"></p>
+        <p class="hint">The app reads your library and only ever creates its own small request files in <code>requests/</code>. Scores you open are saved on this device so they work offline.</p>
+
+        <h2>Tuning</h2>
+        <label class="inline">A = <input id="set-a4" type="number" min="415" max="466" step="0.5" value="440" /> Hz</label>
+        <p class="hint">Used by the tuner, playback and the intonation feedback.</p>
+
+        <h2>Headphone delay</h2>
+        <div class="inline">
+          <input id="set-delay" type="range" min="-100" max="500" step="5" value="0" aria-label="Headphone delay" />
+          <output id="set-delay-out" for="set-delay">off</output>
+        </div>
+        <p class="hint">Wireless headphones play sound late. This holds the moving cursor back to match. Practice settings has a tap test that measures it.</p>
+
+        <h2>Instrument sounds</h2>
+        <label>Playback sound
+          <select id="set-sound">
+            <option value="auto">Recorded instruments, sized for this device</option>
+            <option value="light">Recorded instruments, smallest download</option>
+            <option value="full">Recorded instruments, best quality</option>
+            <option value="synth">Built-in synth only (no download)</option>
+          </select>
+        </label>
+        <div class="tools"><button id="set-clear-sounds" type="button">Remove downloaded sounds</button></div>
+        <p id="set-sound-status" class="status" role="status" aria-live="polite"></p>
+        <p class="hint">Playback always starts at once with the built-in synth. Recordings of each instrument in the score download in the background (a few hundred KB each), take over when ready, and stay on this device for offline use. Sounds: VS Chamber Orchestra Community Edition (CC0).</p>
+      </section>
+    </div>
+
+    <dialog id="leave-dialog" class="parts-dialog" aria-labelledby="leave-heading">
+      <form method="dialog">
+        <h2 id="leave-heading">Close this score?</h2>
+        <p class="hint">Going home closes the score in Practice. Any recording that hasn't been checked is lost.</p>
+        <div class="parts-actions">
+          <span class="spacer"></span>
+          <button value="cancel" class="button">Stay</button>
+          <button value="ok" class="button primary">Close score and go home</button>
+        </div>
+      </form>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,9 +1,8 @@
-/** The Library tab: browse the score library in Google Drive and open a score into Practice. */
-import { $, requestOpenScore, store } from "../core/app";
-import { GoogleAuth } from "./auth";
-import { Drive, IdbCache } from "./drive";
-import { DriveLibrary, fileKey } from "./library";
-import { allTags, folderIdFromLink, musicxmlOf, requestName, search, type LibraryFile, type LibraryIndex, type Piece } from "./model";
+/** The Library screen: browse the score library in Google Drive and open a score into Practice. */
+import { $, requestOpenScore } from "../core/app";
+import { cache, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
+import { fileKey, type DriveLibrary } from "../core/library/library";
+import { allTags, musicxmlOf, requestName, search, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
 
 const SHOWN = 150;
 
@@ -11,34 +10,16 @@ const ui = {
   search: $<HTMLInputElement>("lib-search"),
   tag: $<HTMLSelectElement>("lib-tag"),
   refresh: $<HTMLButtonElement>("lib-refresh"),
-  batch: $<HTMLButtonElement>("lib-batch"),
-  batchBar: $("lib-batch-bar"),
-  batchAll: $<HTMLButtonElement>("lib-batch-all"),
-  batchNone: $<HTMLButtonElement>("lib-batch-none"),
-  batchGo: $<HTMLButtonElement>("lib-batch-go"),
   status: $("lib-status"),
   list: $<HTMLUListElement>("lib-list"),
-  setup: $<HTMLDetailsElement>("lib-setup"),
-  folder: $<HTMLInputElement>("lib-folder"),
-  client: $<HTMLInputElement>("lib-client"),
-  connect: $<HTMLButtonElement>("lib-connect"),
-  signOut: $<HTMLButtonElement>("lib-signout"),
+  setupHint: $("lib-setup-hint"),
 };
 
-const auth = new GoogleAuth();
-const cache = new IdbCache();
-let library: DriveLibrary | null = null;
 let index: LibraryIndex | null = null;
 let offlineKeys = new Set<string>();
-let batch = false;
-const selected = new Map<string, { piece: Piece; file: LibraryFile }>(); // by request file name
-const requestedHere = new Set<string>(store.get<string[]>("library.requested") ?? []); // asked from this device, not yet in the index
 
 const needsXml = (f: LibraryFile) => f.kind === "pdf" && !f.musicxml;
-const isRequested = (f: LibraryFile) => !!f.requested || requestedHere.has(requestName(f));
-
-ui.folder.value = store.get<string>("library.folder") ?? "";
-ui.client.value = store.get<string>("library.client") ?? (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? "";
+const isRequested = (f: LibraryFile) => !!f.requested || requests.all().has(requestName(f));
 
 function status(text: string, kind: "info" | "error" = "info"): void {
   ui.status.textContent = text;
@@ -46,37 +27,30 @@ function status(text: string, kind: "info" | "error" = "info"): void {
 }
 
 function setup(): DriveLibrary | null {
-  const id = folderIdFromLink(ui.folder.value);
-  if (!id) {
-    ui.setup.open = true;
-    status("Paste the link to your library folder in Google Drive, then connect.", "error");
-    return null;
-  }
-  if (library?.rootId !== id) {
-    const drive = new Drive((fresh) => auth.getToken(ui.client.value.trim(), fresh));
-    library = new DriveLibrary(id, drive, cache);
-  }
-  return library;
+  const lib = connect();
+  ui.setupHint.hidden = !!lib;
+  if (!lib) status("Your library isn't connected yet.");
+  return lib;
 }
 
 async function refresh(): Promise<void> {
   const lib = setup();
   if (!lib) return;
-  ui.refresh.disabled = ui.connect.disabled = true;
+  ui.refresh.disabled = true;
   status("Loading the library from Google Drive…");
   try {
     index = await lib.loadIndex();
     offlineKeys = new Set(await cache.keys());
     const stillWaiting = new Set(index.pieces.flatMap((p) => p.files.filter(needsXml).map(requestName)));
-    for (const r of [...requestedHere]) if (!stillWaiting.has(r)) requestedHere.delete(r);
-    store.set("library.requested", [...requestedHere]);
-    ui.setup.open = false;
+    const mine = requests.all();
+    for (const r of [...mine]) if (!stillWaiting.has(r)) mine.delete(r);
+    requests.save(mine);
     render();
+    libraryChanged();
   } catch (e) {
     status((e as Error).message, "error");
   } finally {
-    ui.refresh.disabled = ui.connect.disabled = false;
-    ui.signOut.hidden = !auth.signedIn;
+    ui.refresh.disabled = false;
   }
 }
 
@@ -118,11 +92,7 @@ function render(): void {
       : `${found.length} of ${index.pieces.length} pieces${found.length > SHOWN ? `, showing the first ${SHOWN}` : ""}`,
   );
   ui.list.replaceChildren(...found.slice(0, SHOWN).map(item));
-  lastFound = found;
-  updateBatchBar();
 }
-
-let lastFound: Piece[] = [];
 
 function item(p: Piece): HTMLLIElement {
   const li = el("li", undefined, "piece");
@@ -149,22 +119,13 @@ function item(p: Piece): HTMLLIElement {
     }
     if (f.kind === "pdf") row.append(button("PDF", undefined, (b) => void openFile(p, f, b)));
     if (needsXml(f)) {
-      if (batch && !isRequested(f)) {
-        const box = el("label", undefined, "pick");
-        const cb = el("input");
-        cb.type = "checkbox";
-        cb.checked = selected.has(requestName(f));
-        cb.addEventListener("change", () => {
-          if (cb.checked) selected.set(requestName(f), { piece: p, file: f });
-          else selected.delete(requestName(f));
-          updateBatchBar();
-        });
-        box.append(cb, " Convert");
-        row.append(box);
-      } else if (isRequested(f)) {
+      if (isRequested(f)) {
         row.append(el("span", "MusicXML requested", "requested"));
       } else {
-        row.append(button("Make MusicXML", undefined, (b) => void request([{ piece: p, file: f }], b), "Ask your PC to make MusicXML from this PDF with homr"));
+        if (f.convert_failed) row.append(el("span", "last conversion failed", "requested"));
+        row.append(
+          button(f.convert_failed ? "Try again" : "Make MusicXML", undefined, (b) => void request([{ piece: p, file: f }], b), "Ask your PC to make MusicXML from this PDF with homr"),
+        );
       }
     }
     files.append(row);
@@ -204,49 +165,21 @@ async function request(items: { piece: Piece; file: LibraryFile }[], button?: HT
   const lib = setup();
   if (!lib || !items.length) return;
   if (button) button.disabled = true;
-  ui.batchGo.disabled = true;
-  status(`Asking for MusicXML for ${items.length} PDF${items.length > 1 ? "s" : ""}…`);
+  status(`Asking for MusicXML for ${items[0].piece.title}…`);
   try {
-    const made = await lib.requestConversion(items);
-    for (const it of items) {
-      requestedHere.add(requestName(it.file));
-      selected.delete(requestName(it.file));
-    }
-    store.set("library.requested", [...requestedHere]);
+    await lib.requestConversion(items);
+    const mine = requests.all();
+    for (const it of items) mine.add(requestName(it.file));
+    requests.save(mine);
     render();
-    status(
-      `${made || items.length} PDF${items.length > 1 ? "s" : ""} queued. On your PC, run "lento-library convert" in the library folder; ` +
-        "the MusicXML appears here after the next Refresh.",
-    );
+    libraryChanged();
+    status('Queued. On your PC, run "lento-library convert" in the library folder; the MusicXML appears here after the next Refresh.');
   } catch (e) {
-    status(`${(e as Error).message} You can also run "lento-library convert --missing" on your PC.`, "error");
+    status((e as Error).message, "error");
   } finally {
     if (button) button.disabled = false;
-    updateBatchBar();
   }
 }
-
-function updateBatchBar(): void {
-  ui.batchBar.hidden = !batch;
-  ui.batch.setAttribute("aria-pressed", String(batch));
-  ui.batchGo.textContent = `Request MusicXML for ${selected.size} PDF${selected.size === 1 ? "" : "s"}`;
-  ui.batchGo.disabled = selected.size === 0;
-}
-
-ui.batch.addEventListener("click", () => {
-  batch = !batch;
-  if (!batch) selected.clear();
-  render();
-});
-ui.batchAll.addEventListener("click", () => {
-  for (const p of lastFound) for (const f of p.files) if (needsXml(f) && !isRequested(f)) selected.set(requestName(f), { piece: p, file: f });
-  render();
-});
-ui.batchNone.addEventListener("click", () => {
-  selected.clear();
-  render();
-});
-ui.batchGo.addEventListener("click", () => void request([...selected.values()]));
 
 let typing = 0;
 ui.search.addEventListener("input", () => {
@@ -255,15 +188,9 @@ ui.search.addEventListener("input", () => {
 });
 ui.tag.addEventListener("change", render);
 ui.refresh.addEventListener("click", () => void refresh());
-ui.connect.addEventListener("click", () => {
-  store.set("library.folder", ui.folder.value.trim());
-  store.set("library.client", ui.client.value.trim());
-  void refresh();
-});
-ui.signOut.addEventListener("click", () => {
-  auth.signOut();
-  ui.signOut.hidden = true;
-  status("Signed out. Saved scores still open on this device.");
+onLibraryChanged(() => {
+  if (!$("view-library").hidden) return; // this screen caused it
+  started = false; // reload the saved index next time it opens
 });
 
 let started = false;
@@ -274,8 +201,7 @@ export async function enterLibrary(): Promise<void> {
   started = true;
   const lib = setup();
   if (!lib) {
-    status("Connect your Google Drive library folder to browse your scores here.");
-    ui.status.dataset.kind = "info";
+    started = false;
     return;
   }
   try {

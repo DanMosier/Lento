@@ -36,7 +36,17 @@ lento-library build                                 # rewrite library.json; run 
 lento-library convert                               # make MusicXML for the PDFs requested from the app
 lento-library convert --missing                     # ...or for every PDF that has none yet
 lento-library convert faure_elegie_op24             # ...or for named pieces
+lento-library watch --install                       # convert queued PDFs automatically whenever this PC is on
 ```
+
+**The watcher.** `lento-library watch` keeps running and looks at `requests/` every 30 seconds (`--interval` to
+change). When the app queues a PDF, the watcher converts it and rebuilds `library.json`, so it shows up on the phone
+after a Refresh. It writes `requests/_status.json` on every look; the app's Convert PDF screen reads it to show
+whether the PC is on, what it is converting and what finished. A PDF that fails is set aside as
+`requests/failed__<name>.json` (shown in the app as "last try failed"), so it isn't retried forever; queueing it again
+tries once more. `--install` starts the watcher hidden at every Windows sign-in (a small file in your Startup folder,
+logging to `requests/_watch.log`); `--uninstall` removes it. Run `--install` from the library folder, with the same
+Python that has Lento_ConvertPDF installed.
 
 `convert` runs Lento_ConvertPDF (homr on the GPU) as a separate program, saves each MusicXML beside its PDF, keeps any
 MusicXML that already exists, clears the finished requests and rebuilds `library.json`. You can still use
@@ -44,15 +54,15 @@ Lento_ConvertPDF's own window for a batch; run `lento-library build` afterwards 
 
 ## In the app
 
-Library tab > Library settings: paste the folder's Drive link and your Google client ID, then **Connect to Google
-Drive**. After that, **Refresh** picks up a new `library.json`.
+Settings > Google Drive library: paste the folder's Drive link and your Google client ID, then **Connect to Google
+Drive**. After that, **Refresh** in the Library or Convert PDF screen picks up a new `library.json`.
 
 - Each edition shows **PDF** (opens in Drive's viewer). If it has MusicXML it also shows **Practice**, which opens it
   in the Practice tab; a **check** or **unreliable** badge means the MusicXML was converted automatically and may
   have wrong notes.
-- Without MusicXML, **Make MusicXML** asks your PC to convert it. **Batch convert** shows a checkbox on every PDF
-  without MusicXML, with **Select all without MusicXML** (follows the current search and technique filter), then
-  **Request MusicXML** queues them all. Run `lento-library convert` on the PC and **Refresh**.
+- Without MusicXML, **Make MusicXML** asks your PC to convert it.
+- **Convert PDF** (from the home screen) lists every PDF without MusicXML with a checkbox, **Select all shown**
+  (follows the search) and **Queue for my PC**. It also shows the watcher's status and what is waiting.
 - Scores you have opened are saved on the device (✓) and open offline. The last index is saved too.
 - The app reads your Drive and can only create its own request files (the `drive.file` permission does not let it
   open or change anything it did not create).

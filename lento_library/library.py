@@ -161,6 +161,7 @@ class Library:
         for r in self.catalog():
             rows.setdefault(r["piece_id"], []).append(r)
         requested = set(self.requests())
+        failed = set(self.failed_requests())
         pieces = []
         for folder in self.folders():
             pid = folder.name
@@ -186,6 +187,8 @@ class Library:
                         entry["quality"] = level
                 elif p.stem in requested:
                     entry["requested"] = True
+                elif p.stem in failed:
+                    entry["convert_failed"] = True
                 files.append(entry)
             for x in xml_by_stem.values():  # MusicXML with no PDF beside it
                 if x.name not in paired:
@@ -224,8 +227,21 @@ class Library:
             return []
         return sorted({p.stem.removeprefix("convert__") for p in d.glob("convert__*.json")})
 
+    def failed_requests(self) -> list[str]:
+        """PDF names whose last conversion failed (set aside by the watcher or convert)."""
+        d = self.root / REQUESTS
+        return sorted({p.stem.removeprefix("failed__") for p in d.glob("failed__*.json")}) if d.is_dir() else []
+
     def clear_request(self, stem: str) -> None:
+        (self.root / REQUESTS / f"failed__{stem}.json").unlink(missing_ok=True)
         (self.root / REQUESTS / f"convert__{stem}.json").unlink(missing_ok=True)
+
+    def fail_request(self, stem: str) -> None:
+        """Set a request aside after a failed conversion, so the watcher doesn't retry it forever.
+        Queueing the PDF again from the app makes a fresh request."""
+        src = self.root / REQUESTS / f"convert__{stem}.json"
+        if src.is_file():
+            src.replace(self.root / REQUESTS / f"failed__{stem}.json")
 
     def pdfs_without_musicxml(self) -> list[Path]:
         """PDFs with no MusicXML of the same name beside them."""

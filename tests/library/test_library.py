@@ -110,3 +110,44 @@ def test_convert_runs_the_converter_and_clears_requests(tmp_path: Path) -> None:
     assert not (tmp_path / "requests" / "convert__faure_elegie_op24__imslp.json").exists()
     data = json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))
     assert {p["id"]: p["musicxml"] for p in data["pieces"]}["faure_elegie_op24"] is True
+
+
+def test_watch_once_converts_queue_and_reports_status(tmp_path: Path) -> None:
+    import sys as _sys
+
+    make_library(tmp_path)
+    for pid in ("faure_elegie_op24", "fail_piece"):
+        (tmp_path / "pieces" / pid).mkdir()
+        (tmp_path / "pieces" / pid / f"{pid}__imslp.pdf").write_bytes(b"%PDF")
+    (tmp_path / "requests").mkdir()
+    for pid in ("faure_elegie_op24", "fail_piece", "gone_piece"):
+        (tmp_path / "requests" / f"convert__{pid}__imslp.json").write_text("{}")
+    # converts every PDF except those in a folder named fail_piece
+    fake = tmp_path / "fake_convert.py"
+    fake.write_text(
+        "import sys, pathlib\n"
+        "d = pathlib.Path(sys.argv[1])\n"
+        "if d.name != 'fail_piece':\n"
+        "    for p in d.glob('*.pdf'): p.with_suffix('.musicxml').write_text('<score-partwise/>')\n"
+    )
+    cmd = f'"{_sys.executable}" "{fake}"'
+    assert main(["watch", "--root", str(tmp_path), "--once", "--converter", cmd]) == 0
+    req = tmp_path / "requests"
+    assert not list(req.glob("convert__*.json"))  # nothing left to retry
+    assert (req / "failed__fail_piece__imslp.json").is_file()
+    assert (req / "failed__gone_piece__imslp.json").is_file()  # its PDF doesn't exist
+    status = json.loads((req / "_status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "idle" and status["heartbeat"]
+    assert {r["pdf"]: r["ok"] for r in status["results"]} == {
+        "gone_piece__imslp.pdf": False,
+        "faure_elegie_op24__imslp.pdf": True,
+        "fail_piece__imslp.pdf": False,
+    }
+    pieces = {p["id"]: p for p in json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["pieces"]}
+    assert pieces["faure_elegie_op24"]["musicxml"] is True
+    assert pieces["fail_piece"]["files"][0]["convert_failed"] is True
+    # queueing it again from the app makes a fresh request; a success clears the failure too
+    (req / "convert__fail_piece__imslp.json").write_text("{}")
+    (tmp_path / "pieces" / "fail_piece" / "fail_piece__imslp.musicxml").write_text("<score-partwise/>")
+    assert main(["watch", "--root", str(tmp_path), "--once", "--converter", cmd]) == 0
+    assert not (req / "failed__fail_piece__imslp.json").exists()

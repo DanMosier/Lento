@@ -1,8 +1,16 @@
 /**
  * Plays a part with Web Audio at any tempo, with an optional count-in and loop.
- * The sound is synthesised (bowed-string-like), so slowing down never changes pitch.
+ * Each part sounds with its instrument's recorded samples once they have loaded (see core/sounds), and with a
+ * bowed-string-like synth until then. Either way, slowing down never changes pitch.
  */
 import type { Score, ScoreNote } from "../core/score";
+import { instrumentFor, type SoundBank } from "../core/sounds";
+
+/** The sound pack for a part: from its name, the instrument named in the file, or its MIDI program. */
+export function partInstrument(s: Score): string | null {
+  const p = s.parts.find((x) => x.id === s.partId);
+  return instrumentFor(`${s.partName} ${p?.instrument ?? ""}`, p?.program);
+}
 
 export interface PlayOptions {
   parts: Score[]; // the parts to sound; the first one sets the timeline
@@ -39,8 +47,13 @@ export class Player {
   private startBeat = 0;
   private endBeat = 0;
   onEnd: (() => void) | null = null;
+  private instruments = new Map<Score, string | null>();
 
-  constructor(readonly ctx: AudioContext, private readonly out: AudioNode = ctx.destination) {}
+  constructor(
+    readonly ctx: AudioContext,
+    private readonly out: AudioNode = ctx.destination,
+    readonly sounds: SoundBank | null = null,
+  ) {}
 
   get playing(): boolean {
     return this.timer !== null;
@@ -142,7 +155,8 @@ export class Player {
       }
       if (!o.mute) {
         for (const part of o.parts) {
-          for (const n of part.notes) if (n.beat >= fromBeat && n.beat < toBeat && n.beat < this.endBeat) this.note(n, passStart, part === o.parts[0] ? 1 : 0.55);
+          for (const n of part.notes)
+            if (n.beat >= fromBeat && n.beat < toBeat && n.beat < this.endBeat) this.note(n, passStart, part === o.parts[0] ? 1 : 0.55, part);
         }
       }
       if (o.click > 0) {
@@ -169,10 +183,16 @@ export class Player {
     }
   }
 
-  private note(n: ScoreNote, passStart: number, level: number): void {
+  private note(n: ScoreNote, passStart: number, level: number, part: Score): void {
     const t0 = passStart + this.secs(n.beat);
     const t1 = passStart + this.secs(Math.min(n.beat + n.duration, this.endBeat));
     const dur = Math.max(0.06, t1 - t0 - 0.02);
+    if (!this.instruments.has(part)) this.instruments.set(part, partInstrument(part));
+    const track = (node: AudioScheduledSourceNode) => {
+      this.nodes.add(node);
+      node.onended = () => this.nodes.delete(node);
+    };
+    if (this.sounds?.play(this.instruments.get(part)!, n.midi, t0, dur, level * (n.inChord ? 0.8 : 1), this.out, track)) return;
     const freq = 440 * 2 ** ((n.midi - 69) / 12);
     const ctx = this.ctx;
     const osc = ctx.createOscillator();
