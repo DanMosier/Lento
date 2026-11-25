@@ -28,7 +28,7 @@ Each feature is one folder with a `ui.ts` for its tab. Features never import eac
   AudioContext).
 - `src/practice/` the Practice tab: `pitch.ts` (YIN pitch tracking), `align.ts` and `analyze.ts` (ports of
   `lento_practice` in Python, which stays the reference), `report.ts`, `player.ts` (Web Audio playback and metronome),
-  `recorder.ts`, `latency.ts` (headphone delay tap test), `ui.ts`.
+  `recorder.ts`, `ui.ts`.
 - `src/tuner/` the Tuner tab: `tuner.ts` (live pitch and reference tones), `ui.ts`.
 - `src/main.ts` the app shell: the tabs. To add a feature, add a folder, a tab button and a view in `index.html`.
 
