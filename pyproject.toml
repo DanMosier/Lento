@@ -1,5 +1,5 @@
 [project]
-name = "PDF_to_MusicXML"
+name = "lento_convertpdf"
 version = "1.0.0"
 description = "Batch convert sheet music PDFs into MusicXML using homr, with a full GUI and open-source VST MusicXML preview player."
 requires-python = ">=3.11"
@@ -19,13 +19,13 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["PDF_to_MusicXML*", "lento_core*", "lento_practice*"]
+include = ["lento_convertpdf*", "lento_core*", "lento_practice*"]
 
 [project.scripts]
-pdf-to-musicxml = "PDF_to_MusicXML.cli:main"
+Lento_ConvertPDF = "lento_convertpdf.cli:main"
 lento-practice = "lento_practice.cli:main"
 
 [tool.pytest.ini_options]
-pythonpath = [".", "tests"]
+pythonpath = [".", "tests/convertpdf", "tests/practice"]
 testpaths = ["tests"]
 markers = ["homr_gpu: runs the real homr on the GPU (slow)"]
