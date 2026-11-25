@@ -56,10 +56,13 @@ export class Player {
     return this.secs(this.endBeat);
   }
 
-  /** The beat being heard now, or null before the first beat (count-in) and after the end. */
-  currentBeat(): number | null {
+  /**
+   * The beat being heard now, or null before the first beat (count-in) and after the end.
+   * `delay` (seconds) is how late sound reaches the ears, e.g. over Bluetooth headphones.
+   */
+  currentBeat(delay = 0): number | null {
     if (!this.opts || !this.playing) return null;
-    const t = this.ctx.currentTime - this.passStart;
+    const t = this.ctx.currentTime - delay - this.passStart;
     if (t < 0) return null;
     const len = this.passLength;
     const into = this.opts.loop ? t % len : t;

@@ -3,7 +3,7 @@
 The Lento app for a PC, phone or tablet. Each feature is a tab.
 
 **Practice:** practise with your own sheet music. Open a MusicXML score, play it back slowly with loops and a
-count-in and a metronome (whole notes down to 16ths), record yourself, and see every note colored by intonation and
+count-in and a metronome (whole notes down to 16ths) and a moving cursor that can allow for headphone delay, record yourself, and see every note colored by intonation and
 timing, judged as strictly as you choose (pitch and timing separately).
 
 **Library:** browse your score library in Google Drive, open a MusicXML into Practice or a PDF in Drive's viewer, and
