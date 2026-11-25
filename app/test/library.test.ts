@@ -70,6 +70,12 @@ function fakeDrive(files: Record<string, { id: string; body?: string; modifiedTi
     }
     if (init?.method === "PATCH") {
       const f = byId.get(decodeURIComponent(url.pathname.split("/").pop()!))!;
+      if (String(init.body) === JSON.stringify({ trashed: true })) {
+        if (f.id.startsWith("HAND")) return new Response(JSON.stringify({ error: { message: "insufficient permissions" } }), { status: 403 });
+        delete files[f.path];
+        byId.delete(f.id);
+        return new Response("{}", { status: 200 });
+      }
       f.body = files[f.path].body = String(init.body);
       f.modifiedTime = files[f.path].modifiedTime = `m${next++}`;
       return new Response(JSON.stringify({ id: f.id, name: f.path, mimeType: "x", modifiedTime: f.modifiedTime }), { status: 200 });
@@ -154,5 +160,20 @@ describe("files kept beside a score (score marks)", () => {
     expect(await lib.readSidecar("swan", "swan.marks.json")).toEqual({ marks: [1, 2] });
     d.setOnline(false);
     expect(await lib.readSidecar("swan", "swan.marks.json")).toEqual({ marks: [1, 2] });
+  });
+});
+
+describe("removing PDFs from the queue", () => {
+  it("bins the app's own request files and reports ones made on the PC", async () => {
+    const d = fakeDrive({
+      requests: { id: "R" },
+      "requests/convert__a_b__x.json": { id: "NEWa", body: "{}" },
+      "requests/convert__c_d__x.json": { id: "HAND1", body: "{}" },
+    });
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    const r = await lib.cancelConversion(["a_b__x.pdf", "c_d__x.pdf", "gone__x.pdf"]);
+    expect(r).toEqual({ removed: ["a_b__x.pdf", "gone__x.pdf"], failed: ["c_d__x.pdf"] });
+    expect(d.files["requests/convert__a_b__x.json"]).toBeUndefined();
+    expect(d.files["requests/convert__c_d__x.json"]).toBeDefined();
   });
 });

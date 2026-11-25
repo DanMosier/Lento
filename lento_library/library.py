@@ -270,6 +270,10 @@ class Library:
         (self.root / REQUESTS / f"failed__{stem}.json").unlink(missing_ok=True)
         (self.root / REQUESTS / f"convert__{stem}.json").unlink(missing_ok=True)
 
+    def is_requested(self, stem: str) -> bool:
+        """Still queued: the app removes a request by deleting its file."""
+        return (self.root / REQUESTS / f"convert__{stem}.json").is_file()
+
     def fail_request(self, stem: str) -> None:
         """Set a request aside after a failed conversion, so the watcher doesn't retry it forever.
         Queueing the PDF again from the app makes a fresh request."""
@@ -328,6 +332,9 @@ class Library:
         """What library.json is built from (score files, catalog.csv, tags.md) with their sizes and modified times.
         The watcher compares it between looks, so files added, moved or renamed by hand are picked up."""
         files = [self.catalog_path, self.tags_path]
+        req = self.root / REQUESTS
+        if req.is_dir():  # a request queued or removed in the app changes a PDF's "requested" flag
+            files += [p for p in req.iterdir() if p.name.startswith(("convert__", "failed__"))]
         for folder in self.folders():
             files += [p for p in folder.iterdir() if p.suffix.lower() in KINDS]
         out = []

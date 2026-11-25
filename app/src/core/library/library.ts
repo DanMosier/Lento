@@ -1,6 +1,6 @@
 /** A library folder in Google Drive: reads library.json and fetches files, keeping offline copies. */
 import { Drive, type FileCache } from "./drive";
-import { parseIndex, requestName, type LibraryFile, type LibraryIndex, type PcStatus, type Piece } from "./model";
+import { parseIndex, requestName, requestNameOf, type LibraryFile, type LibraryIndex, type PcStatus, type Piece } from "./model";
 
 export const INDEX_KEY = "library.json";
 
@@ -51,6 +51,33 @@ export class DriveLibrary {
       made++;
     }
     return made;
+  }
+
+  /**
+   * Takes PDFs off the PC's queue by binning their request files. The PC skips a PDF whose request is gone, unless
+   * it is already converting it. Returns the PDF names removed, and those whose request this app can't remove
+   * (made by hand on the PC: Drive lets the app change only files it created).
+   */
+  async cancelConversion(pdfNames: string[]): Promise<{ removed: string[]; failed: string[] }> {
+    const removed: string[] = [];
+    const failed: string[] = [];
+    const requests = this.ids.get("requests") ?? (await this.drive.child(this.rootId, "requests"))?.id;
+    if (!requests) return { removed: pdfNames, failed };
+    this.ids.set("requests", requests);
+    for (const name of pdfNames) {
+      const f = await this.drive.child(requests, requestNameOf(name));
+      if (!f) {
+        removed.push(name); // already gone (converted, or removed on another device)
+        continue;
+      }
+      try {
+        await this.drive.trash(f.id);
+        removed.push(name);
+      } catch {
+        failed.push(name);
+      }
+    }
+    return { removed, failed };
   }
 
   /** What the PC's watcher last reported, or null if it has never run. Always fetched fresh. */

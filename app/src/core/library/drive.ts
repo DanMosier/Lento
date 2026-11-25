@@ -78,6 +78,15 @@ export class Drive {
     return (await res.json()) as DriveFile;
   }
 
+  /** Moves a file this app created to the Drive bin (it can be restored from there for 30 days). */
+  async trash(id: string): Promise<void> {
+    await this.request(`${API}/${encodeURIComponent(id)}?supportsAllDrives=true`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trashed: true }),
+    });
+  }
+
   async download(id: string): Promise<ArrayBuffer> {
     return (await this.request(`${API}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`)).arrayBuffer();
   }
