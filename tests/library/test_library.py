@@ -160,3 +160,69 @@ def test_request_names_cannot_point_outside_pieces(tmp_path: Path) -> None:
     for stem in ["..__x", "../evil__x", "..\\\\evil__x", "bach_cello-suite-1-prelude_bwv1007__../../evil", "Bad Folder__x", ""]:
         assert lib.pdf_for(stem) is None, stem
     assert lib.pdf_for("bach_cello-suite-1-prelude_bwv1007__barenreiter") is not None
+
+
+def fake_musescore(tmp_path: Path, broken: str = "") -> str:
+    """A stand-in for MuseScore's command line: reads the -j job file and writes each output."""
+    script = tmp_path / "fake_mscore.py"
+    script.write_text(
+        "import json, sys\n"
+        "job = json.load(open(sys.argv[sys.argv.index('-j') + 1]))\n"
+        "for j in job:\n"
+        f"    if {broken!r} and j['in'].endswith({broken!r}): continue\n"
+        "    for out in j['out']:\n"
+        "        open(out, 'wb').write(b'%PDF /Type /Page' if out.endswith('.pdf') else b'<score-partwise/>')\n"
+    )
+    import os
+    import stat
+    import sys as _sys
+
+    exe = tmp_path / "mscore"
+    exe.write_text(f"#!/bin/sh\nexec {_sys.executable} {script} \"$@\"\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    return str(exe)
+
+
+def test_musescore_files_export_to_musicxml_and_pdf(tmp_path: Path, capsys) -> None:
+    import os
+    import time
+
+    make_library(tmp_path)
+    swan = tmp_path / "pieces" / "saint-saens_the-swan"
+    (swan / "saint-saens_the-swan__mine.mscz").write_bytes(b"PK")
+    (swan / "saint-saens_the-swan__broken.mscz").write_bytes(b"PK")
+    lib = Library(tmp_path)
+    assert [p.name for p in lib.musescore_files()] == ["saint-saens_the-swan__broken.mscz", "saint-saens_the-swan__mine.mscz"]
+
+    exe = fake_musescore(tmp_path, broken="broken.mscz")
+    assert main(["convert", "--root", str(tmp_path), "--musescore", exe]) == 1  # one failed
+    assert (swan / "saint-saens_the-swan__mine.musicxml").is_file() and (swan / "saint-saens_the-swan__mine.pdf").is_file()
+    out = capsys.readouterr().out
+    assert "1 exported, 1 failed" in out and "failed: saint-saens_the-swan__broken.mscz" in out
+
+    # the index marks the export as MuseScore's (exact: no quality badge), and the catalog has a row for the PDF
+    data = json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))
+    swan_files = next(p for p in data["pieces"] if p["id"] == "saint-saens_the-swan")["files"]
+    mine = next(f for f in swan_files if f["name"] == "saint-saens_the-swan__mine.pdf")
+    assert mine["musicxml"] == "saint-saens_the-swan__mine.musicxml" and mine["from"] == "musescore" and "quality" not in mine
+    assert any(r["file"] == "saint-saens_the-swan__mine.pdf" and r["source"] == "MuseScore" for r in lib.catalog())
+    assert not any(".mscz" in f["name"] for f in swan_files)
+
+    # up to date now; changing the MuseScore file exports it again
+    assert [p.name for p in lib.musescore_files()] == ["saint-saens_the-swan__broken.mscz"]
+    later = time.time() + 5
+    os.utime(swan / "saint-saens_the-swan__mine.mscz", (later, later))
+    assert "saint-saens_the-swan__mine.mscz" in [p.name for p in lib.musescore_files()]
+
+
+def test_musescore_missing_is_reported(tmp_path: Path, capsys, monkeypatch) -> None:
+    from lento_library import musescore, watch
+
+    make_library(tmp_path)
+    (tmp_path / "pieces" / "saint-saens_the-swan" / "saint-saens_the-swan__mine.mscz").write_bytes(b"PK")
+    monkeypatch.setattr(musescore, "find", lambda explicit=None: None)
+    assert watch.run(Library(tmp_path), ["true"], "no", interval=0, once=True) == 0
+    status = json.loads((tmp_path / "requests" / "_status.json").read_text(encoding="utf-8"))
+    assert status["musescore"] is False
+    assert status["results"][-1] == {"pdf": "saint-saens_the-swan__mine.mscz", "ok": False, "at": status["results"][-1]["at"]}
+    assert "MuseScore isn't installed" in capsys.readouterr().out

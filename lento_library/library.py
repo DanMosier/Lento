@@ -10,6 +10,7 @@ Layout (see docs/library.md):
       requests/         convert__<pdf name without .pdf>.json, left by the app's "Make MusicXML" button
       pieces/<piece_id>/<piece_id>__<variant>.pdf
                         <piece_id>__<variant>.musicxml   (same name as its PDF, right beside it)
+                        <piece_id>__<variant>.mscz       (optional: a MuseScore file; MusicXML and PDF are exported from it)
 """
 
 from __future__ import annotations
@@ -23,12 +24,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(_[a-z0-9]+(-[a-z0-9]+)*){1,2}$")
-VARIANT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")  # no path separators, no ".." on its own
 VARIANT_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 COLUMNS = ["piece_id", "file", "variant", "composer", "title", "catalog_no",
            "edition", "source", "pages", "key", "clefs", "positions", "tags",
            "added", "notes"]
 KINDS = {".pdf": "pdf", ".musicxml": "musicxml", ".mxl": "musicxml", ".xml": "musicxml"}
+MUSESCORE = (".mscz", ".mscx")
 INDEX_NAME = "library.json"
 REQUESTS = "requests"
 FORMAT = "lento-library"
@@ -130,9 +131,9 @@ class Library:
         """Move a PDF (or MusicXML) into its piece folder and, for a PDF, append a catalog row."""
         if not src.is_file():
             raise FileNotFoundError(src)
-        kind = KINDS.get(src.suffix.lower())
+        kind = KINDS.get(src.suffix.lower()) or ("musescore" if src.suffix.lower() in MUSESCORE else None)
         if not kind:
-            raise ValueError("only PDF and MusicXML files go in the library")
+            raise ValueError("only PDF, MusicXML and MuseScore files go in the library")
         if not ID_RE.match(piece_id):
             raise ValueError(f"piece_id '{piece_id}' does not follow composer_title[_catalog]")
         if not VARIANT_RE.match(variant):
@@ -172,6 +173,7 @@ class Library:
             first = meta[0] if meta else {}
             by_file = {r["file"]: r for r in meta}
             on_disk = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in KINDS)
+            from_musescore = {p.stem for p in folder.iterdir() if p.is_file() and p.suffix.lower() in MUSESCORE}
             xml_by_stem = {p.stem: p for p in on_disk if KINDS[p.suffix.lower()] == "musicxml"}
             files = []
             paired: set[str] = set()
@@ -184,7 +186,9 @@ class Library:
                     paired.add(xml.name)
                     entry["musicxml"] = xml.name
                     level = quality_level(folder / f"{p.stem}.quality.json")
-                    if level:
+                    if p.stem in from_musescore:
+                        entry["from"] = "musescore"  # exported by MuseScore: exact, nothing to check
+                    elif level:
                         entry["quality"] = level
                 elif p.stem in requested:
                     entry["requested"] = True
@@ -195,7 +199,9 @@ class Library:
                 if x.name not in paired:
                     entry = file_entry(x, None)
                     level = quality_level(folder / f"{x.stem}.quality.json")
-                    if level:
+                    if x.stem in from_musescore:
+                        entry["from"] = "musescore"
+                    elif level:
                         entry["quality"] = level
                     files.append(entry)
             if not files:
@@ -254,6 +260,31 @@ class Library:
                 if not any((folder / f"{pdf.stem}{ext}").is_file() for ext in (".musicxml", ".mxl", ".xml")):
                     out.append(pdf)
         return out
+
+    def musescore_files(self) -> list[Path]:
+        """MuseScore files in piece folders whose MusicXML or PDF is missing or older than they are."""
+        from lento_library.musescore import needs_export
+
+        out = []
+        for folder in self.folders():
+            if ID_RE.match(folder.name):
+                out += [p for p in sorted(folder.iterdir()) if p.is_file() and p.suffix.lower() in MUSESCORE and needs_export(p)]
+        return out
+
+    def catalog_export(self, pdf: Path) -> None:
+        """Adds a catalog row for a PDF exported from MuseScore, if it has none yet."""
+        if any(r["file"] == pdf.name for r in self.catalog()):
+            return
+        new = not self.catalog_path.is_file()
+        row = {c: "" for c in COLUMNS}
+        stem = pdf.stem
+        row.update(piece_id=pdf.parent.name, file=pdf.name, variant=stem.split("__", 1)[1] if "__" in stem else "",
+                   source="MuseScore", pages=count_pages(pdf), added=datetime.date.today().isoformat())
+        with self.catalog_path.open("a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=COLUMNS)
+            if new:
+                w.writeheader()
+            w.writerow(row)
 
     def pdf_for(self, stem: str) -> Path | None:
         """The PDF called <stem>.pdf, in the piece folder its name starts with.

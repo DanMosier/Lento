@@ -37,6 +37,7 @@ lento-library convert                               # make MusicXML for the PDFs
 lento-library convert --missing                     # ...or for every PDF that has none yet
 lento-library convert faure_elegie_op24             # ...or for named pieces
 lento-library watch --install                       # convert queued PDFs automatically whenever this PC is on
+                                                    # (convert and watch also export MuseScore files: see below)
 ```
 
 **The watcher.** `lento-library watch` keeps running and looks at `requests/` every 30 seconds (`--interval` to
@@ -47,6 +48,14 @@ whether the PC is on, what it is converting and what finished. A PDF that fails 
 tries once more. `--install` starts the watcher hidden at every Windows sign-in (a small file in your Startup folder,
 logging to `requests/_watch.log`); `--uninstall` removes it. Run `--install` from the library folder, with the same
 Python that has Lento_ConvertPDF installed.
+
+**MuseScore files.** Put a MuseScore file (`.mscz`, or the older `.mscx`) in a piece folder, named like the others
+(`<piece_id>__<variant>.mscz`; `lento-library add` files it from the inbox too). `convert` and the watcher export it to
+a MusicXML and a PDF of the same name beside it, using MuseScore itself without opening its window, add a catalog row
+for the PDF, and rebuild `library.json`. These exports are exact, so the app shows a green **MuseScore** badge instead of
+"check". Changing the MuseScore file exports it again. MuseScore 4 (or 3) must be installed on the PC; it is found in
+the usual install folder, or give `--musescore "C:\path\to\MuseScore4.exe"` (or set `LENTO_MUSESCORE`). If it isn't
+installed, the app's Convert PDF screen says so. All the files go in one MuseScore run, because it is slow to start.
 
 `convert` runs Lento_ConvertPDF (homr on the GPU) as a separate program, saves each MusicXML beside its PDF, keeps any
 MusicXML that already exists, clears the finished requests and rebuilds `library.json`. You can still use
