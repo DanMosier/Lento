@@ -119,6 +119,10 @@ folder, and press Connect in Settings. After that, **Refresh** in the Library or
   recent conversions took), the rest of the batch in the order it will convert, a bar for the whole batch, what was
   queued too late for this batch, and what finished recently. It checks on the PC every 15 seconds while it is open,
   and nothing runs when it isn't.
+  Tick queued pieces and press **Remove from queue** to take them off: the app bins their request files (from the
+  Drive bin they can be restored for 30 days), the PC skips them, and they go back to the Choose PDFs list. The piece
+  converting now can't be stopped half way. Requests made on the PC itself can't be removed from the app (Drive only
+  lets it change files it made); delete those in `requests/` on the PC.
 - Scores you have opened are saved on the device (✓) and open offline. The last index is saved too.
 - **Marks** in Practice (fingerings, bowings, string numbers, lifts, circles and short notes) are saved beside the
   MusicXML as `<name>.marks.json`, so they follow you between PC, phone and tablet. The score file itself is never

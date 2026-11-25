@@ -140,5 +140,9 @@ export function musicxmlOf(f: LibraryFile): LibraryFile | null {
 
 /** "convert__<pdf name without .pdf>.json", the file `lento-library convert` looks for. */
 export function requestName(f: LibraryFile): string {
-  return `convert__${f.name.replace(/\.pdf$/i, "")}.json`;
+  return requestNameOf(f.name);
+}
+
+export function requestNameOf(pdfName: string): string {
+  return `convert__${pdfName.replace(/\.pdf$/i, "")}.json`;
 }

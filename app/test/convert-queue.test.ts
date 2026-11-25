@@ -78,4 +78,10 @@ describe("convert queue", () => {
     expect(duration(240)).toBe("about 4 min");
     expect(duration(4800)).toBe("about 1 h 20 min");
   });
+
+  it("hides what was removed on this device until the PC catches up", () => {
+    const v = buildQueue(status(), INDEX, namesOf(INDEX), new Set(["convert__d__imslp.json"]), NOW, new Set(["c__imslp.pdf", "d__imslp.pdf"]));
+    expect(v.next.map((i) => i.title)).toEqual(["The Swan"]);
+    expect(v.pickup).toEqual([]);
+  });
 });

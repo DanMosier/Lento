@@ -220,14 +220,26 @@ def run_converter(args: list[str], on_line=None, on_tick=None, tick: float = 10)
     return code
 
 
-def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_folder=None, on_line=None, on_tick=None) -> list[str]:
+def convert_pdfs(lib: Library, pdfs: list[Path], cmd: list[str], gpu: str, on_folder=None, on_line=None, on_tick=None,
+                 requested_only: bool = False, on_removed=None) -> list[str]:
     """Converts the PDFs' folders one at a time (the converter skips PDFs that already have MusicXML), clears the
     requests that worked, sets failed ones aside, and rebuilds library.json. Returns the names that failed.
-    on_folder(i, n, folder, pdfs_here) is called as each folder starts; on_line and on_tick as in run_converter."""
+    on_folder(i, n, folder, pdfs_here) is called as each folder starts; on_line and on_tick as in run_converter.
+    With requested_only, a PDF whose request was removed (from the app) before its turn is skipped, and
+    on_removed(names) is told."""
     folders = sorted({p.parent for p in pdfs})
     failed: list[str] = []
     for i, folder in enumerate(folders, 1):
         here = sorted((p for p in pdfs if p.parent == folder), key=lambda p: p.name)
+        if requested_only:
+            gone = [p for p in here if not lib.is_requested(p.stem)]
+            if gone:
+                print(f"[{i}/{len(folders)}] {folder.name}: removed from the queue: {', '.join(p.name for p in gone)}", flush=True)
+                if on_removed:
+                    on_removed([p.name for p in gone])
+                here = [p for p in here if p not in gone]
+            if not here:
+                continue
         if on_folder:
             on_folder(i, len(folders), folder, here)
         print(f"[{i}/{len(folders)}] {folder.name}: converting…", flush=True)

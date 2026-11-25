@@ -88,9 +88,6 @@ body {
 .cv-tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; min-height: 44px; padding: 0 14px; font-weight: 600; color: var(--muted); }
 .cv-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .cv-h { font-size: 1rem; margin: 18px 0 0; }
-.cv-numbered { list-style: decimal inside; }
-.cv-numbered li { display: list-item; }
-.cv-numbered li small { display: block; padding-left: 1.6em; }
 .cv-batch { margin: 12px 0; }
 .cv-bar-label { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
 .cv-bar-label span:last-child, .cv-now-time { color: var(--muted); }
