@@ -39,6 +39,15 @@ Each feature is one folder with a `ui.ts` for its tab. Features never import eac
 - `src/tuner/` the Tuner tab: `tuner.ts` (live pitch and reference tones), `ui.ts`.
 - `src/main.ts` the app shell: the tabs. To add a feature, add a folder, a tab button and a view in `index.html`.
 
+## Speed
+
+Responsiveness comes first: a feature that makes the app noticeably slower gets reworked or dropped.
+`npm run build && npm run perf` drives the built app in Chromium with the CPU slowed 4x (about a mid-range phone)
+and checks startup, bundle size, tab switching, opening scores, starting playback and checking a 3-minute recording
+against `perf/budgets.json`. CI runs it on every pull request, and main only deploys when it passes.
+Heavy parts load late: the score renderer is fetched in the background after startup, and pitch tracking runs in a
+Web Worker so the page keeps responding.
+
 ## Publishing
 
 `.github/workflows/app.yml` tests and builds on every pull request that touches `app/`, and publishes `main` to

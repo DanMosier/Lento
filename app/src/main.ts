@@ -4,6 +4,7 @@
  */
 import "./style.css";
 import { $, onOpenScore } from "./core/app";
+import { mark } from "./core/perf";
 import { enterLibrary } from "./library/ui";
 import { enterPractice } from "./practice/ui";
 import { enterTuner, leaveTuner } from "./tuner/ui";
@@ -28,3 +29,4 @@ for (const t of tabs) t.addEventListener("click", () => show(t.dataset.tab!));
 onOpenScore(() => show("practice"));
 const start = location.hash.slice(1);
 show(tabs.some((t) => t.dataset.tab === start) ? start : "practice");
+mark("ready");

@@ -1,0 +1,12 @@
+{
+  "startup-js-kb": 40,
+  "all-js-kb": 400,
+  "startup-ms": 600,
+  "tab-switch-ms": 100,
+  "open-score-ms": 2500,
+  "open-big-score-ms": 10000,
+  "start-playback-ms": 250,
+  "check-3min-ms": 10000,
+  "check-3min-longest-block-ms": 3500,
+  "track-pitch-ms": 8000
+}
