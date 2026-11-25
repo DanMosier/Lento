@@ -62,10 +62,17 @@ function fakeDrive(files: Record<string, { id: string; body?: string; modifiedTi
       const text = String(init.body);
       const meta = JSON.parse(text.includes("--lento") ? text.split("\r\n\r\n")[1].split("\r\n")[0] : text) as { name: string; parents: string[] };
       const parent = meta.parents[0] === "ROOT" ? "" : byId.get(meta.parents[0])!.path + "/";
-      const f = { id: `NEW${next++}`, body: text };
+      const content = text.includes("--lento") ? text.split("\r\n\r\n")[2]?.split("\r\n--")[0] : undefined;
+      const f = { id: `NEW${next++}`, body: content ?? text, modifiedTime: `m${next}` };
       files[parent + meta.name] = f;
       byId.set(f.id, { ...f, path: parent + meta.name });
       return new Response(JSON.stringify({ id: f.id, name: meta.name, mimeType: "x" }), { status: 200 });
+    }
+    if (init?.method === "PATCH") {
+      const f = byId.get(decodeURIComponent(url.pathname.split("/").pop()!))!;
+      f.body = files[f.path].body = String(init.body);
+      f.modifiedTime = files[f.path].modifiedTime = `m${next++}`;
+      return new Response(JSON.stringify({ id: f.id, name: f.path, mimeType: "x", modifiedTime: f.modifiedTime }), { status: 200 });
     }
     if (url.searchParams.get("alt") === "media") {
       const f = byId.get(decodeURIComponent(url.pathname.split("/").pop()!));
@@ -132,5 +139,20 @@ describe("MusicXML beside the PDF, and conversion requests", () => {
     expect(req.body).toContain('"pdf":"bach_cello-suite-1-prelude_bwv1007__barenreiter.pdf"');
     // asking again does not make a second file
     expect(await lib.requestConversion([{ piece: bach, file: bach.files[0] }])).toBe(0);
+  });
+});
+
+describe("files kept beside a score (score marks)", () => {
+  it("creates, updates, reads back, and works offline from the saved copy", async () => {
+    const d = fakeDrive({ pieces: { id: "P" }, "pieces/swan": { id: "S" } });
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    expect(await lib.readSidecar("swan", "swan.marks.json")).toBeNull();
+    await lib.writeSidecar("swan", "swan.marks.json", { marks: [1] });
+    expect(JSON.parse(d.files["pieces/swan/swan.marks.json"].body!)).toEqual({ marks: [1] });
+    await lib.writeSidecar("swan", "swan.marks.json", { marks: [1, 2] });
+    expect(d.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(1); // the second save updates the same file
+    expect(await lib.readSidecar("swan", "swan.marks.json")).toEqual({ marks: [1, 2] });
+    d.setOnline(false);
+    expect(await lib.readSidecar("swan", "swan.marks.json")).toEqual({ marks: [1, 2] });
   });
 });

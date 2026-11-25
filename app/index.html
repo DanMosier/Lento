@@ -33,6 +33,7 @@
       <label class="button primary" for="score-file">Open score</label>
       <input id="score-file" type="file" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden />
       <button id="parts-btn" type="button" class="button" hidden>Parts</button>
+      <button id="marks-btn" type="button" class="button" hidden aria-pressed="false" title="Add fingerings, bowings and notes to the score">Marks</button>
       <span id="title" class="title"></span>
     </div>
 
@@ -122,6 +123,35 @@
       </details>
     </section>
 
+
+    <section id="marks-bar" class="marks-bar" hidden aria-label="Score marks">
+      <div class="marks-tools" role="toolbar" aria-label="Mark to add">
+        <span class="marks-label">Finger</span>
+        <button type="button" data-kind="finger" data-value="0">0</button>
+        <button type="button" data-kind="finger" data-value="1">1</button>
+        <button type="button" data-kind="finger" data-value="2">2</button>
+        <button type="button" data-kind="finger" data-value="3">3</button>
+        <button type="button" data-kind="finger" data-value="4">4</button>
+        <span class="marks-label">String</span>
+        <button type="button" data-kind="string" data-value="I" title="A string">I</button>
+        <button type="button" data-kind="string" data-value="II" title="D string">II</button>
+        <button type="button" data-kind="string" data-value="III" title="G string">III</button>
+        <button type="button" data-kind="string" data-value="IV" title="C string">IV</button>
+        <span class="marks-label">Bow</span>
+        <button type="button" data-kind="down" title="Down bow">&#x2293;</button>
+        <button type="button" data-kind="up" title="Up bow">V</button>
+        <button type="button" data-kind="lift" title="Lift or breath">&#x2019;</button>
+        <button type="button" data-kind="highlight" title="Circle the note">&#x25EF;</button>
+        <button type="button" data-kind="text" title="A short note: type it, then tap a note">Text</button>
+        <input id="marks-text" type="text" maxlength="40" placeholder="e.g. slow bow" aria-label="Text to add" hidden />
+        <button type="button" data-kind="erase" title="Take all marks off a note">Erase</button>
+      </div>
+      <div class="marks-foot">
+        <label><input id="marks-show" type="checkbox" checked /> Show marks</label>
+        <span id="marks-saved" class="hint" role="status" aria-live="polite"></span>
+        <button id="marks-done" type="button">Done</button>
+      </div>
+    </section>
 
     <section id="wait-panel" class="wait-panel" hidden aria-label="Wait mode">
       <div class="wait-main">

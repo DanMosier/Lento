@@ -12,6 +12,9 @@ several tries.
 The **speed trainer** loops the chosen measures and listens to each pass: a clean pass (80, 90 or 100% of notes in
 tune and on time, without falling behind) raises the tempo a step toward the target; two passes with mistakes in a
 row step it back. It remembers the fastest clean pass for each passage.
+**Marks** add fingerings, bowings (down and up bow), string numbers, lifts, circles and short notes on top of the
+score: pick a mark and tap notes (tap again to take it off). Marks belong to notes, not page positions, so they
+stay put at any size, and they're saved on the device and, for library scores, beside the MusicXML in Drive.
 
 **Library:** browse your score library in Google Drive, open a MusicXML into Practice or a PDF in Drive's viewer, and
 queue PDFs (one or a batch) for MusicXML conversion on your PC.
@@ -43,11 +46,13 @@ screen. Features never import each other.
   connection Library, Convert and Settings share).
 - `src/practice/` Practice: `pitch.ts` (YIN pitch tracking, in a worker), `align.ts` and `analyze.ts` (ports of
   `lento_practice` in Python, which stays the reference), `report.ts`, `player.ts` (playback and metronome),
-  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `recorder.ts`, `latency.ts`, `ui.ts`.
+  `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `marks.ts` and `marks-view.ts` (score marks), `recorder.ts`, `latency.ts`, `ui.ts`.
 - `src/library/` Library: browse and open scores. It hands a score to Practice with `requestOpenScore` from core.
 - `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status.
 - `src/tuner/` Tuner. `src/settings/` Settings (library connection, tuning, headphone delay, sounds).
-- `src/main.ts` the shell. To add a feature, add a folder, a home card and a view in `index.html`.
+- `src/main.ts` the shell. Each feature's code loads the first time its screen opens (or, for Practice, when the
+  Library sends it a score), so the app starts with about 2 KB of script however many features there are. To add a
+  feature, add a folder, a home card, a view in `index.html` and a line in `LOAD` in `main.ts`.
 
 ## Instrument sounds
 

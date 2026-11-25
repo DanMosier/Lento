@@ -161,6 +161,29 @@ input[type="number"] { width: 5.5em; padding: 6px 8px; min-height: 36px; }
 .wait-heard.wrong { color: var(--out_of_tune); font-weight: 600; }
 #wait.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
+.marks-bar {
+  position: sticky; top: 0; z-index: 6; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px max(16px, env(safe-area-inset-left)); background: var(--panel); border-bottom: 2px solid var(--accent);
+}
+.marks-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.marks-tools button { min-width: 44px; padding: 6px 8px; font-size: 1.05rem; }
+.marks-tools button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.marks-label { color: var(--muted); font-size: 0.85rem; margin-left: 6px; }
+.marks-label:first-child { margin-left: 0; }
+#marks-text { width: 11em; padding: 6px 8px; min-height: 36px; }
+.marks-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.marks-foot label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+#marks-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.sheet { position: relative; }
+.sheet.marking { cursor: crosshair; }
+.marks-layer { position: absolute; inset: 0 auto auto 0; width: 0; height: 0; pointer-events: none; }
+.marks-layer.off { display: none; }
+.mark { position: absolute; transform: translate(-50%, -50%); font: 700 1em/1 Georgia, "Times New Roman", serif; color: #1f4fbf; white-space: nowrap; }
+.mark-text { font: italic 600 1em/1 system-ui, sans-serif; color: #8a3a00; }
+.mark-ring { position: absolute; border: 2px solid #d0342c; border-radius: 50%; }
+.mark-selected { position: absolute; border-radius: 50%; background: rgb(31 79 191 / 0.15); }
+@media print { .mark { color: #000; } .mark-selected { display: none; } }
+
 .status { margin: 10px 0; color: var(--muted); min-height: 1.4em; }
 .status[data-kind="error"] { color: var(--rec); font-weight: 600; }
 

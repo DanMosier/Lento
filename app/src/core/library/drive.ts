@@ -68,6 +68,16 @@ export class Drive {
     return (await res.json()) as DriveFile;
   }
 
+  /** Replaces the contents of a JSON file this app created. */
+  async update(id: string, content: object): Promise<DriveFile> {
+    const res = await this.request(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(id)}?uploadType=media&fields=${FIELDS}&supportsAllDrives=true`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(content),
+    });
+    return (await res.json()) as DriveFile;
+  }
+
   async download(id: string): Promise<ArrayBuffer> {
     return (await this.request(`${API}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`)).arrayBuffer();
   }
