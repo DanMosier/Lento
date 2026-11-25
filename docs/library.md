@@ -48,7 +48,8 @@ change by hand (added, moved or renamed in Drive), so `lento-library build` is n
 whether the PC is on, what it is converting and what finished. A PDF that fails is set aside as
 `requests/failed__<name>.json` (shown in the app as "last try failed"), so it isn't retried forever; queueing it again
 tries once more. `--install` starts the watcher hidden at every Windows sign-in (a small file in your Startup folder,
-logging to `requests/_watch.log`); `--uninstall` removes it. Run `--install` from the library folder, with the same
+logging to `requests/_watch.log`); `--uninstall` removes it. If Google Drive isn't running yet when you sign in, the
+watcher waits for the library folder to appear (the tray icon is grey meanwhile) and starts once Drive mounts it. Run `--install` from the library folder, with the same
 Python that has Lento_ConvertPDF installed.
 
 **The tray icon.** On Windows the installed watcher shows a small round icon with a note in the system tray (next to
