@@ -91,6 +91,22 @@ try {
   results["open-big-score-ms"] = (await measure("open-score"))[1];
   results["open-big-score-longest-block-ms"] = await longestTask(t);
 
+  // 3b. The phone's address bar sliding away (height only) must not redraw the score; turning the phone must
+  // redraw it exactly once.
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.waitForTimeout(600);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(600);
+  results["address-bar-relayouts"] = (await measure("relayout-score")).length;
+  await page.setViewportSize({ width: 844, height: 390 });
+  await waitFor("relayout-score", 1);
+  await page.waitForTimeout(600);
+  const turns = await measure("relayout-score");
+  results["rotate-big-score-ms"] = turns[0];
+  results["rotate-relayouts"] = turns.length;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitFor("relayout-score", 2);
+
   // 4. Start and stop playback on the 3-minute score
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
   await waitFor("open-score", 3);
@@ -174,7 +190,7 @@ const rows = Object.entries(results).map(([k, v]) => {
   const over = limit !== undefined && v > limit;
   return { k, v, limit, over };
 });
-const unit = (k) => (k.endsWith("kb") ? "KB gz" : "ms");
+const unit = (k) => (k.endsWith("kb") ? "KB gz" : k.endsWith("relayouts") ? "times" : "ms");
 const lines = [
   `### Lento performance (CPU slowed ${THROTTLE}x)`,
   "",
