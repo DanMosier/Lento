@@ -37,11 +37,13 @@ def test_number_must_be_large_and_over_the_rest():
         (0, 0, 8, 8, "3"),  # a fingering: too small
         (35, 0, 55, 20, "12"),  # the bar count, centred over x=45
         (120, 0, 140, 20, "4"),  # big, but over another bar
+        (40, 5, 70, 20, "3"),  # a fermata read as "3": wider than tall
         (40, 0, 50, 20, "pizz."),
     ]
     assert mr.pick_number(texts, 45.0, unit) == 12
     assert mr.pick_number(texts[:1], 45.0, unit) is None
     assert mr.pick_number([(35, 0, 55, 20, "1")], 45.0, unit) is None  # one bar is not a multi-bar rest
+    assert mr.pick_number([(72, 0, 84, 20, "13")], 45.0, unit) == 13  # printed 3.3 spaces right of the rest
 
 
 class Staff:
@@ -60,8 +62,8 @@ class Reader:
     def __call__(self, crop):
         self.crops.append(crop.shape)
         h, w = crop.shape[:2]
-        # crop is x 160..240 of the page, scaled 2x, padded 20: centre is x=200 on the page
-        box = [[w / 2 - 15, 30], [w / 2 + 15, 30], [w / 2 + 15, 75], [w / 2 - 15, 75]]
+        # crop is x 140..270 of the page, scaled 2x, padded 20: page x=200 is at 20 + 2 * 60 = 140
+        box = [[130, 30], [150, 30], [150, 75], [130, 75]]
         return SimpleNamespace(boxes=[box], txts=["8"])
 
 

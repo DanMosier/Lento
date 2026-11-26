@@ -14,6 +14,8 @@ from typing import Any, Callable, Sequence
 
 MEASURE_ENDS = ("barline", "doublebarline", "bolddoublebarline", "newline")
 MAX_BARS = 999
+# homr places a rest a little left of where the number is printed: how far off centre a number may be, in staff spaces
+MAX_OFFSET = 4.0
 
 
 def _is_end(rhythm: str) -> bool:
@@ -49,17 +51,20 @@ def pick_number(texts: Sequence[tuple[float, float, float, float, str]], center_
     """The bar count among text boxes (x0, y0, x1, y1, text) read above a rest, centred on center_x.
 
     Multi-bar rest numbers are printed in the large time-signature digits, so a box must be well over one staff
-    space tall; that keeps out fingerings and the small bar numbers at the start of a line."""
+    space tall; that keeps out fingerings and the small bar numbers at the start of a line. The closest one to
+    center_x wins, within MAX_OFFSET staff spaces."""
     best: tuple[float, int] | None = None
     for x0, y0, x1, y1, text in texts:
         digits = text.strip().replace(" ", "")
         if not re.fullmatch(r"\d{1,3}", digits):
             continue
-        n = int(digits)
-        if not 2 <= n <= MAX_BARS or (y1 - y0) < 1.2 * unit:
+        n, height = int(digits), y1 - y0
+        if not 2 <= n <= MAX_BARS or height < 1.2 * unit:
             continue
+        if x1 - x0 > 0.95 * height * len(digits):
+            continue  # wider than digits are: a fermata, which the text reader takes for a "3"
         off = abs((x0 + x1) / 2 - center_x)
-        if off <= 2.5 * unit and (best is None or off < best[0]):
+        if off <= MAX_OFFSET * unit and (best is None or off < best[0]):
             best = (off, n)
     return best[1] if best else None
 
@@ -94,7 +99,7 @@ def _read(reader: Any, image: Any, staff: Any, x: float) -> int | None:
     point = staff.get_at(x)
     top = float(min(point.y)) if point is not None else float(staff.min_y)
     y0, y1 = max(0, int(top - 6 * unit)), max(0, int(top - 0.2 * unit))
-    x0, x1 = max(0, int(x - 4 * unit)), min(image.shape[1], int(x + 4 * unit))
+    x0, x1 = max(0, int(x - (MAX_OFFSET + 2) * unit)), min(image.shape[1], int(x + (MAX_OFFSET + 3) * unit))
     if y1 - y0 < unit or x1 - x0 < unit:
         return None
     crop = image[y0:y1, x0:x1]
