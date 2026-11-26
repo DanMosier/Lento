@@ -212,7 +212,7 @@ function toggleSplit(): void {
   const pdf = it.pdf;
   const on = isFlagged(currentSplit(), it.piece.id, pdf.name);
   changeSplit((l) => setSplit(l, it.piece.id, pdf.name, it.piece.title, on ? "off" : "flagged"));
-  status(on ? "Taken off the To split list." : "Added to the To split list in the Review tab, as a reminder to split this PDF on your PC.");
+  status(on ? "Taken off the To split list." : "Added to the To split list (its button is in the Review tab), as a reminder to split this PDF on your PC.");
 }
 onSplitChanged(() => {
   if (ui.dialog.open) showSplit();
