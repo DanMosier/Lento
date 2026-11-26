@@ -34,6 +34,25 @@ export function library(): DriveLibrary | null {
   return current;
 }
 
+/**
+ * Finds the library in the user's Drive by itself, so a new device needs nothing typed in: the folder holding a
+ * library.json beside a pieces/ folder (the newest, if there are several). Signs in first if needed, so call it from
+ * a click. Saves the folder on this device only and returns its ID, or null if there is no library.json anywhere.
+ */
+export async function findLibrary(drive = new Drive((fresh) => auth.getToken(clientId(), fresh))): Promise<string | null> {
+  const found = (await drive.find("library.json")).filter((f) => f.parents?.length);
+  let pick: string | null = null;
+  for (const f of found) {
+    if (await drive.child(f.parents![0], "pieces")) {
+      pick = f.parents![0];
+      break;
+    }
+  }
+  pick ??= found[0]?.parents?.[0] ?? null;
+  if (pick) store.set("library.folder", `https://drive.google.com/drive/folders/${pick}`);
+  return pick;
+}
+
 /** Requests made from this device that the index doesn't show yet (Drive's index updates only when the PC rebuilds it). */
 export const requestedHere = {
   all: (): Set<string> => new Set(store.get<string[]>("library.requested") ?? []),

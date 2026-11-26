@@ -228,6 +228,7 @@
         <button id="lib-clear" type="button" class="link" hidden>Clear filters</button>
       </div>
       <p id="lib-status" class="status" role="status" aria-live="polite"></p>
+      <p id="lib-setup-hint" class="hint lib-setup-hint" hidden><button id="lib-connect" type="button" class="primary">Connect to Google Drive</button> Sign in and the app finds your library by itself (or choose a folder in <button type="button" class="link" data-go="settings">Settings</button>).</p>
       <div id="lib-table" class="lib-table" role="table" aria-label="Pieces" aria-rowcount="0" tabindex="0">
         <div id="lib-head" class="lib-row lib-head" role="row"></div>
         <div id="lib-body" class="lib-body" role="rowgroup"></div>
@@ -236,7 +237,6 @@
         <div class="lib-detail-top"><button id="lib-detail-close" type="button" aria-label="Close">✕</button></div>
         <div id="lib-detail-body"></div>
       </dialog>
-      <p id="lib-setup-hint" class="hint" hidden>Add your Google Drive library folder in <button type="button" class="link" data-go="settings">Settings</button> to browse your scores here.</p>
     </div>
 
     <div id="view-tuner" class="view" aria-label="Tuner" hidden>
@@ -328,12 +328,16 @@
     <div id="view-settings" class="view" aria-label="Settings" hidden>
       <section class="page settings">
         <h2>Google Drive library</h2>
-        <label>Library folder (paste its link)
-          <input id="set-folder" type="url" inputmode="url" placeholder="https://drive.google.com/drive/folders/…" />
+        <p class="hint">Press Connect and sign in: the app finds your library (the folder with <code>library.json</code>) by itself. To use a different folder, paste its link first.</p>
+        <label>Library folder (optional)
+          <input id="set-folder" type="url" inputmode="url" placeholder="Found by itself, or paste https://drive.google.com/drive/folders/…" />
         </label>
-        <label>Google client ID
-          <input id="set-client" type="text" spellcheck="false" placeholder="….apps.googleusercontent.com" />
-        </label>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <label>Google client ID (already filled in; change it only for your own copy of the app)
+            <input id="set-client" type="text" spellcheck="false" placeholder="….apps.googleusercontent.com" />
+          </label>
+        </details>
         <div class="tools">
           <button id="set-connect" type="button" class="primary">Connect to Google Drive</button>
           <button id="set-signout" type="button" hidden>Sign out</button>

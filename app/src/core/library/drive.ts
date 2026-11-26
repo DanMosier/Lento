@@ -45,6 +45,13 @@ export class Drive {
     return files[0] ?? null;
   }
 
+  /** Files called `name` anywhere in the user's Drive (not in the bin), newest first, with their folders. */
+  async find(name: string): Promise<(DriveFile & { parents?: string[] })[]> {
+    const q = `name = '${quote(name)}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
+    const url = `${API}?${new URLSearchParams({ q, fields: `files(${FIELDS},parents)`, orderBy: "modifiedTime desc", pageSize: "20" })}`;
+    return ((await (await this.request(url)).json()) as { files: (DriveFile & { parents?: string[] })[] }).files ?? [];
+  }
+
   /** Creates a folder, or a small JSON file, inside `parentId`. */
   async create(parentId: string, name: string, content?: object): Promise<DriveFile> {
     const meta = { name, parents: [parentId], mimeType: content ? "application/json" : "application/vnd.google-apps.folder" };

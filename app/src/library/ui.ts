@@ -1,6 +1,6 @@
 /** The Library screen: browse the score library in Google Drive and open a score into Practice. */
 import { $, requestOpenScore } from "../core/app";
-import { cache, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
+import { cache, findLibrary, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
 import { fileKey, type DriveLibrary } from "../core/library/library";
 import { store } from "../core/app";
 import { allTags, musicxmlOf, requestName, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
@@ -27,6 +27,7 @@ const ui = {
   detailBody: $("lib-detail-body"),
   detailClose: $<HTMLButtonElement>("lib-detail-close"),
   setupHint: $("lib-setup-hint"),
+  connect: $<HTMLButtonElement>("lib-connect"),
 };
 
 let index: LibraryIndex | null = null;
@@ -43,6 +44,7 @@ function status(text: string, kind: "info" | "error" = "info"): void {
 function setup(): DriveLibrary | null {
   const lib = connect();
   ui.setupHint.hidden = !!lib;
+  ui.table.hidden = !lib;
   if (!lib) status("Your library isn't connected yet.");
   return lib;
 }
@@ -389,6 +391,18 @@ ui.detail.addEventListener("click", (e) => {
 ui.detail.addEventListener("close", () => (open = null));
 window.addEventListener("resize", fitTable, { passive: true });
 ui.refresh.addEventListener("click", () => void refresh());
+ui.connect.addEventListener("click", async () => {
+  ui.connect.disabled = true;
+  status("Looking for your library in Google Drive…");
+  try {
+    if (await findLibrary()) await refresh();
+    else status("Couldn't find a library (a folder with library.json) in your Drive. Choose its folder in Settings.", "error");
+  } catch (e) {
+    status((e as Error).message, "error");
+  } finally {
+    ui.connect.disabled = false;
+  }
+});
 onLibraryChanged(() => {
   if (!$("view-library").hidden) return; // this screen caused it
   started = false; // reload the saved index next time it opens
