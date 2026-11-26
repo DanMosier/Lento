@@ -18,6 +18,7 @@ import zipfile
 from pathlib import Path
 
 from .homr_runner import EngineAvailability, OMRConfig, check_output, name_parts, source_suffix, write_report
+from .pages import pages_with_staves
 from .quality import QualityReport, assess
 
 INSTALL_HINT = (
@@ -89,29 +90,6 @@ def check_audiveris(config: OMRConfig | None = None) -> EngineAvailability:
     found = re.search(r"\b(\d+\.\d+(?:\.\d+)?)\b", "\n".join(ln for ln in out.splitlines() if "audiveris" in ln.lower()))
     details = f"Ready, CPU, {f'Audiveris {found.group(1)}' if found else 'version not reported'} ({exe})"
     return EngineAvailability("audiveris", True, str(exe), details, INSTALL_HINT)
-
-
-def pages_with_staves(pdf: Path) -> tuple[int, list[int]]:
-    """(number of pages, the 1-based pages where at least one 5-line staff can be seen)."""
-    from .staff_detection import detect_staves_in_image
-
-    try:
-        import pypdfium2 as pdfium
-    except ImportError:  # pragma: no cover
-        return 0, []
-    try:
-        doc = pdfium.PdfDocument(str(pdf))
-    except Exception:
-        return 0, []
-    music: list[int] = []
-    try:
-        for i in range(len(doc)):
-            image = doc[i].render(scale=100 / 72).to_pil().convert("L")
-            if detect_staves_in_image(image):
-                music.append(i + 1)
-        return len(doc), music
-    finally:
-        doc.close()
 
 
 def _unpack(mxl: Path, dest: Path) -> None:

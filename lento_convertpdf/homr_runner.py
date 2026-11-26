@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .pages import keep_pages, pages_with_staves
 from .quality import REVIEW_BELOW, QualityReport, assess
 
 BRIDGE = Path(__file__).with_name("homr_bridge.py")
@@ -306,20 +307,35 @@ def run_homr(
             if m and config.on_page:
                 config.on_page(pdf_path, int(m.group(1)), int(m.group(2)))
 
-        try:
-            returncode, log = _stream_in_homr_env(python, args, work, timeout, on_line)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"homr did not finish within {timeout} seconds.") from exc
-        if config.gpu == "force":
-            for message in GPU_FALLBACK_MESSAGES:
-                if message in log:
-                    raise RuntimeError(f"GPU required, but homr fell back to the CPU: {message}")
         produced = work / "score.musicxml"
+
+        def attempt() -> tuple[int, str]:
+            try:
+                code, text = _stream_in_homr_env(python, args, work, timeout, on_line)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(f"homr did not finish within {timeout} seconds.") from exc
+            if config.gpu == "force":
+                for message in GPU_FALLBACK_MESSAGES:
+                    if message in text:
+                        raise RuntimeError(f"GPU required, but homr fell back to the CPU: {message}")
+            return code, text
+
+        returncode, log = attempt()
+        skipped: list[int] = []
+        if (returncode != 0 or not produced.is_file()) and source.suffix == ".pdf" and "No staffs found" in log:
+            # A title page or a blank page makes homr give up on the whole PDF: try again without such pages
+            pages, music = pages_with_staves(source)
+            if music and len(music) < pages:
+                skipped = [n for n in range(1, pages + 1) if n not in music]
+                keep_pages(pdf_path, music, source)
+                returncode, log = attempt()
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_homr_error(log, returncode))
         name_parts(produced, config.instrument)
         parts = check_output(produced)
         report = assess(produced, _read_trace(trace_path), config.review_below)
+        if skipped:
+            report.problems.append(f"page {', '.join(map(str, skipped))} had no staves and was left out")
 
         target_musicxml.parent.mkdir(parents=True, exist_ok=True)
         partial = target_musicxml.with_name(target_musicxml.name + ".part")

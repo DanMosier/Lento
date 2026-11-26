@@ -286,3 +286,39 @@ def test_parts_homr_calls_voice_are_renamed_to_the_default_instrument(tmp_path):
     assert root.findtext(".//midi-program") == "43"
     assert name_parts(xml, "Cello") == 0  # nothing left to rename
     assert name_parts(xml, "") == 0
+
+
+def test_title_page_is_left_out_on_a_second_try(monkeypatch, tmp_path):
+    exe = tmp_path / "homr_python.exe"
+    exe.write_bytes(b"")
+    runs: list[list[str]] = []
+
+    def run(python, args, cwd, timeout, on_line):
+        runs.append(args)
+        if len(runs) == 1:
+            return 1, "An error occurred while processing C:\\t\\score.png: No staffs found"
+        (cwd / "score.musicxml").write_text(SCORE.format(NOTE), encoding="utf-8")
+        return 0, ""
+
+    kept: list[list[int]] = []
+    monkeypatch.setattr(homr_runner, "_stream_in_homr_env", run)
+    monkeypatch.setattr(homr_runner, "pages_with_staves", lambda _pdf: (3, [2, 3]))
+    monkeypatch.setattr(homr_runner, "keep_pages", lambda src, pages, dest: kept.append(pages) or dest)
+    item = convert_single_pdf(item_for(blank_pdf(tmp_path / "part.pdf")), OMRConfig(homr_python=str(exe)), READY)
+    assert item.status == "converted", item.error_message
+    assert len(runs) == 2 and kept == [[2, 3]]
+    assert item.quality is not None and any("page 1 had no staves" in p for p in item.quality.problems)
+
+
+def test_keep_pages_writes_only_the_chosen_pages(tmp_path):
+    from lento_convertpdf.pages import keep_pages
+
+    writer = pypdf.PdfWriter()
+    for width in (100, 200, 300):
+        writer.add_blank_page(width=width, height=100)
+    src = tmp_path / "three.pdf"
+    with src.open("wb") as f:
+        writer.write(f)
+    out = keep_pages(src, [2, 3], tmp_path / "two.pdf")
+    widths = [round(float(p.mediabox.width)) for p in pypdf.PdfReader(str(out)).pages]
+    assert widths == [200, 300]
