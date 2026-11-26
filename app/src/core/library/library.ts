@@ -23,6 +23,18 @@ export class DriveLibrary {
     return saved ? parseIndex(new TextDecoder().decode(saved.data)) : null;
   }
 
+  /**
+   * The index from Drive only if it is newer than this device's copy (one small metadata call when it isn't), else
+   * null. For checking quietly in the background.
+   */
+  async newerIndex(): Promise<LibraryIndex | null> {
+    const f = await this.drive.child(this.rootId, INDEX_KEY);
+    if (!f) return null;
+    const saved = await this.cache.get(INDEX_KEY);
+    if (saved && saved.modifiedTime && saved.modifiedTime === f.modifiedTime) return null;
+    return this.loadIndex();
+  }
+
   /** Fetches library.json from Drive and saves it for offline use. */
   async loadIndex(): Promise<LibraryIndex> {
     const f = await this.drive.child(this.rootId, INDEX_KEY);

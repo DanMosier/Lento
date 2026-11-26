@@ -82,7 +82,7 @@ function fakeDrive(files: Record<string, { id: string; body?: string; modifiedTi
     }
     if (url.searchParams.get("alt") === "media") {
       const f = byId.get(decodeURIComponent(url.pathname.split("/").pop()!));
-      return new Response(f?.body ?? "", { status: f ? 200 : 404 });
+      return new Response((f && files[f.path]?.body) ?? f?.body ?? "", { status: f ? 200 : 404 }); // files may be changed by a test
     }
     const m = url.searchParams.get("q")!.match(/^'(.+)' in parents and name = '(.+)' and trashed = false$/)!;
     const parent = m[1] === "ROOT" ? "" : byId.get(m[1])!.path + "/";
@@ -160,6 +160,21 @@ describe("files kept beside a score (score marks)", () => {
     expect(await lib.readSidecar("swan", "swan.marks.json")).toEqual({ marks: [1, 2] });
     d.setOnline(false);
     expect(await lib.readSidecar("swan", "swan.marks.json")).toEqual({ marks: [1, 2] });
+  });
+});
+
+describe("checking for a newer index", () => {
+  it("downloads library.json again only when Drive's copy changed", async () => {
+    const d = fakeDrive({ "library.json": { id: "IDX", body: JSON.stringify(INDEX), modifiedTime: "t1" } });
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    await lib.loadIndex();
+    const downloads = () => d.calls.filter((c) => c.includes("alt=media")).length;
+    expect(await lib.newerIndex()).toBeNull();
+    expect(downloads()).toBe(1);
+    d.files["library.json"].modifiedTime = "t2";
+    d.files["library.json"].body = JSON.stringify({ ...INDEX, pieces: INDEX.pieces.slice(0, 1) });
+    expect((await lib.newerIndex())?.pieces).toHaveLength(1);
+    expect(downloads()).toBe(2);
   });
 });
 
