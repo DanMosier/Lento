@@ -140,7 +140,10 @@ uv pip install --python .venv\Scripts\python.exe accelerate==1.8.0 transformers=
 The models are gated: sign in at huggingface.co, accept the terms on
 [guangyangmusic/legato-2](https://huggingface.co/guangyangmusic/legato-2) and
 [guangyangmusic/legato](https://huggingface.co/guangyangmusic/legato), make a read token under Settings > Access
-Tokens, and run `.\.venv\Scripts\hf.exe auth login` in the legato folder. The first conversion downloads the model.
+Tokens, and run `.\.venv\Scripts\hf.exe auth login` in the legato folder. The first conversion downloads the model. Legato-2's
+access is approved by hand by its author, so it can take a while. The first model loads its vision encoder from
+Meta's [Llama-3.2-11B-Vision](https://huggingface.co/meta-llama/Llama-3.2-11B-Vision), which needs its own access
+request and a download of about 20 GB; Legato-2 carries its encoder in its own 1.9 GB.
 
 Then choose **Legato** under *Engine*, or `--engine legato`. Lento finds `D:\Coding\legato\.venv` by itself
 (`--legato-python` or `LEGATO_PYTHON` point elsewhere). Legato-2 reads a whole score at once with its own system
