@@ -22,7 +22,7 @@ import { library } from "../core/library/connection";
 import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
 import { pageLayout, parseScoreSize, phoneScreen, SCORE_SIZES } from "./layout";
 import { setUpFocus } from "./focus";
-import { guardRenderer, takeSkippedSlurs } from "./osmd-safety";
+import { guardRenderer, skippedNote } from "../core/osmd-safety";
 import { applyView, CLEF_LABELS, cleanView, isPlain, MAX_TRANSPOSE, PLAIN_VIEW, transposeLabel, type ClefChoice, type ScoreView } from "./view";
 
 const ui = {
@@ -373,9 +373,8 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   showBest();
   void loadMarks();
   const shown = isPlain(v) ? "" : ` Shown ${[v.transpose ? transposeLabel(v.transpose).toLowerCase() : "", v.clef !== "written" ? `in ${CLEF_LABELS[v.clef].toLowerCase()} clef` : ""].filter(Boolean).join(", ")}.`;
-  const slurs = takeSkippedSlurs();
-  const skippedNote = slurs ? ` ${slurs} slur${slurs > 1 ? "s" : ""} that couldn't be placed ${slurs > 1 ? "were" : "was"} left out.` : "";
-  status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.${shown}${skippedNote}` : "This part has no notes.");
+  const skipped = skippedNote();
+  status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.${shown}${skipped}` : "This part has no notes.");
   if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
 

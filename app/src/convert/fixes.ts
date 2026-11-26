@@ -328,3 +328,47 @@ export function serialize(doc: Document): string {
   const body = new XMLSerializer().serializeToString(doc);
   return body.startsWith("<?xml") ? body : `<?xml version="1.0" encoding="UTF-8"?>\n${body}`;
 }
+
+/** How many pages of `size` bars a score of `count` bars has, and the bars (1-based positions) on page `page`. */
+export function barPage(count: number, size: number, page: number): { page: number; pages: number; first: number; last: number } {
+  const pages = Math.max(1, Math.ceil(count / size));
+  const at = Math.max(0, Math.min(pages - 1, page));
+  return { page: at, pages, first: at * size + 1, last: Math.min(count, (at + 1) * size) };
+}
+
+// The order MusicXML wants inside <attributes>, for the ones carried onto a page's first bar
+const CARRIED = ["divisions", "key", "time", "staves", "part-symbol", "clef", "transpose"];
+
+/**
+ * The score cut down to bars first..last (1-based positions), as MusicXML text, for drawing one page of a long score:
+ * the renderer reads and lays out the whole file even when told to draw only some bars, which made a 1,700-bar
+ * sonata take seconds per page. The divisions, key, time, staves, clefs and transposition in force at the first bar
+ * are put at its start, so the page reads as it does in the whole score. Slurs and other lines that cross the page's
+ * edge are cut off; the renderer guards leave out any it can't place.
+ */
+export function pageXml(doc: Document, first: number, last: number): string {
+  const root = doc.documentElement;
+  const out = new XMLSerializer();
+  const head = Array.from(root.attributes).map((a) => ` ${a.name}="${a.value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`).join("");
+  const body: string[] = [];
+  for (const child of Array.from(root.children)) {
+    if (child.localName !== "part") {
+      body.push(out.serializeToString(child));
+      continue;
+    }
+    const measures = kids(child, "measure");
+    const carried = new Map<string, Element>(); // "clef 2" -> the latest <clef number="2">
+    for (const m of measures.slice(0, first - 1))
+      for (const a of kids(m, "attributes"))
+        for (const el of Array.from(a.children)) if (CARRIED.includes(el.localName)) carried.set(`${el.localName} ${el.getAttribute("number") ?? ""}`, el);
+    const page = measures.slice(first - 1, last).map((m) => out.serializeToString(m));
+    if (carried.size && page.length) {
+      const els = [...carried.values()].sort((a, b) => CARRIED.indexOf(a.localName) - CARRIED.indexOf(b.localName));
+      const attrs = `<attributes>${els.map((e) => out.serializeToString(e)).join("")}</attributes>`;
+      page[0] = page[0].replace(/^<measure\b[^>]*>/, (open) => open + attrs);
+    }
+    const id = child.getAttribute("id") ?? "";
+    body.push(`<part id="${id.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">${page.join("")}</part>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<${root.localName}${head}>${body.join("")}</${root.localName}>`;
+}
