@@ -51,6 +51,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run perf
+      - run: npm run e2e
 
   # Publishes main to GitHub Pages (Settings > Pages > Source: GitHub Actions).
   deploy:

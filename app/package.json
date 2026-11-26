@@ -6,7 +6,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "perf": "node perf/run.mjs"
+    "perf": "node perf/run.mjs",
+    "e2e": "node e2e/home.mjs"
   },
   "devDependencies": {
     "happy-dom": "18.0.1",

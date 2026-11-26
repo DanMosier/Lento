@@ -37,12 +37,14 @@ const NAMES: Record<string, string> = { home: "", practice: "Practice", library:
 const SCREENS = Object.keys(NAMES);
 
 let current = "";
+let shows = 0; // counts screen changes, so a delayed check can tell whether anything happened since
 
 function show(name: string): void {
   if (name === current) return;
   if (current) loadedFeatures.get(current)?.leave?.();
   for (const s of SCREENS) $(`view-${s}`).hidden = s !== name;
   current = name;
+  shows++;
   $("screen-name").textContent = NAMES[name];
   document.title = name === "home" ? "Lento" : `${NAMES[name]} · Lento`;
   window.scrollTo(0, 0);
@@ -78,8 +80,18 @@ async function goHome(): Promise<void> {
   if (current === "home") return;
   if (!(await confirmLeave())) return;
   if (current === "practice") practice()?.closeScore?.();
-  if (history.state?.screen) history.back(); // pops the entry made by go(); popstate then shows home
-  else {
+  if (history.state?.screen) {
+    const before = shows;
+    history.back(); // pops the entry made by go(); popstate then shows home
+    // An embedded page (such as Drive's PDF viewer) can add history entries of its own, and then Back only steps
+    // back inside it. Home must always work, so go home directly if Back didn't change the screen.
+    window.setTimeout(() => {
+      if (shows === before) {
+        history.replaceState(null, "", location.pathname);
+        show("home");
+      }
+    }, 350);
+  } else {
     history.replaceState(null, "", location.pathname);
     show("home");
   }
