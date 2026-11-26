@@ -20,6 +20,7 @@ from pathlib import Path
 from .homr_runner import EngineAvailability, OMRConfig, check_output, name_parts, source_suffix, write_report
 from .pages import pages_with_staves
 from .quality import QualityReport, assess
+from .rests import expand_multirests
 
 INSTALL_HINT = (
     "Install Audiveris from https://github.com/Audiveris/audiveris/releases "
@@ -167,6 +168,7 @@ def run_audiveris(
             shutil.copyfile(exported[0], produced)
 
         name_parts(produced, config.instrument, also_unnamed=True)
+        expand_multirests(produced)
         parts = check_output(produced, "Audiveris")
         report = assess(produced, None, config.review_below)
         if skipped:

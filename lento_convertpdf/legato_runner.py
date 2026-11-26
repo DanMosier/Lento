@@ -27,6 +27,7 @@ from .homr_runner import (
     write_report,
 )
 from .quality import QualityReport, assess
+from .rests import expand_multirests
 
 BRIDGE = Path(__file__).with_name("legato_bridge.py")
 DEFAULT_MODEL = "guangyangmusic/legato-2"
@@ -160,6 +161,7 @@ def run_legato(
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_error(log, returncode))
         name_parts(produced, config.instrument, also_unnamed=True)
+        expand_multirests(produced)
         try:
             parts = check_output(produced, "Legato")
         except Exception:

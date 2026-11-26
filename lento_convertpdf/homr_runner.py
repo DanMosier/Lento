@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 from .pages import keep_pages, pages_with_staves
+from .rests import expand_multirests
 from .quality import REVIEW_BELOW, QualityReport, assess
 
 BRIDGE = Path(__file__).with_name("homr_bridge.py")
@@ -332,6 +333,7 @@ def run_homr(
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_homr_error(log, returncode))
         name_parts(produced, config.instrument)
+        expand_multirests(produced)
         parts = check_output(produced)
         report = assess(produced, _read_trace(trace_path), config.review_below)
         if skipped:
