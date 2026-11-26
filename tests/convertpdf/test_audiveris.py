@@ -147,3 +147,16 @@ def test_page_image_is_passed_on_as_an_image(fake_audiveris, tmp_path):
     assert item.status == "converted", item.error_message
     assert calls[-1][-1].endswith("score.jpg")
     assert (tmp_path / "01.musicxml").is_file()
+
+
+def test_audiveris_folder_beside_the_project_is_found(monkeypatch, tmp_path):
+    exe = tmp_path / "Audiveris" / "Audiveris.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"")
+    monkeypatch.delenv("AUDIVERIS", raising=False)
+    monkeypatch.setattr(audiveris_runner, "__file__", str(tmp_path / "Lento" / "lento_convertpdf" / "audiveris_runner.py"))
+    monkeypatch.setattr(audiveris_runner.shutil, "which", lambda name: None)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "pf"))
+    monkeypatch.delenv("ProgramW6432", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    assert discover_audiveris() == exe

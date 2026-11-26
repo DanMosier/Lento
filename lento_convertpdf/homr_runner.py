@@ -62,13 +62,15 @@ print("PROBE" + json.dumps(out))
 class OMRConfig:
     """Configuration for batch PDF -> MusicXML conversion."""
 
-    engine: str = "homr"  # "homr" | "audiveris"
+    engine: str = "homr"  # "homr" | "audiveris" | "legato"
     output_dir: Path | None = None  # None = same folder as PDF
     recursive: bool = True
     overwrite_existing: bool = True
     homr_python: str = ""  # python.exe of homr's environment; blank = find it
     audiveris_path: str = ""  # Audiveris.exe; blank = find it
-    gpu: str = "force"  # "force" (fail without CUDA) | "auto" | "no"
+    legato_python: str = ""  # python.exe of Legato's environment; blank = find it
+    legato_model: str = "guangyangmusic/legato-2"  # Hugging Face model Legato reads with
+    gpu: str = "force"  # homr and Legato: "force" (fail without CUDA) | "auto" | "no"
     review_below: float = REVIEW_BELOW  # flag exports whose quality estimate is lower
     instrument: str = "Cello"  # what single-staff parts are called when homr can't tell ("" keeps homr's "Voice")
     timeout_base_sec: int = 180

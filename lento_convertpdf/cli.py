@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="Lento_ConvertPDF",
         description=(
-            "Batch convert sheet music PDFs into MusicXML using homr or Audiveris, "
+            "Batch convert sheet music PDFs into MusicXML using homr, Audiveris or Legato, "
             "and preview/render MusicXML scores with recommended open-source VST instrument profiles."
         ),
     )
@@ -50,7 +50,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine",
         choices=VALID_ENGINES,
         default="homr",
-        help="OMR engine: homr (default, GPU) or audiveris (CPU, installed separately).",
+        help="OMR engine: homr (default, GPU), audiveris (CPU) or legato (GPU); the last two are installed separately.",
+    )
+    parser.add_argument(
+        "--legato-python",
+        default="",
+        help="python.exe of Legato's environment (default: LEGATO_PYTHON, then a legato folder beside the project).",
+    )
+    parser.add_argument(
+        "--legato-model",
+        default="guangyangmusic/legato-2",
+        help="Hugging Face model for Legato (default: guangyangmusic/legato-2).",
     )
     parser.add_argument(
         "--audiveris",
@@ -61,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--gpu",
         choices=GPU_MODES,
         default="force",
-        help="homr only. force = fail unless CUDA is in use (default), auto = use CUDA if available, no = CPU.",
+        help="homr and legato. force = fail unless CUDA is in use (default), auto = use CUDA if available, no = CPU.",
     )
     parser.add_argument(
         "--review-below",
@@ -218,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
     config = OMRConfig(
         engine=args.engine,
         audiveris_path=args.audiveris,
+        legato_python=args.legato_python,
+        legato_model=args.legato_model,
         output_dir=args.output_dir,
         recursive=not args.no_recursive,
         gpu=args.gpu,

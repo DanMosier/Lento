@@ -38,6 +38,7 @@ flowchart LR
 | `omr_engines.py` | Finds the PDFs in a folder and converts them one by one |
 | `homr_runner.py` | Finds homr, checks the GPU, and runs homr as a separate program |
 | `audiveris_runner.py` | Finds and runs Audiveris, the second engine (CPU, installed separately) |
+| `legato_runner.py`, `legato_bridge.py` | Finds and runs Legato, the third engine; the bridge runs inside Legato's environment and turns its ABC into MusicXML |
 | `homr_bridge.py` | Runs inside homr's environment, starts homr and records its confidence for the quality check |
 | `system_reader.py`, `system_merge.py`, `instruments.py` | Reading orchestral scores one system at a time, using the instrument labels beside the staves |
 | `quality.py` | Rates each converted score OK, REVIEW or UNRELIABLE |
@@ -107,7 +108,7 @@ No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN librarie
 [Audiveris](https://github.com/Audiveris/audiveris) is an older, actively maintained open-source OMR program. It runs
 on the CPU, so it needs no graphics card and can work while homr has the GPU. Install it from its
 [releases](https://github.com/Audiveris/audiveris/releases): on Windows the `windowsConsole` .msi is the better pick,
-because it shows Audiveris's log (Java is included). Then choose **Audiveris** under *Engine* in the window, or:
+because it shows Audiveris's log (Java is included). Lento finds it in Program Files, on PATH, or in an `Audiveris` folder beside Lento (such as `D:\Coding\Audiveris`). Then choose **Audiveris** under *Engine* in the window, or:
 
 ```powershell
 .\.venv\Scripts\Lento_ConvertPDF.exe "C:\path\to\pdfs" --engine audiveris               # finds it in Program Files
@@ -117,6 +118,35 @@ because it shows Audiveris's log (Java is included). Then choose **Audiveris** u
 Its exports get the same OK / REVIEW / UNRELIABLE rating, but only from the musical consistency checks: Audiveris
 reports no per-note confidence. Where it splits a PDF into movements, the first movement is kept and the export is
 flagged. The PC watcher still uses homr.
+
+## Legato, the third engine
+
+[LEGATO](https://github.com/guang-yng/legato) is a 2025-26 research model (ICLR 2026) that reads a page with a
+vision-language transformer and writes ABC notation; Lento turns that into MusicXML with the `abc2xml.py` in
+Legato's repository. Its authors report Legato-2 beating Audiveris on every test set they tried, string quartets
+included. Like homr it has its own Python environment, and it wants an NVIDIA GPU (the model is 0.9B parameters).
+
+Set-up, once, beside Lento (needs Git and uv):
+
+```powershell
+cd D:\Coding
+git clone https://github.com/guang-yng/legato
+cd legato
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+uv pip install --python .venv\Scripts\python.exe accelerate==1.8.0 transformers==4.54.0 numpy==1.26.4 pillow pyparsing tqdm fire Levenshtein huggingface_hub pypdfium2 ultralytics
+```
+
+The models are gated: sign in at huggingface.co, accept the terms on
+[guangyangmusic/legato-2](https://huggingface.co/guangyangmusic/legato-2) and
+[guangyangmusic/legato](https://huggingface.co/guangyangmusic/legato), make a read token under Settings > Access
+Tokens, and run `.\.venv\Scripts\hf.exe auth login` in the legato folder. The first conversion downloads the model.
+
+Then choose **Legato** under *Engine*, or `--engine legato`. Lento finds `D:\Coding\legato\.venv` by itself
+(`--legato-python` or `LEGATO_PYTHON` point elsewhere). Legato-2 reads a whole score at once with its own system
+detector; while the public Legato code lacks that pipeline (`legato.pipeline`), Lento reads each page with the first
+Legato model instead and joins the pages, and the status line says which. Licences: the code is MIT, the
+Legato-2 weights are under the Llama 3.2 Community License plus AGPL-3.0 for its detector; fine for personal use.
 
 ## Comparing engines (and homr on GPU vs CPU)
 
