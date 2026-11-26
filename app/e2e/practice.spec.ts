@@ -86,3 +86,15 @@ test("the speed trainer starts and stops", async ({ page }) => {
   await page.click("#tr-go");
   await expect(page.locator("#tr-go")).toHaveText("Start trainer");
 });
+
+test("tapping a note plays from it", async ({ page }) => {
+  await openScoreFile(page, SOLO_XML);
+  await scoreReady(page);
+  await expect(page.locator("#tap-play")).toBeChecked();
+  const head = page.locator("#sheet svg g.vf-notehead").last();
+  await head.scrollIntoViewIfNeeded();
+  const box = (await head.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator("#play")).toHaveText("Stop", { timeout: 5000 });
+  await page.click("#play");
+});

@@ -160,6 +160,35 @@ export class DriveLibrary {
     await this.drive.putText(folderId, name, xml, "application/vnd.recordare.musicxml+xml", f?.id);
   }
 
+  /** A PDF's bytes, fetched fresh and not kept for offline use (for splitting, which needs Drive anyway). */
+  async downloadPdf(piece: Piece, file: LibraryFile): Promise<ArrayBuffer> {
+    const f = await this.drive.child(await this.folder(["pieces", piece.id]), file.name);
+    if (!f) throw new Error(`${file.name} is missing from Drive. Run lento-library build again.`);
+    return this.drive.download(f.id);
+  }
+
+  /**
+   * Saves the pieces of a split PDF in inbox/<folder>/ (made if needed), where the PC's splitter puts them too, to
+   * be filed into pieces/ like any new download. Never replaces a file already there: a clash gets " (2)" added.
+   * Returns the names used and the folder's Drive link.
+   */
+  async saveSplit(folder: string, files: { name: string; bytes: Uint8Array }[], progress: (done: number) => void = () => {}): Promise<{ names: string[]; link?: string }> {
+    const inbox = this.ids.get("inbox") ?? (await this.drive.child(this.rootId, "inbox"))?.id ?? (await this.drive.create(this.rootId, "inbox")).id;
+    this.ids.set("inbox", inbox);
+    const dir = (await this.drive.child(inbox, folder)) ?? (await this.drive.create(inbox, folder));
+    const taken = new Set((await this.drive.names(dir.id)).map((n) => n.toLowerCase()));
+    const names: string[] = [];
+    for (const f of files) {
+      let name = f.name;
+      for (let k = 2; taken.has(name.toLowerCase()); k++) name = f.name.replace(/(\.pdf)?$/i, ` (${k})$1`);
+      await this.drive.putBytes(dir.id, name, f.bytes, "application/pdf");
+      taken.add(name.toLowerCase());
+      names.push(name);
+      progress(names.length);
+    }
+    return { names, link: dir.webViewLink };
+  }
+
   private async folder(path: string[]): Promise<string> {
     let id = this.rootId;
     for (let i = 0; i < path.length; i++) {

@@ -108,6 +108,45 @@ export class Drive {
     return (await res.json()) as DriveFile;
   }
 
+  /**
+   * Uploads a new binary file (such as a PDF) into `parentId`. Up to 5 MB goes in one request; a bigger file goes
+   * the way Google asks for those, a resumable upload (one request to start it, one with the bytes).
+   */
+  async putBytes(parentId: string, name: string, bytes: Uint8Array, type: string): Promise<DriveFile> {
+    const meta = { name, parents: [parentId], mimeType: type };
+    const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
+    if (bytes.byteLength <= 5 * 1024 * 1024) {
+      const boundary = "lento" + Math.random().toString(36).slice(2);
+      const body = new Blob([
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${type}\r\n\r\n`,
+        bytes as Uint8Array<ArrayBuffer>,
+        `\r\n--${boundary}--`,
+      ]);
+      const res = await this.request(`${UPLOAD}?uploadType=multipart&fields=${FIELDS}&supportsAllDrives=true`, {
+        method: "POST",
+        headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+        body,
+      });
+      return (await res.json()) as DriveFile;
+    }
+    const start = await this.request(`${UPLOAD}?uploadType=resumable&fields=${FIELDS}&supportsAllDrives=true`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": type },
+      body: JSON.stringify(meta),
+    });
+    const at = start.headers.get("Location");
+    if (!at) throw new Error("Google Drive didn't start the upload.");
+    const res = await this.request(at, { method: "PUT", headers: { "Content-Type": type }, body: new Blob([bytes as Uint8Array<ArrayBuffer>]) });
+    return (await res.json()) as DriveFile;
+  }
+
+  /** The names of everything directly inside `folderId` (up to 1,000). */
+  async names(folderId: string): Promise<string[]> {
+    const q = `'${quote(folderId)}' in parents and trashed = false`;
+    const url = `${API}?${new URLSearchParams({ q, fields: "files(name)", pageSize: "1000", supportsAllDrives: "true", includeItemsFromAllDrives: "true" })}`;
+    return ((await (await this.request(url)).json()) as { files: { name: string }[] }).files.map((f) => f.name);
+  }
+
   /** Moves a file this app created to the Drive bin (it can be restored from there for 30 days). */
   async trash(id: string): Promise<void> {
     await this.request(`${API}/${encodeURIComponent(id)}?supportsAllDrives=true`, {

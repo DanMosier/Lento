@@ -3,7 +3,7 @@
  * control a person can see can really be tapped (nothing invisible on top of it, nothing left open behind it).
  * Runs at phone, phone landscape, tablet and desktop size.
  */
-import { DUET_XML, SOLO_XML, expectNothingBlocking, goHome, openScoreFile, openScreen, scoreReady, test, expect } from "./fixtures";
+import { DUET_XML, SOLO_XML, pdfBytes, expectNothingBlocking, goHome, openScoreFile, openScreen, scoreReady, test, expect } from "./fixtures";
 
 test("Home screen", async ({ page }) => {
   await expectNothingBlocking(page, "Home");
@@ -96,6 +96,11 @@ test("Convert PDF", async ({ page }) => {
   await page.click("#cv-split-open");
   await expect(page.locator("#cv-split")).toBeVisible();
   await expectNothingBlocking(page, "Convert PDF: To split window");
+  await page.setInputFiles("#cv-split-file", { name: "two-pieces.pdf", mimeType: "application/pdf", buffer: pdfBytes(3) });
+  await expect(page.locator("#sp .sp-page").first()).toBeVisible({ timeout: 20_000 });
+  await expectNothingBlocking(page, "Convert PDF: PDF splitter");
+  await page.click("#sp-close");
+  await expect(page.locator("#sp")).toBeHidden();
   await page.click("#cv-split-close");
   await expectNothingBlocking(page, "Convert PDF after closing To split");
 });

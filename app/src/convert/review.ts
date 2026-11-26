@@ -10,10 +10,13 @@ import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $ } from "../core/app";
 import { library, reviewedHere } from "../core/library/connection";
 import type { LibraryFile, Piece } from "../core/library/model";
+import { guardRenderer, skippedNote, takeSkipped } from "../core/osmd-safety";
+import { timed } from "../core/perf";
+import { beatAt, beatPlaces, type BeatPlace } from "../core/tap";
 import { scoreText } from "../core/score";
 import { isFlagged, setSplit } from "./split-list";
 import { changeSplit, currentSplit, onSplitChanged } from "./split-store";
-import { CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, serialize, setClef, setInstrument, setKey, setTime, staves, warnings, type Clef } from "./fixes";
+import { barPage, CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, warnings, type Clef } from "./fixes";
 
 export interface ReviewItem {
   piece: Piece;
@@ -33,6 +36,10 @@ const ui = {
   pdfMsg: $("rv-pdf-msg"),
   xml: $("rv-xml"),
   xmlMsg: $("rv-xml-msg"),
+  bars: $("rv-bars"),
+  barsLabel: $("rv-bars-label"),
+  barsPrev: $<HTMLButtonElement>("rv-bars-prev"),
+  barsNext: $<HTMLButtonElement>("rv-bars-next"),
   fix: $<HTMLDetailsElement>("rv-fix"),
   fixCount: $("rv-fix-count"),
   warn: $<HTMLUListElement>("rv-warn"),
@@ -67,6 +74,10 @@ let discardArmed = false; // a second press of Close/Next/Previous throws unsave
 let onDone: (name: string, status: string) => void = () => {};
 let osmd: OpenSheetMusicDisplay | null = null;
 let shown = 0; // which score is on screen, so a slow load of an earlier one can't replace it
+let page = 0; // which group of bars is drawn
+let pageFirst = 0; // index of the first bar drawn
+let tapPlaces: BeatPlace[] | null = null; // where the drawn notes are, found on the first tap after a draw
+let drawing = 0; // bumped by each draw, so a slower earlier one can't replace a newer one
 
 /**
  * Shows a PDF in a new frame rather than changing the old frame's address: changing it would add entries to the
@@ -82,6 +93,12 @@ function pdfFrame(src: string | null): void {
 
 const phone = () => window.matchMedia("(max-width: 760px)").matches;
 
+/**
+ * Bars drawn at a time. Drawing is slow and blocks the page: a 1,700-bar sonata took 92 s to draw whole on a desktop,
+ * well under a second for 24 of its bars given to the renderer on their own (see pageXml).
+ */
+const pageBars = () => (phone() ? 12 : 24);
+
 function status(text: string, kind: "info" | "error" = "info"): void {
   ui.status.textContent = text;
   ui.status.dataset.kind = kind;
@@ -95,22 +112,43 @@ function show(mode: string): void {
 
 async function renderer(): Promise<OpenSheetMusicDisplay> {
   if (osmd) return osmd;
-  const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
-  osmd = new OpenSheetMusicDisplay(ui.xml, { autoResize: false, backend: "svg", drawTitle: true, drawPartNames: true, drawingParameters: "compacttight" });
+  const m = await import("opensheetmusicdisplay");
+  guardRenderer(m as unknown as Record<string, unknown>);
+  osmd = new m.OpenSheetMusicDisplay(ui.xml, { autoResize: false, backend: "svg", drawTitle: true, drawPartNames: true, drawingParameters: "compacttight", disableCursor: true });
   return osmd;
 }
 
-/** Draws the MusicXML (as fixed so far) into its pane. */
+/** Draws the MusicXML (as fixed so far) into its pane: the whole score, or one page of bars of a long one. */
 async function draw(): Promise<void> {
   if (!doc || ui.panes.dataset.show === "pdf") return;
-  const mine = shown;
+  const mine = ++drawing;
+  const score = shown;
+  const d = doc;
   const o = await renderer();
   try {
-    await o.load(serialize(doc));
-    if (mine !== shown) return;
-    o.zoom = phone() ? 0.55 : ui.panes.dataset.show === "both" ? 0.65 : 0.85;
-    o.render();
-    ui.xmlMsg.hidden = true;
+    const count = measureCount(d);
+    const p = barPage(count, pageBars(), page);
+    page = p.page;
+    ui.bars.hidden = p.pages === 1;
+    ui.barsPrev.disabled = page === 0;
+    ui.barsNext.disabled = page === p.pages - 1;
+    ui.barsLabel.textContent = `Bars ${measureNumber(d, p.first)}–${measureNumber(d, p.last)} of ${measureNumber(d, count)}`;
+    const drew = await timed("review-draw", async () => {
+      await o.load(p.pages === 1 ? serialize(d) : pageXml(d, p.first, p.last));
+      if (mine !== drawing || score !== shown) return false; // a newer page, fix or score is on its way
+      o.setOptions({ drawTitle: page === 0 }); // the title only on the first page, to leave room for the bars
+      o.zoom = phone() ? 0.55 : ui.panes.dataset.show === "both" ? 0.65 : 0.85;
+      takeSkipped();
+      o.render();
+      return true;
+    });
+    if (!drew) return;
+    pageFirst = p.pages === 1 ? 0 : p.first;
+    tapPlaces = null; // drawn again: notes have moved
+    ui.xml.parentElement?.scrollTo({ top: 0 });
+    const left = skippedNote();
+    ui.xmlMsg.hidden = !left;
+    ui.xmlMsg.textContent = left ? `Drawn without some marks:${left}` : "";
   } catch (e) {
     ui.xmlMsg.hidden = false;
     ui.xmlMsg.textContent = `Couldn't draw this MusicXML: ${(e as Error).message}`;
@@ -219,7 +257,7 @@ function toggleSplit(): void {
   const pdf = it.pdf;
   const on = isFlagged(currentSplit(), it.piece.id, pdf.name);
   changeSplit((l) => setSplit(l, it.piece.id, pdf.name, it.piece.title, on ? "off" : "flagged"));
-  status(on ? "Taken off the To split list." : "Added to the To split list (its button is in the Review tab), as a reminder to split this PDF on your PC.");
+  status(on ? "Taken off the To split list." : "Added to the To split list (its button is in the Review tab). Split it from there, or on your PC.");
 }
 onSplitChanged(() => {
   if (ui.dialog.open) showSplit();
@@ -238,6 +276,8 @@ async function load(i: number): Promise<void> {
   history = [];
   changes = [];
   discardArmed = false;
+  page = 0;
+  ui.bars.hidden = true;
   ui.prev.disabled = i === 0;
   ui.next.disabled = i === items.length - 1;
   ui.name.textContent = it.piece.title;
@@ -311,9 +351,9 @@ function stopPlay(): void {
   setPlaying(false);
 }
 
-/** Plays the score as fixed so far, from the chosen measure, or stops it. */
-async function togglePlay(): Promise<void> {
-  if (playback?.isPlaying()) return stopPlay();
+/** Plays the score as fixed so far, from the chosen measure, or stops it. A tapped note plays from that note. */
+async function togglePlay(tapped?: { pageFirst: number; beat: number }): Promise<void> {
+  if (playback?.isPlaying() && !tapped) return stopPlay();
   if (!doc) return;
   const mine = shown;
   const xml = serialize(doc);
@@ -321,7 +361,7 @@ async function togglePlay(): Promise<void> {
   try {
     playback ??= await import("./review-play");
     if (mine !== shown) return;
-    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false));
+    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false), tapped);
     if (mine !== shown) return playback.stop();
     ui.playFrom.max = String(measures);
     setPlaying(true);
@@ -409,12 +449,30 @@ ui.dialog.addEventListener("close", () => {
   doc = null;
   shown++;
 });
+ui.barsPrev.addEventListener("click", () => {
+  page = Math.max(0, page - 1);
+  void draw();
+});
+ui.barsNext.addEventListener("click", () => {
+  page++;
+  void draw();
+});
 for (const b of ui.dialog.querySelectorAll<HTMLButtonElement>(".rv-switch button")) b.addEventListener("click", () => show(b.dataset.show ?? "both"));
 ui.approve.addEventListener("click", () => void decide("approved"));
 ui.reject.addEventListener("click", () => void decide("rejected"));
 ui.edit.addEventListener("click", () => void edit());
 ui.split.addEventListener("click", toggleSplit);
 ui.play.addEventListener("click", () => void togglePlay());
+
+// Tap a note in the drawn MusicXML to listen from there (tapping again while it plays jumps)
+ui.xml.addEventListener("click", (e) => {
+  if (!osmd || !doc || drawing === 0) return;
+  tapPlaces ??= beatPlaces(osmd, ui.xml);
+  const c = ui.xml.getBoundingClientRect();
+  const beat = beatAt(tapPlaces, e.clientX - c.left + ui.xml.scrollLeft, e.clientY - c.top + ui.xml.scrollTop);
+  if (beat === null) return;
+  void togglePlay({ pageFirst, beat });
+});
 
 /** Opens the window on items[start]; Previous and Next go through the rest. */
 export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {

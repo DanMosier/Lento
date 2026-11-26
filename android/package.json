@@ -1,0 +1,9 @@
+{
+  "name": "lento-android",
+  "description": "Builds the Lento Android app (a Trusted Web Activity around the web app)",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": { "generate": "node generate.mjs" },
+  "dependencies": { "@bubblewrap/core": "1.24.1" }
+}

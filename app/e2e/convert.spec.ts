@@ -1,5 +1,5 @@
 /** Convert PDF: choose PDFs and queue them, the Review window (play, fix, flag for splitting), the To split list. */
-import { openScreen, test, expect } from "./fixtures";
+import { openScreen, pdfBytes, test, expect } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await openScreen(page, "convert");
@@ -75,4 +75,31 @@ test("Flag for splitting moves a PDF to the bottom and onto the To split list (P
   await expect(page.locator("#cv-split-list li.done")).toHaveCount(1);
   await expect(page.locator("#cv-split-title")).not.toContainText("(");
   await page.click("#cv-split-close");
+});
+
+test("tapping a note in the Review window plays from there", async ({ page }) => {
+  await page.click("#cv-tab-review");
+  await page.click(".cv-rv-open");
+  await expect(page.locator("#rv-xml svg")).toBeVisible({ timeout: 20_000 });
+  const head = page.locator("#rv-xml svg g.vf-notehead").last();
+  await head.scrollIntoViewIfNeeded();
+  const box = (await head.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator("#rv-play")).toHaveAttribute("aria-pressed", "true", { timeout: 5000 });
+  await expect(page.locator("#rv-play-at")).not.toHaveText("m. 1"); // the last note is in measure 2
+  await page.click("#rv-play");
+  await page.click("#rv-close");
+});
+
+test("the PDF splitter splits a PDF from this device into pieces", async ({ page }) => {
+  await page.click("#cv-tab-review");
+  await page.click("#cv-split-open").catch(() => {}); // the To split button only shows once something is flagged
+  if (!(await page.locator("#cv-split").isVisible())) await page.evaluate(() => (document.getElementById("cv-split") as HTMLDialogElement).showModal());
+  await page.setInputFiles("#cv-split-file", { name: "two-pieces.pdf", mimeType: "application/pdf", buffer: pdfBytes(3) });
+  await expect(page.locator("#sp .sp-page")).toHaveCount(3, { timeout: 20_000 });
+  await page.locator("#sp .sp-page").nth(2).click(); // a second piece starts on page 3
+  await expect(page.locator("#sp-parts li")).toHaveCount(2);
+  await expect(page.locator("#sp-download")).toHaveText("Download 2 PDFs");
+  await page.click("#sp-close");
+  await expect(page.locator("#sp")).toBeHidden();
 });

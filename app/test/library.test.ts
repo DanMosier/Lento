@@ -42,8 +42,8 @@ describe("library index", () => {
   });
 
   it("reads Drive folder links", () => {
-    expect(folderIdFromLink("https://drive.google.com/drive/folders/115MmUhbWr_w2TI0TBJ1fr7ZOYV5V8OTx?usp=sharing")).toBe("115MmUhbWr_w2TI0TBJ1fr7ZOYV5V8OTx");
-    expect(folderIdFromLink("https://drive.google.com/open?id=115MmUhbWr_w2TI0TBJ1fr7ZOYV5V8OTx")).toBe("115MmUhbWr_w2TI0TBJ1fr7ZOYV5V8OTx");
+    expect(folderIdFromLink("https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345?usp=sharing")).toBe("1AbCdEfGhIjKlMnOpQrStUvWxYz012345");
+    expect(folderIdFromLink("https://drive.google.com/open?id=1AbCdEfGhIjKlMnOpQrStUvWxYz012345")).toBe("1AbCdEfGhIjKlMnOpQrStUvWxYz012345");
     expect(folderIdFromLink("not a link")).toBeNull();
   });
 });

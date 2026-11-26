@@ -11,6 +11,7 @@ import { timed } from "../core/perf";
 import { partInstrument, Player } from "../core/player";
 import { roomOut } from "../core/room";
 import { listParts, parseScore, type Score } from "../core/score";
+import { measureAt } from "../core/tap";
 import { SoundBank } from "../core/sounds";
 
 let player: Player | null = null;
@@ -34,10 +35,10 @@ export function readParts(xml: string): Score[] {
 }
 
 /**
- * Starts playing `xml` from `fromMeasure` (1 = the first measure in the file) at `tempoFactor`. Resolves with the
+ * Starts playing `xml` from `fromMeasure` (1 = the first measure in the file), or from a tapped note, at `tempoFactor`. Resolves with the
  * number of measures, or throws if the score has nothing to play. `onEnd` runs when it reaches the end.
  */
-export async function play(xml: string, fromMeasure: number, tempoFactor: number, onEnd: () => void): Promise<number> {
+export async function play(xml: string, fromMeasure: number, tempoFactor: number, onEnd: () => void, startAt?: { pageFirst: number; beat: number }): Promise<number> {
   return timed("review-play", async () => {
     if (!player) {
       const ctx = sharedAudio();
@@ -52,9 +53,16 @@ export async function play(xml: string, fromMeasure: number, tempoFactor: number
     }
     if (!parts.length) throw new Error("This score has no notes to play.");
     const last = parts[0].measures.length - 1;
-    const from = Math.max(0, Math.min(last, fromMeasure - 1));
+    let from = Math.max(0, Math.min(last, fromMeasure - 1));
+    let fromBeat: number | undefined;
+    if (startAt) {
+      // a tapped note: its beat counts from the first bar drawn (a long score is drawn a page of bars at a time)
+      const s = parts[0];
+      fromBeat = (s.measureStarts[startAt.pageFirst] ?? 0) + startAt.beat;
+      from = measureAt(s.measureStarts, fromBeat);
+    }
     player.onEnd = onEnd;
-    await player.play({ parts, fromMeasure: from, toMeasure: last, tempoFactor, countIn: false, loop: false, click: 0 });
+    await player.play({ parts, fromMeasure: from, fromBeat, toMeasure: last, tempoFactor, countIn: false, loop: false, click: 0 });
     return last + 1;
   });
 }
