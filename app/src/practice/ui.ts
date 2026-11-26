@@ -155,7 +155,7 @@ async function render(text: string): Promise<void> {
 
 /** Lays the loaded score out again (after the width or the size setting changed), keeping the scroll position. */
 function relayout(): void {
-  if (rendering || !osmd || !score || ui.sheet.hidden || !osmd.IsReadyToRender()) return;
+  if (rendering || !osmd || !score || ui.sheet.hidden || ui.sheet.clientWidth <= 0 || !osmd.IsReadyToRender()) return;
   const at = window.scrollY / Math.max(1, document.body.scrollHeight);
   fitPage(osmd);
   timed("relayout-score", () => osmd!.render());
@@ -163,16 +163,41 @@ function relayout(): void {
   drawScoreMarks();
 }
 
-{
-  // Only a change of width needs a new layout. (The renderer's own auto-resize redrew the whole score on every
-  // resize, including the phone's address bar sliding in and out while scrolling.)
-  let t = 0;
-  new ResizeObserver(() => {
-    if (!score || ui.sheet.hidden || Math.abs(ui.sheet.clientWidth - drawnWidth) < 2) return;
-    clearTimeout(t);
-    t = window.setTimeout(() => Math.abs(ui.sheet.clientWidth - drawnWidth) >= 2 && relayout(), 250);
-  }).observe(ui.sheet);
+/** Is the user playing, recording, in wait mode or training? A new layout then waits until they stop. */
+const busy = (): boolean => !!player?.playing || !!recorder?.recording || waiting() || training();
+const widthChanged = (): boolean =>
+  !!score && !ui.sheet.hidden && ui.sheet.clientWidth > 0 && Math.abs(ui.sheet.clientWidth - drawnWidth) >= 2;
+
+/**
+ * A new layout of a long score holds the page for several seconds, so it happens only when it has to: once the
+ * width has settled (turning the phone, or full screen starting or ending, can resize the page several times),
+ * while the app is on screen, and not in the middle of playing, recording, wait mode or the trainer.
+ */
+let fitTimer = 0;
+function scheduleFit(delay = 700): void {
+  clearTimeout(fitTimer);
+  if (!widthChanged() || document.hidden) return;
+  fitTimer = window.setTimeout(() => {
+    if (!widthChanged() || document.hidden) return;
+    if (busy() || rendering) return scheduleFit(1000);
+    void refit();
+  }, delay);
 }
+
+async function refit(): Promise<void> {
+  const before = ui.status.textContent ?? "";
+  const kind = (ui.status.dataset.kind as "info" | "error") ?? "info";
+  status("Fitting the score to the screen…");
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // let the message show first
+  if (!widthChanged() || busy() || document.hidden) return status(before, kind);
+  relayout();
+  status(before, kind);
+}
+
+// Only a change of width needs a new layout. (The renderer's own auto-resize redrew the whole score on every
+// resize, including the phone's address bar sliding in and out while scrolling.)
+new ResizeObserver(() => scheduleFit()).observe(ui.sheet);
+document.addEventListener("visibilitychange", () => scheduleFit());
 
 ui.scoreSize.replaceChildren(...SCORE_SIZES.map((v) => new Option(v === "auto" ? "Fit the screen" : `${v}%`, String(v))));
 ui.scoreSize.value = String(parseScoreSize(store.get<string>("scoreSize")));

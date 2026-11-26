@@ -8,6 +8,7 @@
   "address-bar-relayouts": 0,
   "rotate-big-score-ms": 8000,
   "rotate-relayouts": 1,
+  "playing-relayouts": 0,
   "start-playback-ms": 250,
   "check-3min-ms": 10000,
   "check-3min-longest-block-ms": 3500,
