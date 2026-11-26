@@ -2,7 +2,7 @@
  * Home always gets you home: opens every screen (and the Convert PDF review window, whose embedded PDF viewer adds
  * history entries of its own) and checks that the Home button returns to the home screen each time. On the way it
  * flags a PDF for splitting and checks it moves to the bottom of the Review list, reaches the To split screen, and
- * can be marked done there.
+ * can be marked done there. A conversion the converter flagged shows its Check badge and what the converter found.
  * Runs the dev server with the Drive library replaced by a stand-in. Exits 1 on a failure.  npm run e2e
  */
 import { createServer } from "vite";
@@ -24,7 +24,7 @@ try {
   await page.goto("http://localhost:4319/");
   await page.evaluate(async (xml) => {
     const { DriveLibrary } = await import("/src/core/library/library.ts");
-    const index = { version: 1, generated: new Date().toISOString(), pieces: [{ id: "a_b", title: "Test Piece", composer: "Test", files: [{ name: "a_b__x.pdf", kind: "pdf", variant: "x", musicxml: "a_b__x.musicxml" }] }, { id: "c_d", title: "Other Piece", composer: "Test", files: [{ name: "c_d__x.pdf", kind: "pdf", variant: "x", musicxml: "c_d__x.musicxml" }] }] };
+    const index = { version: 1, generated: new Date().toISOString(), pieces: [{ id: "a_b", title: "Test Piece", composer: "Test", files: [{ name: "a_b__x.pdf", kind: "pdf", variant: "x", musicxml: "a_b__x.musicxml" }] }, { id: "c_d", title: "Other Piece", composer: "Test", files: [{ name: "c_d__x.pdf", kind: "pdf", variant: "x", musicxml: "c_d__x.musicxml", quality: "REVIEW", quality_note: "left out 116 slurs and 2 octave lines (8va) that did not start or end properly" }] }] };
     const P = DriveLibrary.prototype;
     P.cachedIndex = P.loadIndex = async () => index;
     P.pcStatus = async () => null;
@@ -72,8 +72,11 @@ try {
 
   await page.click('.home-card[data-go="convert"]');
   await page.click("#cv-tab-review");
+  if (!(await page.textContent("#cv-rv-list li:first-child"))?.includes("Check")) failures.push("A flagged conversion had no Check badge in the Review list");
   await page.click(".cv-rv-open");
   await page.waitForSelector("#rv-xml svg", { timeout: 15000 });
+  if (!(await page.isVisible("#rv-found")) || !(await page.textContent("#rv-found"))?.includes("116 slurs"))
+    failures.push("The Review window didn't show what the converter found");
   await page.waitForTimeout(500); // let the PDF frame load and add its history entry
   await page.click("#rv-split"); // flags the first one, "Other Piece"
   if ((await page.getAttribute("#rv-split", "aria-pressed")) !== "true") failures.push("Flag for splitting didn't flag the PDF");

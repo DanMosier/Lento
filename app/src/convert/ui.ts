@@ -359,6 +359,7 @@ function showPc(s: PcStatus | null): void {
     line(`${s.pc || "Your PC"} is converting ${now}${s.queue.length ? `, ${s.queue.length} more after that` : ""}.`);
   }
   else if (s.state === "exporting") line(`${s.pc || "Your PC"} is exporting ${s.current} from MuseScore.`);
+  else if (s.state === "checking") line(`${s.pc || "Your PC"} is checking earlier conversions for broken slurs and lines${s.checked ? ` (${s.checked[0]} of ${s.checked[1]})` : ""}. New requests go first.`);
   else line(`${s.pc || "Your PC"} is on and watching (checked ${ago(s.heartbeat)}). New requests start within ${Math.round(s.interval_s || 30)} s.`);
   if (s.musescore === false) line("There are MuseScore files in the library, but MuseScore isn't installed on the PC. Install MuseScore 4 there and they'll be exported.", "hint");
   const recent = [...s.results].reverse().slice(0, 5);

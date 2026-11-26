@@ -49,7 +49,7 @@ class Status:
 
     def write(self, state: str, queue: list[str], current: str | None = None, **extra) -> None:
         if state in ("idle", "stopped"):
-            for k in ("current_files", "started", "batch", "page"):
+            for k in ("current_files", "started", "batch", "page", "checked"):
                 self.data.pop(k, None)
         self.data.update(state=state, queue=queue, current=current, heartbeat=now(), avg_s=self.average(), **extra)
         self.save()
@@ -184,6 +184,33 @@ def open_log(path: Path) -> None:
     sys.stdout = sys.stderr = f
 
 
+def recheck(lib: Library, status: Status, stop: threading.Event | None = None) -> bool:
+    """When the converter has new checks, put the scores converted earlier through them once, while nothing is
+    queued (see Library.recheck_scores). Gives way to a new request or Quit and carries on next time. Returns
+    whether any score or report changed."""
+    seen = [time.monotonic()]
+
+    def interrupted() -> bool:
+        if stop and stop.is_set():
+            return True
+        if time.monotonic() - seen[0] < 5:
+            return False
+        seen[0] = time.monotonic()
+        status.beat()
+        return bool(lib.requests())
+
+    def on_file(i: int, n: int, path: Path) -> None:
+        if i == 1 or i % 10 == 0:
+            status.write("checking", [], path.stem, checked=[i, n])
+
+    found = lib.recheck_scores(on_file=on_file, stop=interrupted)
+    for name, notes in found.items():
+        print(f"checked {name}: {'; '.join(notes)}", flush=True)
+    if found:
+        print(f"checked earlier conversions: {len(found)} with findings", flush=True)
+    return bool(found)
+
+
 def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool = False, musescore: str | None = None,
         stop: threading.Event | None = None, on_status: Callable[[dict], None] | None = None, log: Path | None = None,
         auto_update: bool = False) -> int:
@@ -204,6 +231,7 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
     next_update = time.monotonic() + min(UPDATE_EVERY, 60)
     tried: dict[Path, float] = {}  # MuseScore file -> its modified time when last exported or tried
     built: tuple | None = None  # the library's fingerprint when library.json was last written
+    rechecked = False  # scores converted earlier have been put through the converter's latest checks
     print(f"watching {lib.root / REQUESTS} every {interval:g} s (Ctrl+C to stop)", flush=True)
     try:
         while True:
@@ -245,6 +273,11 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 lib.write_index()
                 wrote = True
                 print(f"done: {len(pdfs) - len(failed)} converted, {len(failed)} failed", flush=True)
+            if not pdfs and not rechecked:
+                rechecked = True  # looked at once per run; requests/_checks.json keeps it to once per version
+                if recheck(lib, status, stop):
+                    lib.write_index()
+                    wrote = True
             fixes = lib.apply_fixes()  # scores corrected in the app's Review window
             if fixes:
                 print(f"applied fixes from the app: {', '.join(fixes)}", flush=True)

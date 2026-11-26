@@ -28,6 +28,14 @@ flowchart LR
   so `multirests.py` reads the number above each lone bar of rest with homr's text reader; and where homr writes
   a multi-bar rest as one measure, `rests.py` adds the missing bars back in every part. Both keep bar numbers in
   line with the printed score.
+- Before the quality check, `repair.py` fixes marks that start and never end (or end and never start): slurs,
+  ties, octave lines (8va), hairpins, tuplet and volta brackets. homr never says when it misses half of one, and a
+  single such slur could leave the score blank in the app. Broken ones are left out (a volta bracket is closed),
+  the rest are renumbered so readers pair them correctly, and what was done goes into the quality report and shows
+  in the Review window. Parts that came out shorter than the others are filled with rests (`rests.py`), because
+  the app's renderer stops at the end of the shortest part. Notes an instrument can't play (below a cello's
+  open C, say) mark their measures as suspicious. `lento-library recheck` puts earlier conversions through the
+  same checks; the PC watcher does that by itself once for each new version of the checks.
 - A "system" is one line of music across the page (all the staves played at the same time).
 - The quality rating combines homr's own confidence with musical checks (measures that don't add up, empty measures,
   key changes that undo themselves). It catches garbled pages, not every wrong note: always check a converted score.
@@ -40,6 +48,7 @@ flowchart LR
 | `cli.py`, `__main__.py`, `app.py` | Starting points: `python -m lento_convertpdf` opens the window; with arguments it runs on the command line |
 | `gui.py` | The desktop window (Tkinter): pick PDFs, convert, view and play the result |
 | `omr_engines.py` | Finds the PDFs in a folder and converts them one by one |
+| `repair.py` | Finds slurs, ties and lines that start and never end, leaves them out, and says what it did |
 | `homr_runner.py` | Finds homr, checks the GPU, and runs homr as a separate program |
 | `audiveris_runner.py` | Finds and runs Audiveris, the second engine (CPU, installed separately) |
 | `legato_runner.py`, `legato_bridge.py` | Finds and runs Legato, the third engine; the bridge runs inside Legato's environment and turns its ABC into MusicXML |

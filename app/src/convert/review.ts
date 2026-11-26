@@ -27,6 +27,7 @@ const ui = {
   close: $<HTMLButtonElement>("rv-close"),
   name: $("rv-name"),
   sub: $("rv-sub"),
+  found: $("rv-found"), // what the converter found or repaired, from its quality report
   panes: $("rv-panes"),
   pdf: $<HTMLIFrameElement>("rv-pdf"), // replaced by a fresh frame for each PDF: see pdfFrame()
   pdfMsg: $("rv-pdf-msg"),
@@ -234,6 +235,8 @@ async function load(i: number): Promise<void> {
   ui.name.textContent = it.piece.title;
   ui.sub.textContent = [it.piece.composer, it.xml.edition || it.xml.variant, `${i + 1} of ${items.length}`].filter(Boolean).join(" · ");
   ui.note.value = "";
+  ui.found.textContent = it.xml.quality_note ? `The converter says: ${it.xml.quality_note}` : "";
+  ui.found.hidden = !it.xml.quality_note;
   ui.fix.hidden = !canFix(it);
   showSplit();
   status("Loading…");

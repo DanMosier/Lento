@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .homr_runner import EngineAvailability, OMRConfig, check_output, name_parts, source_suffix, write_report
 from .pages import pages_with_staves
-from .quality import QualityReport, assess
+from .quality import QualityReport, check_score
 from .rests import expand_multirests
 
 INSTALL_HINT = (
@@ -192,7 +192,7 @@ def run_audiveris(
         name_parts(produced, config.instrument, also_unnamed=True)
         expand_multirests(produced)
         parts = check_output(produced, "Audiveris")
-        report = assess(produced, None, config.review_below)
+        report = check_score(produced, None, config.review_below)
         if skipped:
             report.problems.append(f"page {', '.join(map(str, skipped))} had no staves and was left out")
         if len(exported) > 1:

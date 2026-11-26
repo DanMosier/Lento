@@ -98,6 +98,9 @@ def describe(data: dict, name: Callable[[str], str]) -> tuple[str, str]:
         return "busy", tip
     if state == "exporting":
         return "busy", f"Lento: exporting {data.get('current') or 'MuseScore files'} with MuseScore"
+    if state == "checking":
+        i, n = (data.get("checked") or [0, 0])[:2]
+        return "busy", f"Lento: checking earlier conversions for broken slurs ({i} of {n})"
     if state == "stopped":
         return "stopped", "Lento: watcher stopped"
     if state == "waiting":
