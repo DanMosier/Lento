@@ -9,6 +9,7 @@ quality estimate rests on the musical consistency checks alone.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,9 @@ import zipfile
 from pathlib import Path
 
 from .homr_runner import EngineAvailability, OMRConfig, check_output, name_parts, source_suffix, write_report
+from .pages import pages_with_staves
 from .quality import QualityReport, assess
+from .rests import expand_multirests
 
 INSTALL_HINT = (
     "Install Audiveris from https://github.com/Audiveris/audiveris/releases "
@@ -25,6 +28,9 @@ INSTALL_HINT = (
 )
 TIMEOUT_BASE_SEC = 300
 TIMEOUT_PER_PAGE_SEC = 180
+# Audiveris rejects a sheet whose staff lines are closer than about 11 pixels ("try 300 DPI"). A phone photo of
+# small print is often 10, so photos smaller than this many pixels on their long side are enlarged first.
+MIN_IMAGE_LONG_SIDE = 3000
 
 
 def _candidates() -> list[Path]:
@@ -85,8 +91,8 @@ def check_audiveris(config: OMRConfig | None = None) -> EngineAvailability:
             _, out = _run(exe, ["-batch", "-version"], Path(tmp), timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return EngineAvailability("audiveris", False, str(exe), f"Audiveris could not be started: {exc}", INSTALL_HINT)
-    version = next((ln.strip() for ln in out.splitlines() if "audiveris" in ln.lower() and any(c.isdigit() for c in ln)), "")
-    details = f"Ready, CPU, {version or 'version not reported'} ({exe})"
+    found = re.search(r"\b(\d+\.\d+(?:\.\d+)?)\b", "\n".join(ln for ln in out.splitlines() if "audiveris" in ln.lower()))
+    details = f"Ready, CPU, {f'Audiveris {found.group(1)}' if found else 'version not reported'} ({exe})"
     return EngineAvailability("audiveris", True, str(exe), details, INSTALL_HINT)
 
 
@@ -107,6 +113,20 @@ def _unpack(mxl: Path, dest: Path) -> None:
         if not root_file:
             raise RuntimeError(f"Audiveris wrote {mxl.name} without a score in it.")
         dest.write_bytes(zf.read(root_file))
+
+
+def _enlarge_small_image(path: Path) -> bool:
+    """Scale a small page image up in place so its staff lines are far enough apart for Audiveris."""
+    from PIL import Image
+
+    with Image.open(path) as im:
+        long_side = max(im.size)
+        if long_side >= MIN_IMAGE_LONG_SIDE:
+            return False
+        scale = MIN_IMAGE_LONG_SIDE / long_side
+        big = im.convert("L").resize((round(im.width * scale), round(im.height * scale)), Image.Resampling.LANCZOS)
+    big.save(path)
+    return True
 
 
 def _error(log: str, returncode: int) -> str:
@@ -133,15 +153,34 @@ def run_audiveris(
         work = Path(tmp)
         source = work / f"score{source_suffix(pdf_path)}"
         shutil.copyfile(pdf_path, source)
+        if source.suffix != ".pdf":
+            try:
+                _enlarge_small_image(source)
+            except OSError:
+                pass  # not an image PIL can read: let Audiveris report it
         out = work / "out"
         out.mkdir()
-        args = ["-batch", "-transcribe", "-export", "-output", str(out), "--", str(source)]
-        try:
-            returncode, log = _run(exe, args, work, timeout)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"Audiveris did not finish within {timeout} seconds.") from exc
+        def attempt(sheets: list[int] | None) -> tuple[int, str, list[Path]]:
+            shutil.rmtree(out, ignore_errors=True)
+            out.mkdir()
+            only = ["-sheets", *map(str, sheets)] if sheets else []
+            args = ["-batch", "-transcribe", "-export", "-output", str(out), *only, "--", str(source)]
+            try:
+                code, text = _run(exe, args, work, timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(f"Audiveris did not finish within {timeout} seconds.") from exc
+            files = sorted(out.rglob("*.mxl")) or sorted(out.rglob("*.musicxml")) or sorted(out.rglob("*.xml"))
+            return code, text, files
 
-        exported = sorted(out.rglob("*.mxl")) or sorted(out.rglob("*.musicxml")) or sorted(out.rglob("*.xml"))
+        returncode, log, exported = attempt(None)
+        skipped: list[int] = []
+        if not exported and source.suffix == ".pdf":
+            # Audiveris gives up on the whole PDF when one page has no staff ("No system found"), such as a
+            # blank last page. Try again with only the pages that have staves.
+            pages, music = pages_with_staves(source)
+            if music and len(music) < pages:
+                skipped = [n for n in range(1, pages + 1) if n not in music]
+                returncode, log, exported = attempt(music)
         if not exported:
             raise RuntimeError(_error(log, returncode))
         produced = work / "score.musicxml"
@@ -151,8 +190,11 @@ def run_audiveris(
             shutil.copyfile(exported[0], produced)
 
         name_parts(produced, config.instrument, also_unnamed=True)
+        expand_multirests(produced)
         parts = check_output(produced, "Audiveris")
         report = assess(produced, None, config.review_below)
+        if skipped:
+            report.problems.append(f"page {', '.join(map(str, skipped))} had no staves and was left out")
         if len(exported) > 1:
             report.problems.append(f"Audiveris split this PDF into {len(exported)} movements; only the first was kept")
             report.level = "review" if report.level == "good" else report.level

@@ -32,7 +32,7 @@ def build() -> int:
         # These run inside homr's environment, as files
         *(
             arg
-            for name in ("homr_bridge", "system_reader", "instruments", "system_merge", "legato_bridge")
+            for name in ("homr_bridge", "system_reader", "instruments", "system_merge", "legato_bridge", "multirests")
             for arg in ("--add-data", f"{package_dir / f'{name}.py'};lento_convertpdf")
         ),
         "--collect-all",

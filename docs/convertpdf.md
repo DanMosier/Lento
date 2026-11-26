@@ -24,6 +24,10 @@ flowchart LR
 ```
 
 - There is **no fallback**. If homr can't read a PDF, it is marked failed with homr's reason and nothing is written.
+- Multi-bar rests (a bar with "12" above it) count as all their bars. homr usually reads them as one bar of rest,
+  so `multirests.py` reads the number above each lone bar of rest with homr's text reader; and where homr writes
+  a multi-bar rest as one measure, `rests.py` adds the missing bars back in every part. Both keep bar numbers in
+  line with the printed score.
 - A "system" is one line of music across the page (all the staves played at the same time).
 - The quality rating combines homr's own confidence with musical checks (measures that don't add up, empty measures,
   key changes that undo themselves). It catches garbled pages, not every wrong note: always check a converted score.
@@ -41,6 +45,7 @@ flowchart LR
 | `legato_runner.py`, `legato_bridge.py` | Finds and runs Legato, the third engine; the bridge runs inside Legato's environment and turns its ABC into MusicXML |
 | `homr_bridge.py` | Runs inside homr's environment, starts homr and records its confidence for the quality check |
 | `system_reader.py`, `system_merge.py`, `instruments.py` | Reading orchestral scores one system at a time, using the instrument labels beside the staves |
+| `pages.py`, `rests.py`, `multirests.py` | Leaving out pages without staves (title pages, blank pages); putting back the bars of multi-bar rests |
 | `quality.py` | Rates each converted score OK, REVIEW or UNRELIABLE |
 | `musicxml_parser.py`, `audio_player.py`, `vst_catalog.py`, `models.py` | The window's MusicXML player and its instrument sounds |
 | `pdf_splitter.py`, `split_tool.py`, `split_window.py`, `staff_detection.py` | The PDF splitter (one PDF with several pieces into one PDF per piece) |
