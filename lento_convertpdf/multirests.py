@@ -15,7 +15,7 @@ from typing import Any, Callable, Sequence
 MEASURE_ENDS = ("barline", "doublebarline", "bolddoublebarline", "newline")
 MAX_BARS = 999
 # homr places a rest a little left of where the number is printed: how far off centre a number may be, in staff spaces
-MAX_OFFSET = 4.0
+MAX_OFFSET = 4.5
 
 
 def _is_end(rhythm: str) -> bool:
@@ -61,7 +61,7 @@ def pick_number(texts: Sequence[tuple[float, float, float, float, str]], center_
         n, height = int(digits), y1 - y0
         if not 2 <= n <= MAX_BARS or height < 1.2 * unit:
             continue
-        if x1 - x0 > 0.95 * height * len(digits):
+        if x1 - x0 > 1.1 * height * len(digits):
             continue  # wider than digits are: a fermata, which the text reader takes for a "3"
         off = abs((x0 + x1) / 2 - center_x)
         if off <= MAX_OFFSET * unit and (best is None or off < best[0]):

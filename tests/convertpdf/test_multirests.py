@@ -43,7 +43,8 @@ def test_number_must_be_large_and_over_the_rest():
     assert mr.pick_number(texts, 45.0, unit) == 12
     assert mr.pick_number(texts[:1], 45.0, unit) is None
     assert mr.pick_number([(35, 0, 55, 20, "1")], 45.0, unit) is None  # one bar is not a multi-bar rest
-    assert mr.pick_number([(72, 0, 84, 20, "13")], 45.0, unit) == 13  # printed 3.3 spaces right of the rest
+    assert mr.pick_number([(72, 0, 84, 20, "13")], 45.0, unit) == 13
+    assert mr.pick_number([(80, 0, 100, 20, "4")], 45.0, unit) == 4  # wide-set digit (1.0), 4.5 spaces off  # printed 3.3 spaces right of the rest
 
 
 class Staff:
@@ -62,8 +63,8 @@ class Reader:
     def __call__(self, crop):
         self.crops.append(crop.shape)
         h, w = crop.shape[:2]
-        # crop is x 140..270 of the page, scaled 2x, padded 20: page x=200 is at 20 + 2 * 60 = 140
-        box = [[130, 30], [150, 30], [150, 75], [130, 75]]
+        # crop is x 135..275 of the page, scaled 2x, padded 20: page x=200 is at 20 + 2 * 65 = 150
+        box = [[140, 30], [160, 30], [160, 75], [140, 75]]
         return SimpleNamespace(boxes=[box], txts=["8"])
 
 
