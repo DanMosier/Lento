@@ -156,6 +156,13 @@ try {
   }));
   await page.evaluate(async (idx) => {
     localStorage.setItem("lento.library.folder", JSON.stringify("https://drive.google.com/drive/folders/perfTestFolder0000000"));
+    // 300 favorites and 40 setlists of 25 pieces, more than anyone keeps, so the Favorites tab is measured at size
+    const favorites = {};
+    for (let i = 0; i < 2251; i += 7) favorites[`p${i}_x`] = { on: true, at: 1 };
+    const setlists = {};
+    for (let s = 0; s < 40; s++)
+      setlists[`s${s}`] = { id: `s${s}`, name: `Setlist ${s}`, pieces: Array.from({ length: 25 }, (_, k) => `p${s * 25 + k}_x`), created: s, updated: s };
+    localStorage.setItem("lento.library.lists", JSON.stringify({ format: "lento-lists", version: 1, favorites, setlists }));
     await new Promise((res) => {
       const r = indexedDB.open("lento-library", 1);
       r.onupgradeneeded = () => r.result.createObjectStore("files");
@@ -188,6 +195,19 @@ try {
   });
   await page.waitForTimeout(200);
   results["library-scroll-longest-block-ms"] = await longestTask(t);
+  // favorites: star a row, then switch to the Favorites tab; open the Setlists window and one setlist
+  t = await now();
+  await page.click("#lib-body .lib-row:nth-child(3) .lib-star");
+  await page.click("#lib-tab-fav");
+  await waitFor("library-render", 5);
+  results["library-favorites-ms"] = (await measure("library-render")).at(-1);
+  await page.click("#lib-sets-open");
+  await page.click("#lib-sets-body .sets-item");
+  await page.waitForSelector("#lib-sets-body .sets-pieces");
+  await page.click("#lib-sets-close");
+  await page.click("#lib-tab-all");
+  await waitFor("library-render", 6);
+  results["library-lists-longest-block-ms"] = await longestTask(t);
 } finally {
   await browser.close();
   await new Promise((r) => server.httpServer.close(r));

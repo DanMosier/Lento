@@ -163,6 +163,23 @@ describe("files kept beside a score (score marks)", () => {
   });
 });
 
+describe("favorites and setlists file", () => {
+  it("lives beside library.json, created once and then updated, and merges two devices' changes", async () => {
+    const { mergeLists, parseLists, setFavorite, emptyLists, favoriteIds } = await import("../src/library/lists");
+    const d = fakeDrive({});
+    const phone = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    const pc = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    expect(await phone.readRootJson("lento-lists.json")).toBeNull();
+    await phone.writeRootJson("lento-lists.json", setFavorite(emptyLists(), "swan", true, 10));
+    expect(d.files["lento-lists.json"]).toBeTruthy();
+    // the PC starred something else meanwhile: it reads, merges, writes back the same file
+    const remote = parseLists(await pc.readRootJson("lento-lists.json"));
+    await pc.writeRootJson("lento-lists.json", mergeLists(setFavorite(emptyLists(), "bach", true, 20), remote));
+    expect(d.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(1);
+    expect(favoriteIds(parseLists(await phone.readRootJson("lento-lists.json")))).toEqual(new Set(["swan", "bach"]));
+  });
+});
+
 describe("removing PDFs from the queue", () => {
   it("bins the app's own request files and reports ones made on the PC", async () => {
     const d = fakeDrive({
