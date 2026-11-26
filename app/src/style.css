@@ -406,3 +406,41 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 .rv-changes { margin: 0; padding-left: 18px; font-size: 0.9rem; flex-basis: 100%; }
 .rv-changes:empty { display: none; }
 @media (max-width: 760px) { .rv-bottom input { flex-basis: 100%; } .rv-bottom button { flex: 1; } }
+
+/* Library: All / Favorites tabs, the star in each row, and the Setlists window */
+.lib-views { display: flex; align-items: flex-end; gap: 10px; padding: 0 max(16px, env(safe-area-inset-left)) 8px; }
+.lib-views .lib-tabs { flex: 1; margin: 0; min-width: 0; }
+.lib-views .lib-tabs button { padding: 0 10px; white-space: nowrap; }
+#lib-sets-open { flex: none; margin-bottom: 4px; }
+.lib-count:not(:empty) { margin-left: 4px; font-size: 0.8em; font-weight: 600; color: var(--muted); }
+.lib-star { all: unset; flex: none; box-sizing: border-box; width: 30px; height: var(--row); margin-left: -8px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--muted); cursor: pointer; }
+.lib-star[data-on="true"] { color: var(--accent); }
+.lib-star:hover { color: var(--accent); }
+.lib-list-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; align-items: center; }
+.lib-fav-btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.lib-add-set { max-width: 100%; }
+.lib-new-set, .sets-new, .sets-rename { display: flex; gap: 8px; flex: 1 1 240px; min-width: 0; }
+.lib-new-set[hidden] { display: none; }
+.lib-new-set input, .sets-new input, .sets-rename input, .sets-add input { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
+.lib-sets { width: min(560px, calc(100vw - 16px)); }
+.lib-sets-top { justify-content: space-between; align-items: center; gap: 8px; padding: 4px 8px 4px 16px; border-bottom: 1px solid var(--line); z-index: 1; }
+.lib-sets-top h2 { flex: 1; margin: 0; font-size: 1.1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-sets-top .link { min-height: 44px; text-decoration: none; font-weight: 600; flex: none; }
+#lib-sets-body { padding: 12px 16px 4px; display: flex; flex-direction: column; gap: 12px; }
+.lib-sets-sync { margin: 0; padding: 0 16px 14px; font-size: 0.85rem; color: var(--muted); }
+.sets-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sets-sort { flex: none; }
+.sets-list, .sets-pieces, .sets-found { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sets-item, .sets-piece { width: 100%; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; gap: 2px; padding: 8px 12px; min-width: 0; }
+.sets-item strong, .sets-piece strong, .sets-piece .piece-meta { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sets-pieces { counter-reset: n; }
+.sets-pieces li { display: flex; gap: 4px; align-items: stretch; counter-increment: n; }
+.sets-pieces li::before { content: counter(n); flex: none; width: 1.6em; align-self: center; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; padding-right: 4px; }
+.sets-pieces .sets-piece { flex: 1; width: auto; }
+.sets-icon { flex: none; width: 40px; padding: 0; }
+.sets-found .sets-piece { border-style: dashed; }
+.sets-meta { margin: 0; }
+.sets-add { display: flex; flex-direction: column; gap: 6px; }
+.sets-manage summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; color: var(--muted); }
+.sets-manage[open] { display: flex; flex-direction: column; gap: 8px; }
+.sets-manage .danger { align-self: flex-start; border-color: var(--rec); color: var(--rec); }

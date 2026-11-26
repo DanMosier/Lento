@@ -6,6 +6,9 @@ import { store } from "../core/app";
 import { allTags, musicxmlOf, requestName, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
 import { timed } from "../core/perf";
 import { cell, choices, COLUMNS, rows, type ColumnId, type Filters, type Sort } from "./table";
+import { addToSetlist, createSetlist, favoriteIds, isFavorite, markPlayed, setFavorite, setlists } from "./lists";
+import { changeLists, currentLists, onListsChanged, syncLists } from "./lists-store";
+import { closeSetlists, initSetlists, openSetlists } from "./sets-ui";
 
 const ROW = 48; // px, matches --row in style.css
 const OVERSCAN = 8;
@@ -28,6 +31,10 @@ const ui = {
   detailClose: $<HTMLButtonElement>("lib-detail-close"),
   setupHint: $("lib-setup-hint"),
   connect: $<HTMLButtonElement>("lib-connect"),
+  tabAll: $<HTMLButtonElement>("lib-tab-all"),
+  tabFav: $<HTMLButtonElement>("lib-tab-fav"),
+  favCount: $("lib-fav-count"),
+  setsOpen: $<HTMLButtonElement>("lib-sets-open"),
 };
 
 let index: LibraryIndex | null = null;
@@ -65,6 +72,7 @@ async function refresh(): Promise<void> {
     render();
     fitTable();
     libraryChanged();
+    void syncLists(true);
   } catch (e) {
     status((e as Error).message, "error");
   } finally {
@@ -103,6 +111,9 @@ ui.table.style.setProperty("--roww", `calc(min(${COLUMNS[0].width}px, 44vw) + ${
 let sort: Sort = store.get<Sort>("library.sort") ?? { by: "composer", desc: false };
 let shown: Piece[] = [];
 let open: Piece | null = null; // the piece in the details window
+let openFrom: string | null = null; // the setlist it was opened from, if any
+let view: "all" | "fav" = store.get<"all" | "fav">("library.view") ?? "all";
+let byId = new Map<string, Piece>();
 
 function fill(sel: HTMLSelectElement, all: string, values: string[]): void {
   const chosen = sel.value;
@@ -118,6 +129,8 @@ function filters(): Filters {
 /** Rebuilds the filter menus (after a new index). */
 function menus(): void {
   if (!index) return;
+  byId = new Map(index.pieces.map((p) => [p.id, p]));
+  tabs();
   fill(ui.genre, "Every genre / era", choices(index.pieces, "genre"));
   fill(ui.instr, "Any instrumentation", choices(index.pieces, "instrumentation"));
   fill(ui.level, "Every level", choices(index.pieces, "level"));
@@ -154,20 +167,56 @@ function render(): void {
 function renderNow(): void {
   if (!index) return;
   const f = filters();
-  shown = rows(index.pieces, f, sort);
+  const favs = favoriteIds(currentLists());
+  const base = view === "fav" ? index.pieces.filter((p) => favs.has(p.id)) : index.pieces;
+  shown = rows(base, f, sort);
   ui.clear.hidden = !(f.genre || f.instrumentation || f.level || f.tag || f.musicxml);
   const when = index.generated ? ` · index from ${new Date(index.generated).toLocaleDateString()}` : "";
-  status(shown.length === index.pieces.length ? `${index.pieces.length} pieces${when}` : `${shown.length} of ${index.pieces.length} pieces`);
+  const what = view === "fav" ? "favorites" : "pieces";
+  status(shown.length === base.length ? `${base.length} ${what}${view === "fav" ? "" : when}` : `${shown.length} of ${base.length} ${what}`);
   header();
   ui.table.setAttribute("aria-rowcount", String(shown.length + 1));
   ui.body.style.height = `${shown.length * ROW}px`;
   drawn = "";
   clearRows();
   if (!shown.length) {
-    ui.body.replaceChildren(el("div", index.pieces.length ? "No pieces match. Try fewer words or clear the filters." : "The library is empty.", "lib-empty"));
+    const empty =
+      view === "fav" && !base.length
+        ? "No favorites yet. Tap the ☆ beside a title (or in a piece's window) to add one."
+        : index.pieces.length
+          ? "No pieces match. Try fewer words or clear the filters."
+          : "The library is empty.";
+    ui.body.replaceChildren(el("div", empty, "lib-empty"));
     ui.body.style.height = "";
   } else draw();
-  if (open) showDetail(open); // its buttons may have changed
+  if (open) showDetail(open, openFrom); // its buttons may have changed
+}
+
+function tabs(): void {
+  ui.tabAll.setAttribute("aria-selected", String(view === "all"));
+  ui.tabFav.setAttribute("aria-selected", String(view === "fav"));
+  const n = index ? index.pieces.reduce((k, p) => k + (isFavorite(currentLists(), p.id) ? 1 : 0), 0) : 0;
+  ui.favCount.textContent = n ? String(n) : "";
+}
+
+function showView(v: "all" | "fav"): void {
+  if (v === view) return;
+  view = v;
+  store.set("library.view", v);
+  tabs();
+  ui.table.scrollTop = 0;
+  render();
+}
+
+function star(b: HTMLElement, on: boolean): void {
+  if (b.dataset.on === String(on)) return;
+  b.dataset.on = String(on);
+  b.textContent = on ? "★" : "☆";
+  b.setAttribute("aria-pressed", String(on));
+}
+
+function toggleFavorite(p: Piece): void {
+  changeLists((l) => setFavorite(l, p.id, !isFavorite(l, p.id)));
 }
 
 let drawn = ""; // the first and last row drawn, so scrolling within them does nothing
@@ -209,7 +258,13 @@ function newRow(): HTMLElement {
     // plain text cells (fewer elements to lay out while scrolling); only the title has a span, for two lines
     const d = el("div", undefined, `lib-c${c.numeric ? " num" : ""}${c.id === "composer" || c.id === "year" ? " muted" : ""}`);
     d.setAttribute("role", "cell");
-    if (k === 0) d.append(el("span"));
+    if (k === 0) {
+      const s = el("button", "☆", "lib-star");
+      s.type = "button";
+      s.setAttribute("aria-label", "Favorite");
+      s.tabIndex = -1; // the row is the tab stop; F toggles the star from the keyboard
+      d.append(s, el("span"));
+    }
     r.append(d);
   });
   return r;
@@ -221,11 +276,12 @@ function fillRow(r: HTMLElement, p: Piece, i: number): void {
   r.dataset.i = String(i);
   COLUMNS.forEach((c, k) => {
     const v = cell(p, c.id);
-    const d = (k === 0 ? r.children[0].firstElementChild : r.children[k]) as HTMLElement;
+    const d = (k === 0 ? r.children[0].lastElementChild : r.children[k]) as HTMLElement;
     if (d.textContent !== v) d.textContent = v;
     if (c.id === "musicxml") d.dataset.xml = v;
     if ((d.title !== "") !== v.length > 18) d.title = v.length > 18 ? v : "";
   });
+  star(r.children[0].firstElementChild as HTMLElement, isFavorite(currentLists(), p.id));
 }
 
 function fitTable(): void {
@@ -236,8 +292,9 @@ function fitTable(): void {
   if (shown.length) draw();
 }
 
-function showDetail(p: Piece): void {
+function showDetail(p: Piece, from: string | null = null): void {
   open = p;
+  openFrom = from;
   const facts = el("dl", undefined, "lib-facts");
   for (const c of COLUMNS) {
     if (c.id === "title" || c.id === "composer" || c.id === "musicxml" || c.id === "editions") continue;
@@ -247,9 +304,59 @@ function showDetail(p: Piece): void {
   if (p.catalog_no) facts.append(el("dt", "Catalogue"), el("dd", p.catalog_no));
   if (p.notes) facts.append(el("dt", "Notes"), el("dd", p.notes));
   const it = item(p);
-  it.querySelector(".piece-head")?.after(facts);
+  it.querySelector(".piece-head")?.after(listActions(p), facts);
   ui.detailBody.replaceChildren(it);
   if (!ui.detail.open) ui.detail.showModal();
+}
+
+/** The star and "Add to setlist" in a piece's window. */
+function listActions(p: Piece): HTMLElement {
+  const row = el("div", undefined, "lib-list-actions");
+  const fav = isFavorite(currentLists(), p.id);
+  const s = button(fav ? "★ Favorite" : "☆ Favorite", "lib-fav-btn", () => toggleFavorite(p), fav ? "Remove from favorites" : "Add to favorites");
+  s.setAttribute("aria-pressed", String(fav));
+  row.append(s);
+  const sets = setlists(currentLists(), "name");
+  const pick = el("select", undefined, "lib-add-set");
+  pick.setAttribute("aria-label", "Add to setlist");
+  pick.append(new Option("Add to setlist…", ""));
+  for (const set of sets) {
+    const o = new Option(set.pieces.includes(p.id) ? `✓ ${set.name}` : set.name, set.id);
+    o.disabled = set.pieces.includes(p.id);
+    pick.append(o);
+  }
+  pick.append(new Option("New setlist…", "+"));
+  const make = el("form", undefined, "lib-new-set");
+  make.hidden = true;
+  const name = el("input");
+  name.placeholder = "Setlist name";
+  name.maxLength = 80;
+  name.setAttribute("aria-label", "New setlist name");
+  make.append(name, el("button", "Create", "primary"));
+  make.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!name.value.trim()) return name.focus();
+    let made = "";
+    changeLists((l) => {
+      const r = createSetlist(l, name.value, [p.id]);
+      made = r.id;
+      return r.lists;
+    });
+    status(`${p.title} added to ${currentLists().setlists[made]?.name ?? "the new setlist"}.`);
+  });
+  pick.addEventListener("change", () => {
+    const id = pick.value;
+    if (id === "+") {
+      make.hidden = false;
+      name.focus();
+      return;
+    }
+    if (!id) return;
+    changeLists((l) => addToSetlist(l, id, p.id));
+    status(`${p.title} added to ${currentLists().setlists[id]?.name}.`);
+  });
+  row.append(pick, make);
+  return row;
 }
 
 function item(p: Piece): HTMLLIElement {
@@ -310,12 +417,16 @@ async function openFile(p: Piece, f: LibraryFile, button: HTMLButtonElement): Pr
   try {
     const got = await lib.open(p, f);
     if (f.kind === "pdf") {
+      if (got.link && openFrom) changeLists((l) => markPlayed(l, openFrom!));
       if (got.link && win) win.location.href = got.link;
       else win?.close();
       status(got.link ? `${p.title}: PDF opened in a new tab.` : "Could not get a link to that PDF.");
       return;
     }
     offlineKeys.add(fileKey(p, f));
+    if (openFrom) changeLists((l) => markPlayed(l, openFrom!));
+    ui.detail.close();
+    closeSetlists(); // the Setlists button reopens it on the same setlist
     requestOpenScore({ name: f.name, data: got.data!, pieceId: p.id });
     status(got.offline ? `${p.title}: opened the copy saved on this device (Drive not reachable).` : `${p.title}: opened in Practice.`);
     render();
@@ -379,20 +490,44 @@ ui.table.addEventListener(
 );
 const pick = (e: Event) => {
   const r = (e.target as HTMLElement).closest<HTMLElement>(".lib-body .lib-row");
-  if (r?.dataset.i) showDetail(shown[Number(r.dataset.i)]);
+  if (!r?.dataset.i) return;
+  const p = shown[Number(r.dataset.i)];
+  if ((e.target as HTMLElement).closest(".lib-star")) toggleFavorite(p);
+  else showDetail(p);
 };
 ui.body.addEventListener("click", pick);
 ui.body.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
     pick(e);
+  } else if (e.key === "f" || e.key === "F") {
+    const r = (e.target as HTMLElement).closest<HTMLElement>(".lib-row");
+    if (r?.dataset.i) toggleFavorite(shown[Number(r.dataset.i)]);
   }
 });
 ui.detailClose.addEventListener("click", () => ui.detail.close());
 ui.detail.addEventListener("click", (e) => {
   if (e.target === ui.detail) ui.detail.close(); // a tap on the backdrop
 });
-ui.detail.addEventListener("close", () => (open = null));
+ui.detail.addEventListener("close", () => {
+  open = null;
+  openFrom = null;
+});
+ui.tabAll.addEventListener("click", () => showView("all"));
+ui.tabFav.addEventListener("click", () => showView("fav"));
+ui.setsOpen.addEventListener("click", () => openSetlists());
+initSetlists({
+  pieces: () => index?.pieces ?? [],
+  byId: (id) => byId.get(id),
+  openPiece: (p, setId) => showDetail(p, setId),
+});
+onListsChanged(() => {
+  tabs();
+  if (!index) return;
+  if (view === "fav") return render(); // the rows themselves change
+  for (const [i, r] of live) star(r.children[0].firstElementChild as HTMLElement, isFavorite(currentLists(), shown[i].id));
+  if (open) showDetail(open, openFrom);
+});
 window.addEventListener("resize", fitTable, { passive: true });
 ui.refresh.addEventListener("click", () => void refresh());
 ui.connect.addEventListener("click", async () => {
@@ -417,6 +552,8 @@ let started = false;
 /** Called when the user opens the tab: show the saved library straight away, even offline. */
 export async function enterLibrary(): Promise<void> {
   requestAnimationFrame(fitTable);
+  // other devices' favorites and setlists, after the table is up (only if already signed in: no sign-in window)
+  window.setTimeout(() => void syncLists(false), 300);
   if (started) return;
   started = true;
   const lib = setup();

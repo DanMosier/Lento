@@ -18,5 +18,7 @@
   "wait-mode-longest-block-ms": 150,
   "first-open-practice-ms": 400,
   "library-render-ms": 150,
-  "library-scroll-longest-block-ms": 100
+  "library-scroll-longest-block-ms": 100,
+  "library-favorites-ms": 150,
+  "library-lists-longest-block-ms": 100
 }

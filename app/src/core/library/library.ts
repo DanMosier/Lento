@@ -120,6 +120,24 @@ export class DriveLibrary {
   }
 
   /**
+   * A small JSON file this app keeps in the library folder itself, beside library.json (for example favorites and
+   * setlists). Null if there isn't one yet. Always fetched fresh: it is how other devices' changes arrive.
+   */
+  async readRootJson(name: string): Promise<unknown | null> {
+    const f = await this.drive.child(this.rootId, name);
+    if (!f) return null;
+    this.ids.set(`root:${name}`, f.id);
+    return JSON.parse(new TextDecoder().decode(await this.drive.download(f.id))) as unknown;
+  }
+
+  /** Writes that file (creating it the first time). The PC's watcher ignores it: it isn't a score. */
+  async writeRootJson(name: string, content: object): Promise<void> {
+    const id = this.ids.get(`root:${name}`) ?? (await this.drive.child(this.rootId, name))?.id;
+    const saved = id ? await this.drive.update(id, content) : await this.drive.create(this.rootId, name, content);
+    this.ids.set(`root:${name}`, saved.id ?? id);
+  }
+
+  /**
    * Saves a corrected score as `<score>.fixed` beside it. The app can't change the PC's files, so the PC's watcher
    * puts it in place of the score (keeping the converter's version as `<score>.orig`).
    */
