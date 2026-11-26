@@ -123,6 +123,13 @@ def observe() -> None:
                 raise LayoutChanged(f"page {len(trace['pages'])}")
         voices = parse_staffs(debug, staffs, *args, **kwargs)
         page = trace["pages"][-1]
+        try:
+            from homr import title_detection
+
+            mapping = kwargs.get("page_to_input_image") or (args[3] if len(args) > 3 else None)
+            page["multirests"] = load("multirests").expand(debug, voices, staffs, mapping, title_detection._reader)
+        except Exception as exc:  # reading the numbers is a nicety: homr's own reading stands
+            trace["multirest_error"] = repr(exc)
         page["systems"] = [len(system.staffs) for system in staffs]
         page["parts"] = len(voices)
         page["flattened"] = flattened(staffs)
