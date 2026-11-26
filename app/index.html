@@ -385,7 +385,13 @@
       </div>
       <div id="rv-panes" class="rv-panes" data-show="both">
         <div class="rv-pane rv-pdf"><iframe id="rv-pdf" title="The PDF" loading="lazy" referrerpolicy="no-referrer"></iframe><p id="rv-pdf-msg" class="hint" hidden></p></div>
-        <div class="rv-pane rv-xml"><div id="rv-xml"></div><p id="rv-xml-msg" class="hint" hidden></p></div>
+        <div class="rv-pane rv-xml"><div id="rv-bars" class="rv-bars" hidden><button id="rv-bars-prev" type="button">‹ Earlier</button><span id="rv-bars-label"></span><button id="rv-bars-next" type="button">Later ›</button></div><p id="rv-xml-msg" class="hint" hidden></p><div id="rv-xml"></div></div>
+      </div>
+      <div class="rv-play" role="group" aria-label="Listen">
+        <button id="rv-play" type="button" aria-pressed="false" title="Listen to the MusicXML, with any fixes made so far">▶ Play</button>
+        <label>From m. <input id="rv-play-from" aria-label="From measure" type="number" min="1" value="1" inputmode="numeric" /></label>
+        <label><span class="rv-wide">Speed</span> <select id="rv-speed" aria-label="Speed"><option value="50">50%</option><option value="75">75%</option><option value="100" selected>100%</option><option value="125">125%</option></select></label>
+        <span id="rv-play-at" class="rv-play-at" aria-live="off"></span>
       </div>
       <details id="rv-fix" class="rv-fix">
         <summary>Fix clef, key, time or instrument<span id="rv-fix-count"></span></summary>

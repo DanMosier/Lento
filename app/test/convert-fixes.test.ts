@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serialize, setClef, setInstrument, setKey, setTime, staves, warnings } from "../src/convert/fixes";
+import { barPage, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, warnings } from "../src/convert/fixes";
 
 const note = (step: string, octave: number, extra = "", accidental = "") =>
   `<note><pitch><step>${step}</step>${extra}<octave>${octave}</octave></pitch><duration>1</duration>${accidental ? `<accidental>${accidental}</accidental>` : ""}</note>`;
@@ -79,5 +79,47 @@ describe("quick fixes", () => {
     const out = serialize(doc);
     expect(out.startsWith("<?xml")).toBe(true);
     expect(new DOMParser().parseFromString(out, "application/xml").querySelectorAll("time").length).toBe(2);
+  });
+});
+
+describe("barPage", () => {
+  it("splits a long score into pages of bars", () => {
+    expect(barPage(1748, 24, 0)).toEqual({ page: 0, pages: 73, first: 1, last: 24 });
+    expect(barPage(1748, 24, 1)).toMatchObject({ first: 25, last: 48 });
+    expect(barPage(1748, 24, 99)).toMatchObject({ page: 72, first: 1729, last: 1748 });
+  });
+  it("is one page for a short score", () => {
+    expect(barPage(20, 24, 3)).toEqual({ page: 0, pages: 1, first: 1, last: 20 });
+  });
+});
+
+describe("pageXml", () => {
+  const bar = (n: number, attrs = "") => `<measure number="${n}">${attrs}${note("C", 3)}</measure>`;
+  const score = (bars: string) =>
+    `<score-partwise version="4.0"><work><work-title>T</work-title></work><part-list><score-part id="P1"><part-name>Cello</part-name></score-part></part-list><part id="P1">${bars}</part></score-partwise>`;
+  const parse = (x: string) => new DOMParser().parseFromString(x, "application/xml");
+  const start = `<attributes><divisions>2</divisions><key><fifths>-2</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes>`;
+
+  it("keeps only the page's bars, with the title and parts list", () => {
+    const d = parse(pageXml(parse(score(bar(1, start) + bar(2) + bar(3) + bar(4))), 2, 3));
+    expect([...d.querySelectorAll("measure")].map((m) => m.getAttribute("number"))).toEqual(["2", "3"]);
+    expect(d.querySelector("work-title")?.textContent).toBe("T");
+    expect(d.querySelector("score-part")?.getAttribute("id")).toBe("P1");
+  });
+
+  it("carries the key, time, clef and divisions in force onto the page's first bar", () => {
+    const tenor = `<attributes><clef><sign>C</sign><line>4</line></clef></attributes>`;
+    const d = parse(pageXml(parse(score(bar(1, start) + bar(2, tenor) + bar(3) + bar(4))), 3, 4));
+    const a = d.querySelector("measure attributes")!;
+    expect([...a.children].map((c) => c.localName)).toEqual(["divisions", "key", "time", "clef"]);
+    expect(a.querySelector("divisions")?.textContent).toBe("2");
+    expect(a.querySelector("fifths")?.textContent).toBe("-2");
+    expect(a.querySelector("clef sign")?.textContent).toBe("C"); // the latest clef, not the first
+    expect(d.querySelectorAll("measure")[1].querySelector("attributes")).toBeNull();
+  });
+
+  it("adds nothing to a page that starts at the first bar", () => {
+    const d = parse(pageXml(parse(score(bar(1, start) + bar(2))), 1, 1));
+    expect(d.querySelectorAll("attributes")).toHaveLength(1);
   });
 });

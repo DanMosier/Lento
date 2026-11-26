@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseScore } from "../src/core/score";
-import { Player } from "../src/practice/player";
-import { beatAt, measureAt, tapPlay, type BeatPlace } from "../src/practice/tap";
+import { Player } from "../src/core/player";
+import { beatAt, measureAt, tapPlay, type BeatPlace } from "../src/core/tap";
 import { scoreXml } from "./synth";
 
 // two systems of one staff each: beats 0..3 on the first (y 100..140), 4..7 on the second (y 300..340)

@@ -1,5 +1,5 @@
 /**
- * Tap a note to play from it: finds the beat under a tap on the drawn score, and works out what to play from there.
+ * Tap a note to play from it (Practice and Review): finds the beat under a tap on the drawn score, and works out what to play from there.
  *
  * Nothing here runs while the score is just shown. The places are found on the first tap after a render (one pass
  * over the drawn measures) and kept until the score is drawn again.
