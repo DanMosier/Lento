@@ -37,7 +37,8 @@ def legato_root(given: Path | None) -> Path:
         sys.path.insert(0, str(given))
     import legato
 
-    return Path(legato.__file__).resolve().parents[1]
+    # legato/ has no __init__.py (a namespace package), so legato.__file__ is None: use the folder it was found in
+    return Path(next(iter(legato.__path__))).resolve().parent
 
 
 def render(source: Path, work: Path, dpi: int) -> list[Path]:

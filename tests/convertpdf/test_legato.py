@@ -141,3 +141,11 @@ def test_pages_are_joined_and_renumbered():
     joined = bridge.join([first, second])
     numbers = [m.get("number") for m in joined.findall("part/measure")]
     assert numbers == ["1", "2", "3", "4", "5"]
+
+
+def test_legato_root_works_without_an_init_file(tmp_path, monkeypatch):
+    bridge = load_bridge()
+    (tmp_path / "legato").mkdir()
+    (tmp_path / "legato" / "models.py").write_text("", encoding="utf-8")
+    monkeypatch.delitem(__import__("sys").modules, "legato", raising=False)
+    assert bridge.legato_root(tmp_path) == tmp_path.resolve()
