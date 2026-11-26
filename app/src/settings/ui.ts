@@ -3,7 +3,7 @@
  * (tuning "a4", headphone delay "avDelay", instrument sounds "sound", room sound "room", and the Google Drive library connection).
  */
 import { $, store } from "../core/app";
-import { auth, clientId, library, libraryChanged, libraryFolder, saveConnection } from "../core/library/connection";
+import { auth, clientId, findLibrary, library, libraryChanged, libraryFolder, saveConnection } from "../core/library/connection";
 import { SOUND_CACHE } from "../core/sounds";
 import { roomOn } from "../core/room";
 
@@ -29,6 +29,21 @@ function say(el: HTMLElement, text: string, kind: "info" | "error" = "info"): vo
 
 ui.connect.addEventListener("click", async () => {
   saveConnection(ui.folder.value, ui.client.value);
+  if (!ui.folder.value.trim()) {
+    // no link given: sign in and look for the library in Drive
+    ui.connect.disabled = true;
+    say(ui.driveStatus, "Looking for your library in Google Drive…");
+    try {
+      if (!(await findLibrary())) {
+        ui.connect.disabled = false;
+        return say(ui.driveStatus, "Couldn't find a library (a folder with library.json) in your Drive. Paste the folder's link above.", "error");
+      }
+      ui.folder.value = libraryFolder();
+    } catch (e) {
+      ui.connect.disabled = false;
+      return say(ui.driveStatus, (e as Error).message, "error");
+    }
+  }
   const lib = library();
   if (!lib) return say(ui.driveStatus, "That doesn't look like a Google Drive folder link.", "error");
   ui.connect.disabled = true;

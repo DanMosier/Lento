@@ -127,8 +127,9 @@ move to `organize-log.csv` and rebuilds `library.json`.
 
 ## In the app
 
-Settings > Google Drive library: paste the folder's Drive link (the client ID is already filled in), then **Connect to
-Google Drive**. Or open `https://danmosier.github.io/Lento/?library=<folder link>` once on each device, which saves the
+On a new device, press **Connect to Google Drive** (in the Library, or Settings > Google Drive library) and sign in:
+the app finds the folder holding `library.json` and `pieces/` by itself and remembers it on that device. Nothing to
+type; to use a different folder, paste its link in Settings first. Or open `https://danmosier.github.io/Lento/?library=<folder link>` once on each device, which saves the
 folder, and press Connect in Settings. After that, **Refresh** in the Library or Convert PDF screen picks up a new `library.json`.
 
 - The **Library** is a table: title, composer, genre / era, year, instrumentation, level, key, technique, number of

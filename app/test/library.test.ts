@@ -177,3 +177,23 @@ describe("removing PDFs from the queue", () => {
     expect(d.files["requests/convert__c_d__x.json"]).toBeDefined();
   });
 });
+
+describe("finding the library by itself", () => {
+  it("picks the folder whose library.json sits beside pieces/, and saves it on this device", async () => {
+    const { findLibrary, libraryFolder } = await import("../src/core/library/connection");
+    const found = [
+      { id: "J1", name: "library.json", mimeType: "application/json", parents: ["OLDCOPY"] }, // newest, but no pieces/
+      { id: "J2", name: "library.json", mimeType: "application/json", parents: ["LIB"] },
+    ];
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const q = new URL(String(input)).searchParams.get("q")!;
+      if (q.startsWith("name = 'library.json'")) return new Response(JSON.stringify({ files: found }), { status: 200 });
+      const has = q.startsWith("'LIB' in parents and name = 'pieces'");
+      return new Response(JSON.stringify({ files: has ? [{ id: "P", name: "pieces", mimeType: "folder" }] : [] }), { status: 200 });
+    }) as typeof fetch;
+    expect(await findLibrary(new Drive(async () => "token", fetcher))).toBe("LIB");
+    expect(libraryFolder()).toBe("https://drive.google.com/drive/folders/LIB");
+    const none = (async () => new Response(JSON.stringify({ files: [] }), { status: 200 })) as typeof fetch;
+    expect(await findLibrary(new Drive(async () => "token", none))).toBeNull();
+  });
+});
