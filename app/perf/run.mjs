@@ -147,6 +147,17 @@ try {
     results[`  ${step}-ms`] = d[d.length - 1];
   }
 
+  // 5b. Transposing and changing the clef redraw the score from a changed copy; that must cost no more than opening it
+  const opened = (await measure("open-score")).length;
+  await page.selectOption("#transpose", "2");
+  await waitFor("open-score", opened + 1);
+  await page.selectOption("#clef", "tenor");
+  await waitFor("open-score", opened + 2);
+  const views = (await measure("open-score")).slice(opened);
+  results["transpose-score-ms"] = views[0];
+  results["change-clef-ms"] = views[1];
+  if (!(await page.textContent("#status")).includes("up a whole step")) errors.push("transposing didn't say so in the status line");
+
   // 6. The Library table with a library the size of Daniel's (2,251 pieces): draw, sort, search, scroll
   const comps = ["Bach, Johann Sebastian", "Popper, David", "Fauré, Gabriel", "Saint-Saëns, Camille", "Lalo, Édouard", "Davidov, Karl", "Romberg, Bernhard"];
   const pieces = Array.from({ length: 2251 }, (_, i) => ({

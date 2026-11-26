@@ -21,9 +21,12 @@ export interface MarkSet {
   marks: Mark[];
 }
 
-/** The note's address: its part, measure index, beat within the measure, and pitch. */
-export function noteKey(partId: string, n: ScoreNote): string {
-  return `${partId}/${n.measureIndex}:${Math.round(n.beatInMeasure * 1000) / 1000}:${n.midi}`;
+/**
+ * The note's address: its part, measure index, beat within the measure, and written pitch. `transposed` is how
+ * many semitones the shown score is transposed, so a mark stays on its note at any transposition.
+ */
+export function noteKey(partId: string, n: ScoreNote, transposed = 0): string {
+  return `${partId}/${n.measureIndex}:${Math.round(n.beatInMeasure * 1000) / 1000}:${n.midi - transposed}`;
 }
 
 export function emptyMarks(score: string): MarkSet {
@@ -68,8 +71,8 @@ export function newer(a: MarkSet | null, b: MarkSet | null): MarkSet | null {
 }
 
 /** Marks whose note is in this score, so a mark for a note that no longer exists is simply not shown. */
-export function marksIn(set: MarkSet, score: Score): Map<string, Mark[]> {
-  const keys = new Set(score.notes.map((n) => noteKey(score.partId, n)));
+export function marksIn(set: MarkSet, score: Score, transposed = 0): Map<string, Mark[]> {
+  const keys = new Set(score.notes.map((n) => noteKey(score.partId, n, transposed)));
   const out = new Map<string, Mark[]>();
   for (const m of set.marks) if (keys.has(m.note)) (out.get(m.note) ?? out.set(m.note, []).get(m.note)!).push(m);
   return out;

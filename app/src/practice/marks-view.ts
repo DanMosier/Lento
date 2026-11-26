@@ -12,7 +12,7 @@ export interface NotePlace {
 }
 
 /** Where each note of the practised part sits on the page right now. */
-export function notePlaces(osmd: OpenSheetMusicDisplay, container: HTMLElement, score: Score, partIndex: number): Map<string, NotePlace> {
+export function notePlaces(osmd: OpenSheetMusicDisplay, container: HTMLElement, score: Score, partIndex: number, transposed = 0): Map<string, NotePlace> {
   const places = new Map<string, NotePlace>();
   const svg = container.querySelector("svg");
   const inst = osmd.Sheet?.Instruments[partIndex];
@@ -36,7 +36,7 @@ export function notePlaces(osmd: OpenSheetMusicDisplay, container: HTMLElement, 
             const n = byBeat.get(`${beat}:${sn.halfTone + 12}`);
             if (!n) continue; // a tied continuation or a grace note
             const p = gn.PositionAndShape.AbsolutePosition;
-            const key = noteKey(score.partId, n);
+            const key = noteKey(score.partId, n, transposed);
             if (!places.has(key)) places.set(key, { key, x: ox + p.x * unit, y: oy + p.y * unit, top: oy + top * unit, unit });
           }
     }

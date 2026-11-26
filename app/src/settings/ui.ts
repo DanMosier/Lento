@@ -1,11 +1,13 @@
 /**
  * The Settings screen: options shared by the whole app. Each is a saved value other screens read when they open
- * (tuning "a4", headphone delay "avDelay", instrument sounds "sound", room sound "room", and the Google Drive library connection).
+ * (tuning "a4", headphone delay "avDelay", instrument sounds "sound", room sound "room", your own note-judging windows, and the
+ * Google Drive library connection).
  */
 import { $, store } from "../core/app";
 import { auth, clientId, findLibrary, library, libraryChanged, libraryFolder, saveConnection } from "../core/library/connection";
 import { SOUND_CACHE } from "../core/sounds";
 import { roomOn } from "../core/room";
+import { customPitch, customTiming, saveCustomPitch, saveCustomTiming } from "../core/tolerance";
 
 const ui = {
   folder: $<HTMLInputElement>("set-folder"),
@@ -20,6 +22,10 @@ const ui = {
   room: $<HTMLInputElement>("set-room"),
   clearSounds: $<HTMLButtonElement>("set-clear-sounds"),
   soundStatus: $("set-sound-status"),
+  goodCents: $<HTMLInputElement>("set-good-cents"),
+  okCents: $<HTMLInputElement>("set-ok-cents"),
+  timingMs: $<HTMLInputElement>("set-timing-ms"),
+  toleranceStatus: $("set-tolerance-status"),
 };
 
 function say(el: HTMLElement, text: string, kind: "info" | "error" = "info"): void {
@@ -80,6 +86,25 @@ ui.delay.addEventListener("input", () => {
   store.set("avDelay", +ui.delay.value);
 });
 
+function showTolerance(): void {
+  const p = customPitch();
+  ui.goodCents.value = String(p.good);
+  ui.okCents.value = String(p.ok);
+  ui.okCents.min = String(p.good + 1);
+  ui.timingMs.value = String(customTiming());
+}
+for (const input of [ui.goodCents, ui.okCents])
+  input.addEventListener("change", () => {
+    const p = saveCustomPitch({ good: +ui.goodCents.value, ok: +ui.okCents.value });
+    showTolerance();
+    say(ui.toleranceStatus, `Practice now judges pitch as in tune within ±${p.good} cents and slightly off within ±${p.ok}.`);
+  });
+ui.timingMs.addEventListener("change", () => {
+  const ms = saveCustomTiming(+ui.timingMs.value);
+  showTolerance();
+  say(ui.toleranceStatus, `Practice now flags notes more than ${ms} ms early or late.`);
+});
+
 ui.sound.addEventListener("change", () => store.set("sound", ui.sound.value));
 ui.room.addEventListener("change", () => store.set("room", ui.room.checked));
 ui.clearSounds.addEventListener("click", async () => {
@@ -101,5 +126,6 @@ export function enterSettings(): void {
   showDelay();
   ui.sound.value = store.get<string>("sound") ?? "auto";
   ui.room.checked = roomOn();
+  showTolerance();
   if (!ui.driveStatus.textContent) say(ui.driveStatus, library() ? "A library folder is set." : "No library folder yet.");
 }

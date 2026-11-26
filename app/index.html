@@ -80,6 +80,7 @@
           <option value="strict">Strict (±5 cents)</option>
           <option value="standard" selected>Standard (±10 cents)</option>
           <option value="relaxed">Relaxed (±20 cents)</option>
+          <option value="custom">Custom</option>
         </select>
       </div>
       <div class="group">
@@ -88,7 +89,16 @@
           <option value="strict">Strict (±60 ms)</option>
           <option value="standard" selected>Standard (±100 ms)</option>
           <option value="relaxed">Relaxed (±160 ms)</option>
+          <option value="custom">Custom</option>
         </select>
+      </div>
+      <div class="group">
+        <label for="transpose">Transpose</label>
+        <select id="transpose" aria-label="Transpose the score"></select>
+      </div>
+      <div class="group">
+        <label for="clef">Clef</label>
+        <select id="clef" aria-label="Clef for your part"></select>
       </div>
       <div class="group actions">
         <button id="play" type="button">Play</button>
@@ -414,6 +424,14 @@
           <output id="set-delay-out" for="set-delay">off</output>
         </div>
         <p class="hint">Wireless headphones play sound late. This holds the moving cursor back to match. Practice settings has a tap test that measures it.</p>
+
+        <h2>How strictly notes are judged</h2>
+        <p class="hint">Your own windows, for when the presets in Practice don't fit. Changing one here switches Practice's Pitch or Timing menu to Custom; the presets stay there to switch back.</p>
+        <label class="inline">In tune within ± <input id="set-good-cents" type="number" min="1" max="50" step="1" value="10" inputmode="numeric" /> cents</label>
+        <label class="inline">Slightly off within ± <input id="set-ok-cents" type="number" min="2" max="60" step="1" value="25" inputmode="numeric" /> cents</label>
+        <label class="inline">On time within ± <input id="set-timing-ms" type="number" min="20" max="400" step="5" value="100" inputmode="numeric" /> ms</label>
+        <p id="set-tolerance-status" class="status" role="status" aria-live="polite"></p>
+        <p class="hint">Further out than "slightly off" is out of tune, and past 70 cents a note counts as a wrong note. Real bowing is rarely closer than about 60 ms to the beat, so very tight timing flags most notes.</p>
 
         <h2>Instrument sounds</h2>
         <label>Playback sound
