@@ -154,6 +154,11 @@ folder, and press Connect in Settings. After that, **Refresh** in the Library or
   MusicXML as `<name>.marks.json`, so they follow you between PC, phone and tablet. The score file itself is never
   changed. Offline, marks are kept on the device and uploaded the next time that score opens online; if two
   devices both changed them, the most recent change wins.
+- **Staying signed in.** The app remembers the sign-in on each device. Within the hour Google's access lasts, a
+  reload needs nothing. After that, the next Drive action (Refresh, opening a score) asks Google again with no
+  prompt and your account already chosen, so its window flashes up and closes by itself. A full sign-in comes back
+  only after **Sign out**, if you sign out of Google in the browser, or when Google asks for it again (for an app
+  left in Testing, Google can ask about once a week).
 - The app reads your Drive and can only create and change its own files, the request files and marks files (the
   `drive.file` permission does not let it open or change anything it did not create).
 
