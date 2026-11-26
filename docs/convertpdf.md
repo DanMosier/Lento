@@ -108,7 +108,7 @@ No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN librarie
 [Audiveris](https://github.com/Audiveris/audiveris) is an older, actively maintained open-source OMR program. It runs
 on the CPU, so it needs no graphics card and can work while homr has the GPU. Install it from its
 [releases](https://github.com/Audiveris/audiveris/releases): on Windows the `windowsConsole` .msi is the better pick,
-because it shows Audiveris's log (Java is included). Then choose **Audiveris** under *Engine* in the window, or:
+because it shows Audiveris's log (Java is included). Lento finds it in Program Files, on PATH, or in an `Audiveris` folder beside Lento (such as `D:\Coding\Audiveris`). Then choose **Audiveris** under *Engine* in the window, or:
 
 ```powershell
 .\.venv\Scripts\Lento_ConvertPDF.exe "C:\path\to\pdfs" --engine audiveris               # finds it in Program Files

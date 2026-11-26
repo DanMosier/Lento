@@ -38,11 +38,17 @@ def _candidates() -> list[Path]:
         if on_path:
             found.append(Path(on_path))
     found.append(Path("/opt/audiveris/bin/Audiveris"))
+    # an Audiveris folder beside the project, as homr and Legato are (e.g. D:\Coding\Audiveris)
+    anchor = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__)
+    for parent in anchor.resolve().parents:
+        for name in ("Audiveris", "audiveris"):
+            found += [parent / name / "Audiveris.exe", parent / name / "bin" / "Audiveris.exe", parent / name / "bin" / "Audiveris"]
     return found
 
 
 def discover_audiveris(custom_path: str = "") -> Path | None:
-    """Find the Audiveris launcher: explicit setting, then AUDIVERIS, then the usual install folders and PATH."""
+    """Find the Audiveris launcher: explicit setting, then AUDIVERIS, then the usual install folders, PATH and an
+    Audiveris folder beside the project."""
     for explicit in (custom_path, os.environ.get("AUDIVERIS", "")):
         if explicit:
             path = Path(explicit)
