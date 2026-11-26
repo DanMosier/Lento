@@ -1,6 +1,7 @@
 {
   "startup-js-kb": 20,
   "all-js-kb": 400,
+  "soundfont-js-kb": 350,
   "startup-ms": 600,
   "tab-switch-ms": 100,
   "open-score-ms": 2500,

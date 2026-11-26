@@ -96,6 +96,14 @@ legato (the next note skips its attack and fades in under the last one's tail), 
 tuning and loudness, and a short room reverb (`core/room.ts`, generated, nothing to download) is mixed in. Room
 sound can be turned off in Settings.
 
+**Your own sounds.** Settings > Instrument sounds can also use **your own SoundFont** (.sf2 / .sf3, picked from the
+device and kept in Cache Storage) or **send the notes to MIDI** (Web MIDI, Chrome and Edge: a hardware keyboard or
+module, or on a PC a virtual cable such as loopMIDI into a VST host, since VST plugins can't run in a browser).
+`core/midi-voice.ts` turns notes into MIDI messages timed on the audio clock (one channel per part, the practised
+part on channel 1); `core/soundfont.ts` plays them with SpessaSynth (Apache-2.0) in an AudioWorklet, and
+`core/midi-out.ts` sends them out. Both load only when chosen, so nobody else downloads them: the SoundFont
+synthesizer (~300 KB gz) isn't precached with the app and has its own perf budget (`soundfont-js-kb`).
+
 ## Speed
 
 Responsiveness comes first: a feature that makes the app noticeably slower gets reworked or dropped.

@@ -482,12 +482,49 @@
             <option value="light">Recorded instruments, smallest download</option>
             <option value="full">Recorded instruments, best quality</option>
             <option value="synth">Built-in synth only (no download)</option>
+            <option value="soundfont">My own SoundFont (.sf2 or .sf3 file)</option>
+            <option value="midi">Send to MIDI (a device or PC plugin)</option>
           </select>
         </label>
+        <div id="set-sf-box" class="own-sound" hidden>
+          <p class="hint">Pick a SoundFont file from this device. It's copied into the app and kept here for offline use, so pick it once on each device. Files of 100 MB or more can take a few seconds to load and use a lot of memory on a phone; compressed .sf3 files are much smaller.</p>
+          <input id="set-sf-file" type="file" accept=".sf2,.sf3,.dls,audio/x-soundfont" hidden />
+          <div class="tools">
+            <button id="set-sf-pick" type="button" class="primary">Choose a SoundFont…</button>
+            <button id="set-sf-remove" type="button" hidden>Remove it from this device</button>
+          </div>
+          <p id="set-sf-status" class="status" role="status" aria-live="polite"></p>
+        </div>
+        <div id="set-midi-box" class="own-sound" hidden>
+          <p class="hint">VST plugins can't run inside a browser, so Lento sends the notes as MIDI to a program that plays them. On a PC, install a virtual MIDI cable such as <a href="https://www.tobias-erichsen.de/software/loopmidi.html" target="_blank" rel="noopener">loopMIDI</a>, then pick it here and as the MIDI input of your plugin host (a DAW, or the instrument's own standalone app). On a phone or tablet, pick a USB or Bluetooth MIDI keyboard or sound module. The part you practise is on channel 1 and the other parts on channels 2, 3 and so on. The metronome still plays from this device. Works in Chrome and Edge only.</p>
+          <label>MIDI output
+            <select id="set-midi-out"><option value="">Press "Find MIDI outputs"</option></select>
+          </label>
+          <div class="tools">
+            <button id="set-midi-find" type="button" class="primary">Find MIDI outputs</button>
+            <button id="set-midi-test" type="button">Play a test note</button>
+          </div>
+          <p id="set-midi-status" class="status" role="status" aria-live="polite"></p>
+        </div>
         <label class="inline"><input id="set-room" type="checkbox" checked /> Room sound (a little reverb, so playback sounds less boxy)</label>
         <div class="tools"><button id="set-clear-sounds" type="button">Remove downloaded sounds</button></div>
         <p id="set-sound-status" class="status" role="status" aria-live="polite"></p>
-        <p class="hint">Playback always starts at once with the built-in synth. Recordings of each instrument in the score download in the background (a few hundred KB each), take over when ready, and stay on this device for offline use. Sounds: VS Chamber Orchestra Community Edition (CC0).</p>
+        <p class="hint">Playback always starts at once with the built-in synth. Recordings of each instrument in the score download in the background (a few hundred KB each), take over when ready, and stay on this device for offline use. Your own SoundFont or MIDI output takes over the same way once it's ready. Sounds: VS Chamber Orchestra Community Edition (CC0). SoundFont playback: SpessaSynth (Apache-2.0).</p>
+        <details class="more sound-recs">
+          <summary>Where to find better sounds</summary>
+          <p class="hint"><strong>SoundFonts for "My own SoundFont"</strong> (free):</p>
+          <ul>
+            <li><a href="https://musescore.org/en/handbook/soundfonts-and-sfz-files" target="_blank" rel="noopener">MuseScore General</a>: a full set of instruments with a good piano and strings, as a compact .sf3 (MIT licence).</li>
+            <li><a href="https://musical-artifacts.com/artifacts/533" target="_blank" rel="noopener">Salamander Grand Piano</a>: a Yamaha grand piano, SoundFont version (CC-BY).</li>
+            <li><a href="https://sites.google.com/view/hed-sounds/aegean-symphonic-orchestra" target="_blank" rel="noopener">Aegean Symphonic Orchestra</a>: orchestral instruments including cello.</li>
+          </ul>
+          <p class="hint"><strong>Plugins for "Send to MIDI"</strong> (need a PC host):</p>
+          <ul>
+            <li>Free: <a href="https://labs.spitfireaudio.com/" target="_blank" rel="noopener">Spitfire LABS</a> (soft piano, strings, cello ensembles and more) and <a href="https://www.spitfireaudio.com/bbc-symphony-orchestra-discover" target="_blank" rel="noopener">BBC Symphony Orchestra Discover</a>.</li>
+            <li>Free: <a href="https://www.pianobook.co.uk/" target="_blank" rel="noopener">Pianobook</a> instruments, played in the free <a href="https://www.decentsamples.com/" target="_blank" rel="noopener">Decent Sampler</a>.</li>
+            <li>Paid: <a href="https://audiomodeling.com/swam-cello" target="_blank" rel="noopener">SWAM Cello</a> (a very expressive modelled solo cello), <a href="https://www.spitfireaudio.com/spitfire-solo-cello" target="_blank" rel="noopener">Spitfire Solo Cello</a>, and <a href="https://www.modartt.com/pianoteq" target="_blank" rel="noopener">Pianoteq</a> for piano.</li>
+          </ul>
+        </details>
 
         <h2>About this app</h2>
         <p>Version <strong id="set-version"></strong></p>

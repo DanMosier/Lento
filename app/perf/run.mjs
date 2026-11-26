@@ -33,14 +33,18 @@ const entry = [...html.matchAll(/<script[^>]+src="\.?\/?([^"]+\.js)"/g)].map((m)
 const preloads = [...html.matchAll(/<link[^>]+rel="modulepreload"[^>]+href="\.?\/?([^"]+\.js)"/g)].map((m) => m[1]);
 const gz = (f) => gzipSync(readFileSync(join(root, "dist", f))).length / 1024;
 const startupKb = [...entry, ...preloads].reduce((s, f) => s + gz(f), 0);
-const allJsKb = readdirSync(join(root, "dist", "assets")).filter((f) => f.endsWith(".js")).reduce((s, f) => s + gz(join("assets", f)), 0);
+// The SoundFont synthesizer downloads only for people who choose "My own SoundFont", so it has a budget of its own.
+const optional = (f) => /^(soundfont-|spessasynth_processor)/.test(f);
+const jsFiles = readdirSync(join(root, "dist", "assets")).filter((f) => f.endsWith(".js"));
+const allJsKb = jsFiles.filter((f) => !optional(f)).reduce((s, f) => s + gz(join("assets", f)), 0);
+const soundfontJsKb = jsFiles.filter(optional).reduce((s, f) => s + gz(join("assets", f)), 0);
 
 const server = await preview({ root, logLevel: "error", preview: { port: 4179, strictPort: true } });
 const browser = await chromium.launch({
   ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${join(tmp, "mic.wav")}`],
 });
-const results = { "startup-js-kb": startupKb, "all-js-kb": allJsKb };
+const results = { "startup-js-kb": startupKb, "all-js-kb": allJsKb, "soundfont-js-kb": soundfontJsKb };
 const errors = [];
 try {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
