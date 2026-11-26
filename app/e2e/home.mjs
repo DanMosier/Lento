@@ -77,6 +77,13 @@ try {
   await page.waitForSelector("#rv-xml svg", { timeout: 15000 });
   if (!(await page.isVisible("#rv-found")) || !(await page.textContent("#rv-found"))?.includes("116 slurs"))
     failures.push("The Review window didn't show what the converter found");
+  // Play the score being reviewed, then stop it
+  await page.click("#rv-play");
+  await page.waitForFunction(() => performance.getEntriesByName("lento:review-play").length, null, { timeout: 15000 }).catch(() => {});
+  if ((await page.getAttribute("#rv-play", "aria-pressed")) !== "true") failures.push("Play in the review window didn't start playback");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/review-playing.png` });
+  await page.click("#rv-play");
+  if ((await page.getAttribute("#rv-play", "aria-pressed")) !== "false") failures.push("Stop in the review window didn't stop playback");
   await page.waitForTimeout(500); // let the PDF frame load and add its history entry
   await page.click("#rv-split"); // flags the first one, "Other Piece"
   if ((await page.getAttribute("#rv-split", "aria-pressed")) !== "true") failures.push("Flag for splitting didn't flag the PDF");
@@ -109,4 +116,4 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen.");
+console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen; the review window plays and stops the score.");

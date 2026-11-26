@@ -21,6 +21,7 @@ const THROTTLE = Number(process.env.THROTTLE ?? 4);
 const tmp = mkdtempSync(join(tmpdir(), "lento-perf-"));
 const TAKE_MEASURES = 90; // 3 minutes at 120 bpm
 const BIG_MEASURES = 400;
+const REVIEW_MEASURES = 1500; // about the length of a converted sonata with its piano part
 writeFileSync(join(tmp, "take-score.musicxml"), scoreXml(TAKE_MEASURES, 120, "Three minute piece"));
 writeFileSync(join(tmp, "big-score.musicxml"), scoreXml(BIG_MEASURES, 120, "Long piece"));
 writeFileSync(join(tmp, "take.wav"), takeWav(TAKE_MEASURES));
@@ -223,6 +224,41 @@ try {
   await page.click("#lib-tab-all");
   await waitFor("library-render", 6);
   results["library-lists-longest-block-ms"] = await longestTask(t);
+
+  // 7. The Convert PDF Review window on a long converted score: open it, then the next page of bars. Drive isn't
+  // reachable here, so the library's offline copies are used.
+  await page.route(/googleapis\.com|accounts\.google\.com|drive\.google\.com/, (r) => r.abort());
+  await page.evaluate(async ([idx, xml]) => {
+    await new Promise((res) => {
+      const r = indexedDB.open("lento-library", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("files");
+      r.onsuccess = () => {
+        const tx = r.result.transaction("files", "readwrite");
+        const put = (key, text) => tx.objectStore("files").put({ data: new TextEncoder().encode(text).buffer, modifiedTime: "x" }, key);
+        put("library.json", JSON.stringify(idx));
+        put("pieces/rv_x/rv_x__score.musicxml", xml);
+        tx.oncomplete = res;
+      };
+    });
+  }, [
+    { format: "lento-library", version: 1, generated: new Date().toISOString(), pieces: [{ id: "rv_x", title: "Long sonata", composer: "Test", files: [{ name: "rv_x__score.pdf", kind: "pdf", variant: "score", musicxml: "rv_x__score.musicxml" }] }] },
+    scoreXml(REVIEW_MEASURES, 120, "Long sonata"),
+  ]);
+  await page.goto("http://localhost:4179/");
+  await waitFor("ready");
+  await page.click('.home-card[data-go="convert"]');
+  await page.click("#cv-tab-review");
+  t = await now();
+  await page.click(".cv-rv-open", { timeout: 20_000 });
+  await waitFor("review-draw", 1);
+  results["review-big-score-ms"] = (await now()) - t;
+  results["review-big-score-longest-block-ms"] = await longestTask(t);
+  t = await now();
+  await page.click("#rv-bars-next");
+  await waitFor("review-draw", 2);
+  results["review-page-ms"] = (await measure("review-draw"))[1];
+  results["review-page-longest-block-ms"] = await longestTask(t);
+  if (await page.isVisible("#rv-xml-msg")) errors.push(`Review: ${await page.textContent("#rv-xml-msg")}`);
 } finally {
   await browser.close();
   await new Promise((r) => server.httpServer.close(r));

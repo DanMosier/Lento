@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseScore } from "../src/core/score";
 import { impulse } from "../src/core/room";
-import { noteShapes } from "../src/practice/player";
+import { noteShapes } from "../src/core/player";
 import { scoreXml } from "./synth";
 
 describe("natural playback", () => {

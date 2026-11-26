@@ -3,8 +3,8 @@
  * Each part sounds with its instrument's recorded samples once they have loaded (see core/sounds), and with a
  * bowed-string-like synth until then. Either way, slowing down never changes pitch.
  */
-import type { Score, ScoreNote } from "../core/score";
-import { instrumentFor, type NoteShape, type SoundBank } from "../core/sounds";
+import type { Score, ScoreNote } from "./score";
+import { instrumentFor, type NoteShape, type SoundBank } from "./sounds";
 
 /** The sound pack for a part: from its name, the instrument named in the file, or its MIDI program. */
 export function partInstrument(s: Score): string | null {
