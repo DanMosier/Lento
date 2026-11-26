@@ -1,7 +1,8 @@
 /**
  * Home always gets you home: opens every screen (and the Convert PDF review window, whose embedded PDF viewer adds
  * history entries of its own) and checks that the Home button returns to the home screen each time. On the way it
- * flags the reviewed PDF for splitting and checks it reaches the To split list and can be marked done.
+ * flags a PDF for splitting and checks it moves to the bottom of the Review list, reaches the To split screen, and
+ * can be marked done there.
  * Runs the dev server with the Drive library replaced by a stand-in. Exits 1 on a failure.  npm run e2e
  */
 import { createServer } from "vite";
@@ -23,7 +24,7 @@ try {
   await page.goto("http://localhost:4319/");
   await page.evaluate(async (xml) => {
     const { DriveLibrary } = await import("/src/core/library/library.ts");
-    const index = { version: 1, generated: new Date().toISOString(), pieces: [{ id: "a_b", title: "Test Piece", composer: "Test", files: [{ name: "a_b__x.pdf", kind: "pdf", variant: "x", musicxml: "a_b__x.musicxml" }] }] };
+    const index = { version: 1, generated: new Date().toISOString(), pieces: [{ id: "a_b", title: "Test Piece", composer: "Test", files: [{ name: "a_b__x.pdf", kind: "pdf", variant: "x", musicxml: "a_b__x.musicxml" }] }, { id: "c_d", title: "Other Piece", composer: "Test", files: [{ name: "c_d__x.pdf", kind: "pdf", variant: "x", musicxml: "c_d__x.musicxml" }] }] };
     const P = DriveLibrary.prototype;
     P.cachedIndex = P.loadIndex = async () => index;
     P.pcStatus = async () => null;
@@ -81,19 +82,27 @@ try {
   await page.click("#rv-play");
   if ((await page.getAttribute("#rv-play", "aria-pressed")) !== "false") failures.push("Stop in the review window didn't stop playback");
   await page.waitForTimeout(500); // let the PDF frame load and add its history entry
-  await page.click("#rv-next").catch(() => {});
-  await page.click("#rv-split");
+  await page.click("#rv-split"); // flags the first one, "Other Piece"
   if ((await page.getAttribute("#rv-split", "aria-pressed")) !== "true") failures.push("Flag for splitting didn't flag the PDF");
   if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/review-flagged.png` });
+  await page.click("#rv-next").catch(() => {});
   await page.click("#rv-close");
   try {
-    await page.waitForSelector("#cv-split-box:not([hidden]) #cv-split-list li:has-text('Test Piece')", { timeout: 2000 });
+    await page.waitForSelector("#cv-rv-list li:last-child:has-text('Other Piece')", { timeout: 2000 });
+  } catch {
+    failures.push("A PDF flagged for splitting didn't move to the bottom of the Review list");
+  }
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/review-list.png` });
+  try {
+    await page.click("#cv-split-open:not([hidden])", { timeout: 2000 });
+    await page.waitForSelector("#cv-split[open] #cv-split-list li:has-text('Other Piece')", { timeout: 2000 });
     if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/split-list.png` });
     await page.click('#cv-split-list button:has-text("Done")');
     await page.waitForSelector("#cv-split-list li.done", { timeout: 2000 });
     if ((await page.textContent("#cv-split-title"))?.includes("(")) failures.push("A PDF marked done still counts as to split");
+    await page.click("#cv-split-close");
   } catch {
-    failures.push("The flagged PDF didn't show in the To split list, or couldn't be marked done");
+    failures.push("The flagged PDF didn't show on the To split screen, or couldn't be marked done");
   }
   await home("the review window");
 } finally {
@@ -104,4 +113,4 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting reaches the To split list; the review window plays and stops the score.");
+console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen; the review window plays and stops the score.");
