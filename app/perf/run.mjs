@@ -91,28 +91,37 @@ try {
   results["open-big-score-ms"] = (await measure("open-score"))[1];
   results["open-big-score-longest-block-ms"] = await longestTask(t);
 
-  // 3b. The phone's address bar sliding away (height only) must not redraw the score; turning the phone must
-  // redraw it exactly once.
+  // 3b. The phone's address bar sliding away (height only) must not redraw the score. Turning the phone (which
+  // can resize the page a few times in a row, e.g. as full screen ends) must redraw it exactly once, and never in
+  // the middle of playing: it holds the page for seconds on a long score, so it waits until playback stops.
   await page.setViewportSize({ width: 390, height: 780 });
   await page.waitForTimeout(600);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(1200);
   results["address-bar-relayouts"] = (await measure("relayout-score")).length;
-  await page.setViewportSize({ width: 844, height: 390 });
+  for (const w of [844, 880, 915]) {
+    await page.setViewportSize({ width: w, height: 390 });
+    await page.waitForTimeout(200);
+  }
   await waitFor("relayout-score", 1);
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(1500);
   const turns = await measure("relayout-score");
   results["rotate-big-score-ms"] = turns[0];
   results["rotate-relayouts"] = turns.length;
+  await page.click("#play");
+  await waitFor("start-playback", 1);
   await page.setViewportSize({ width: 390, height: 844 });
-  await waitFor("relayout-score", 2);
+  await page.waitForTimeout(2500);
+  results["playing-relayouts"] = (await measure("relayout-score")).length - turns.length;
+  await page.click("#play"); // stop: the postponed layout happens now
+  await waitFor("relayout-score", turns.length + 1);
 
   // 4. Start and stop playback on the 3-minute score
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
   await waitFor("open-score", 3);
   await page.click("#play");
-  await waitFor("start-playback", 1);
-  results["start-playback-ms"] = (await measure("start-playback"))[0];
+  await waitFor("start-playback", 2);
+  results["start-playback-ms"] = (await measure("start-playback"))[1];
   await page.waitForTimeout(500);
   await page.click("#play");
 
