@@ -21,7 +21,7 @@ export function versionLabel(v = VERSION): string {
 /** The published version, or null when offline or in development. */
 export async function publishedVersion(): Promise<{ commit: string; built: string } | null> {
   try {
-    const r = await fetch("version.json", { cache: "no-store" });
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" }); // past every cache, the CDN's too
     if (!r.ok) return null;
     const v = await r.json();
     return typeof v?.commit === "string" ? v : null;
@@ -30,11 +30,11 @@ export async function publishedVersion(): Promise<{ commit: string; built: strin
   }
 }
 
-/** True when a different version than this one is published. */
-export async function updateAvailable(): Promise<boolean> {
-  if (VERSION.commit === "dev") return false;
+/** The published version's commit when it differs from this one, else null (also offline or in development). */
+export async function newerVersion(): Promise<string | null> {
+  if (VERSION.commit === "dev") return null;
   const v = await publishedVersion();
-  return !!v && v.commit !== VERSION.commit;
+  return v && v.commit !== VERSION.commit ? v.commit : null;
 }
 
 /**

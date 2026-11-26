@@ -7,12 +7,12 @@ import "./style.css";
 import { $, onOpenScore, store } from "./core/app";
 import { mark, timed } from "./core/perf";
 import { note, watchProblems } from "./core/diag";
-import { reloadToNewest, updateAvailable } from "./core/version";
+import { newerVersion, reloadToNewest } from "./core/version";
 
 watchProblems();
 
 /** A bar offering to reload, when a newer version of the app has been published (or a piece of it failed to load). */
-function offerReload(text: string): void {
+function offerReload(text: string, button = true): void {
   if (document.getElementById("update-bar")) return;
   const bar = document.createElement("div");
   bar.id = "update-bar";
@@ -29,16 +29,10 @@ function offerReload(text: string): void {
     btn.textContent = "Reloading…";
     void reloadToNewest();
   });
-  bar.append(msg, btn);
+  bar.append(msg);
+  if (button) bar.append(btn);
   document.body.append(bar);
 }
-const checkForUpdate = () => {
-  void updateAvailable().then((yes) => yes && offerReload("A new version of Lento is ready."));
-};
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) checkForUpdate();
-});
-setTimeout(checkForUpdate, 5000);
 
 /**
  * Each feature's code loads the first time its screen opens, so adding features doesn't slow the app's start.
@@ -175,3 +169,32 @@ try {
 history.replaceState(null, "", location.pathname);
 show("home");
 mark("ready");
+
+/**
+ * Always the newest version: the app opens at once from its offline copy, then asks the server (in the background)
+ * whether a newer version is out. If so, and nothing would be lost (on the home screen, or Practice with no score
+ * open), it switches to it by itself; otherwise a Reload bar offers it. Offline, nothing happens. Each version is
+ * tried once per session, so a server still handing out the old files can't cause a reload loop.
+ */
+function safeToReload(): boolean {
+  return current === "home" || (current === "practice" && !practice()?.hasScore?.());
+}
+async function checkForUpdate(): Promise<void> {
+  const commit = await newerVersion();
+  if (!commit) return;
+  let tried = false;
+  try {
+    tried = sessionStorage.getItem("lento.updateTried") === commit;
+    sessionStorage.setItem("lento.updateTried", commit);
+  } catch {
+    tried = true; // can't remember trying: never risk a loop
+  }
+  if (!tried && safeToReload()) {
+    offerReload("Updating Lento…", false);
+    await reloadToNewest();
+  } else offerReload("A new version of Lento is ready.");
+}
+void checkForUpdate();
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void checkForUpdate();
+});
