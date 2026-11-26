@@ -8,6 +8,8 @@ import { auth, clientId, findLibrary, library, libraryChanged, libraryFolder, sa
 import { SOUND_CACHE } from "../core/sounds";
 import { roomOn } from "../core/room";
 import { customPitch, customTiming, saveCustomPitch, saveCustomTiming } from "../core/tolerance";
+import { publishedVersion, reloadToNewest, VERSION, versionLabel } from "../core/version";
+import { clearProblems, problems } from "../core/diag";
 
 const ui = {
   folder: $<HTMLInputElement>("set-folder"),
@@ -26,7 +28,45 @@ const ui = {
   okCents: $<HTMLInputElement>("set-ok-cents"),
   timingMs: $<HTMLInputElement>("set-timing-ms"),
   toleranceStatus: $("set-tolerance-status"),
+  version: $("set-version"),
+  checkUpdate: $<HTMLButtonElement>("set-check-update"),
+  updateStatus: $("set-update-status"),
+  problems: $("set-problems"),
+  clearProblems: $<HTMLButtonElement>("set-clear-problems"),
 };
+
+function showProblems(): void {
+  const list = problems().reverse();
+  ui.problems.replaceChildren(
+    ...list.map((p) => {
+      const li = document.createElement("li");
+      const when = new Date(p.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" });
+      li.textContent = p.text;
+      const small = document.createElement("small");
+      small.textContent = `${when} · version ${p.version}`;
+      li.append(small);
+      return li;
+    }),
+  );
+  if (!list.length) ui.problems.replaceChildren(Object.assign(document.createElement("li"), { textContent: "Nothing so far." }));
+  ui.clearProblems.hidden = !list.length;
+}
+
+ui.version.textContent = versionLabel();
+ui.checkUpdate.addEventListener("click", async () => {
+  ui.checkUpdate.disabled = true;
+  say(ui.updateStatus, "Checking…");
+  const v = await publishedVersion();
+  ui.checkUpdate.disabled = false;
+  if (!v) return say(ui.updateStatus, "Couldn't check (offline?).", "error");
+  if (v.commit === VERSION.commit) return say(ui.updateStatus, "This is the newest version.");
+  say(ui.updateStatus, `Version ${versionLabel(v)} is out. Reloading…`);
+  void reloadToNewest();
+});
+ui.clearProblems.addEventListener("click", () => {
+  clearProblems();
+  showProblems();
+});
 
 function say(el: HTMLElement, text: string, kind: "info" | "error" = "info"): void {
   el.textContent = text;
@@ -127,5 +167,6 @@ export function enterSettings(): void {
   ui.sound.value = store.get<string>("sound") ?? "auto";
   ui.room.checked = roomOn();
   showTolerance();
+  showProblems();
   if (!ui.driveStatus.textContent) say(ui.driveStatus, library() ? "A library folder is set." : "No library folder yet.");
 }

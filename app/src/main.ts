@@ -6,6 +6,39 @@
 import "./style.css";
 import { $, onOpenScore, store } from "./core/app";
 import { mark, timed } from "./core/perf";
+import { note, watchProblems } from "./core/diag";
+import { reloadToNewest, updateAvailable } from "./core/version";
+
+watchProblems();
+
+/** A bar offering to reload, when a newer version of the app has been published (or a piece of it failed to load). */
+function offerReload(text: string): void {
+  if (document.getElementById("update-bar")) return;
+  const bar = document.createElement("div");
+  bar.id = "update-bar";
+  bar.className = "update-bar";
+  bar.setAttribute("role", "status");
+  const msg = document.createElement("span");
+  msg.textContent = text;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "primary";
+  btn.textContent = "Reload";
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.textContent = "Reloading…";
+    void reloadToNewest();
+  });
+  bar.append(msg, btn);
+  document.body.append(bar);
+}
+const checkForUpdate = () => {
+  void updateAvailable().then((yes) => yes && offerReload("A new version of Lento is ready."));
+};
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkForUpdate();
+});
+setTimeout(checkForUpdate, 5000);
 
 /**
  * Each feature's code loads the first time its screen opens, so adding features doesn't slow the app's start.
@@ -28,7 +61,16 @@ const features = new Map<string, Promise<Feature>>();
 const feature = (name: string): Promise<Feature> | null => {
   if (!LOAD[name]) return null;
   let f = features.get(name);
-  if (!f) features.set(name, (f = timed(`load-${name}`, LOAD[name])));
+  if (!f) {
+    f = timed(`load-${name}`, LOAD[name]);
+    features.set(name, f);
+    f.catch((e) => {
+      // Usually an update replaced the app's files on the server: try again next time, and offer a reload.
+      features.delete(name);
+      note("error", `Could not load ${name}: ${(e as Error)?.message ?? e}`);
+      offerReload("Lento was updated. Reload to continue.");
+    });
+  }
   return f;
 };
 const loadedFeatures = new Map<string, Feature>(); // the ones that have finished loading

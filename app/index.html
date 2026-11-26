@@ -34,6 +34,7 @@
       <input id="score-file" type="file" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden />
       <button id="parts-btn" type="button" class="button" hidden>Parts</button>
       <button id="marks-btn" type="button" class="button" hidden aria-pressed="false" title="Add fingerings, bowings and notes to the score">Marks</button>
+      <button id="fit-btn" type="button" class="button" hidden title="Lay the score out again for this screen width">Fit to screen</button>
       <button id="focus-btn" type="button" class="button" hidden aria-pressed="false" title="Hide the controls so the score gets the whole screen">Hide controls</button>
       <span id="title" class="title"></span>
     </div>
@@ -43,6 +44,7 @@
       <button id="mini-record" type="button" class="record">Record</button>
       <span id="mini-info" class="mini-info"></span>
       <button id="mini-full" type="button">Full screen</button>
+      <button id="mini-fit" type="button" hidden>Fit to screen</button>
       <button id="mini-show" type="button">Show controls</button>
     </div>
 
@@ -462,6 +464,15 @@
         <div class="tools"><button id="set-clear-sounds" type="button">Remove downloaded sounds</button></div>
         <p id="set-sound-status" class="status" role="status" aria-live="polite"></p>
         <p class="hint">Playback always starts at once with the built-in synth. Recordings of each instrument in the score download in the background (a few hundred KB each), take over when ready, and stay on this device for offline use. Sounds: VS Chamber Orchestra Community Edition (CC0).</p>
+
+        <h2>About this app</h2>
+        <p>Version <strong id="set-version"></strong></p>
+        <div class="tools"><button id="set-check-update" type="button">Check for a new version</button></div>
+        <p id="set-update-status" class="status" role="status" aria-live="polite"></p>
+        <h2>Recent problems on this device</h2>
+        <p class="hint">Errors, and moments the app froze for over a second, with what it was doing. A screenshot of this list helps track a problem down.</p>
+        <ol id="set-problems" class="problem-list"></ol>
+        <div class="tools"><button id="set-clear-problems" type="button">Clear the list</button></div>
       </section>
     </div>
 

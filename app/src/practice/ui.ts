@@ -58,6 +58,8 @@ const ui = {
   view: $("view-practice"),
   focusBtn: $<HTMLButtonElement>("focus-btn"),
   scoreSize: $<HTMLSelectElement>("score-size"),
+  fitBtn: $<HTMLButtonElement>("fit-btn"),
+  miniFit: $<HTMLButtonElement>("mini-fit"),
 };
 
 let xml = "";
@@ -145,6 +147,7 @@ function settings() {
 
 let drawnWidth = 0; // the score area's width when the score was last laid out
 let rendering = false; // a score is being loaded and drawn; it measures the width itself
+let layoutMs = 0; // how long the last layout took on this device
 
 /** Sizes the page for the score area's width (smaller notes and margins on a phone) before a layout. */
 function fitPage(sheet: OpenSheetMusicDisplay): void {
@@ -155,6 +158,14 @@ function fitPage(sheet: OpenSheetMusicDisplay): void {
   sheet.EngravingRules.RenderPartNames = l.partNames;
 }
 
+/** Runs one layout of the score and remembers how long it took. */
+function layOut(sheet: OpenSheetMusicDisplay, name: string): void {
+  const t = performance.now();
+  timed(name, () => sheet.render());
+  layoutMs = performance.now() - t;
+  showFitOffer();
+}
+
 async function render(text: string): Promise<void> {
   ui.sheet.hidden = false; // OSMD measures the container, so it must be visible first
   rendering = true;
@@ -163,7 +174,7 @@ async function render(text: string): Promise<void> {
     await timed("render-score", async () => {
       await timed("load-sheet", () => sheet.load(text));
       fitPage(sheet);
-      timed("draw-sheet", () => sheet.render());
+      layOut(sheet, "draw-sheet");
     });
   } finally {
     rendering = false;
@@ -176,7 +187,7 @@ function relayout(): void {
   if (rendering || !osmd || !score || ui.sheet.hidden || ui.sheet.clientWidth <= 0 || !osmd.IsReadyToRender()) return;
   const at = window.scrollY / Math.max(1, document.body.scrollHeight);
   fitPage(osmd);
-  timed("relayout-score", () => osmd!.render());
+  layOut(osmd, "relayout-score");
   window.scrollTo({ top: document.body.scrollHeight * at, behavior: "instant" });
   drawScoreMarks();
 }
@@ -187,14 +198,18 @@ const widthChanged = (): boolean =>
   !!score && !ui.sheet.hidden && ui.sheet.clientWidth > 0 && Math.abs(ui.sheet.clientWidth - drawnWidth) >= 2;
 
 /**
- * A new layout of a long score holds the page for several seconds, so it happens only when it has to: once the
- * width has settled (turning the phone, or full screen starting or ending, can resize the page several times),
- * while the app is on screen, and not in the middle of playing, recording, wait mode or the trainer.
+ * Laying out a long score again holds the page for seconds on a phone (every tap waits), so it is never done
+ * behind the user's back. A score that lays out quickly is refitted by itself once the width has settled (turning
+ * the phone or full screen can resize the page several times) and the user isn't playing, recording, waiting or
+ * training. A slower one keeps its layout (centred, or scrolling sideways) and a "Fit to screen" button appears, so
+ * the pause comes only when the user asks for it.
  */
+const AUTO_FIT_MS = 600;
 let fitTimer = 0;
 function scheduleFit(delay = 700): void {
   clearTimeout(fitTimer);
-  if (!widthChanged() || document.hidden) return;
+  showFitOffer();
+  if (!widthChanged() || document.hidden || layoutMs > AUTO_FIT_MS) return;
   fitTimer = window.setTimeout(() => {
     if (!widthChanged() || document.hidden) return;
     if (busy() || rendering) return scheduleFit(1000);
@@ -202,15 +217,29 @@ function scheduleFit(delay = 700): void {
   }, delay);
 }
 
+function showFitOffer(): void {
+  const offer = widthChanged() && layoutMs > AUTO_FIT_MS;
+  ui.fitBtn.hidden = ui.miniFit.hidden = !offer;
+}
+
 async function refit(): Promise<void> {
   const before = ui.status.textContent ?? "";
   const kind = (ui.status.dataset.kind as "info" | "error") ?? "info";
-  status("Fitting the score to the screen…");
+  const secs = Math.round(layoutMs / 1000);
+  status(secs >= 2 ? `Fitting the score to the screen (about ${secs} seconds)…` : "Fitting the score to the screen…");
+  ui.fitBtn.textContent = ui.miniFit.textContent = "Fitting…";
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // let the message show first
-  if (!widthChanged() || busy() || document.hidden) return status(before, kind);
-  relayout();
+  if (widthChanged() && !document.hidden) relayout();
+  ui.fitBtn.textContent = ui.miniFit.textContent = "Fit to screen";
   status(before, kind);
+  showFitOffer();
 }
+
+for (const b of [ui.fitBtn, ui.miniFit])
+  b.addEventListener("click", () => {
+    if (busy()) return status("Stop first, then fit the score to the screen.");
+    void refit();
+  });
 
 // Only a change of width needs a new layout. (The renderer's own auto-resize redrew the whole score on every
 // resize, including the phone's address bar sliding in and out while scrolling.)
@@ -1209,6 +1238,7 @@ export function closeScore(): void {
   ui.sheet.hidden = true;
   ui.feedback.hidden = true;
   ui.feedback.replaceChildren();
+  showFitOffer();
   ui.controls.hidden = true;
   scoreFocus.set(false);
   ui.focusBtn.hidden = true;
