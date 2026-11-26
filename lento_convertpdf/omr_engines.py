@@ -1,4 +1,4 @@
-"""Folder scanning and batch conversion of PDFs with homr or Audiveris."""
+"""Folder scanning and batch conversion of PDFs with homr, Audiveris or Legato."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Callable
 
 from .audiveris_runner import check_audiveris, run_audiveris
 from .homr_runner import EngineAvailability, OMRConfig, check_homr, run_homr
+from .legato_runner import check_legato, run_legato
 from .models import VALID_ENGINES, PdfConversionItem
 
 try:
@@ -126,7 +127,11 @@ def extract_mxl_to_musicxml(mxl_path: Path, dest_musicxml_path: Path) -> Path:
 
 def check_engine(config: OMRConfig) -> EngineAvailability:
     """Check whichever engine the config names."""
-    return check_audiveris(config) if config.engine == "audiveris" else check_homr(config)
+    if config.engine == "audiveris":
+        return check_audiveris(config)
+    if config.engine == "legato":
+        return check_legato(config)
+    return check_homr(config)
 
 
 def convert_single_pdf(
@@ -151,11 +156,15 @@ def convert_single_pdf(
             if not status.installed:
                 raise RuntimeError(status.details)
             pages = get_pdf_page_count(item.pdf_path)
+            if config.engine != "audiveris" and config.gpu == "force" and not status.cuda:
+                raise RuntimeError(f"GPU required but not in use: {status.details}")
             if config.engine == "audiveris":
                 item.detected_instruments, item.quality = run_audiveris(item.pdf_path, target, config, page_count=pages)
+            elif config.engine == "legato":
+                item.detected_instruments, item.quality = run_legato(
+                    item.pdf_path, target, config, page_count=pages, cuda=status.cuda
+                )
             else:
-                if config.gpu == "force" and not status.cuda:
-                    raise RuntimeError(f"GPU required but not in use: {status.details}")
                 item.detected_instruments, item.quality = run_homr(item.pdf_path, target, config, page_count=pages)
         item.output_musicxml_path = target
         item.status = "converted"

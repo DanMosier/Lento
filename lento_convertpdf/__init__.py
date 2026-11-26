@@ -2,6 +2,7 @@
 
 from .audio_player import MusicXMLAudioPlayer, synthesize_score_to_wav
 from .audiveris_runner import check_audiveris
+from .legato_runner import check_legato
 from .homr_runner import EngineAvailability, OMRConfig, check_homr
 from .models import (
     VALID_ENGINES,
@@ -66,6 +67,7 @@ __all__ = [
     "batch_convert_pdfs",
     "check_homr",
     "check_audiveris",
+    "check_legato",
     "check_engine",
     "classify_instrument_category",
     "convert_single_pdf",

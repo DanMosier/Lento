@@ -85,6 +85,7 @@ class LentoConvertPDFApp:
         self.gpu_var = tk.StringVar(value="force")
         self.homr_python_var = tk.StringVar(value="")
         self.audiveris_path_var = tk.StringVar(value="")
+        self.legato_python_var = tk.StringVar(value="")
         self.review_below_var = tk.StringVar(value=f"{REVIEW_BELOW:.0%}".rstrip("%"))
 
         self.engine_status_var = tk.StringVar(value="")
@@ -170,11 +171,11 @@ class LentoConvertPDFApp:
         engine_row = ttk.Frame(top_frame)
         engine_row.pack(fill=tk.X)
         ttk.Label(engine_row, text="Engine:", style="SubHeader.TLabel").pack(side=tk.LEFT, padx=(0, 6))
-        for engine, label in (("homr", "homr"), ("audiveris", "Audiveris")):
+        for engine, label in (("homr", "homr"), ("audiveris", "Audiveris"), ("legato", "Legato")):
             ttk.Radiobutton(
                 engine_row, text=label, value=engine, variable=self.engine_var, command=self._refresh_engine_status
             ).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Label(engine_row, text="homr runs on:", style="SubHeader.TLabel").pack(side=tk.LEFT, padx=(10, 10))
+        ttk.Label(engine_row, text="homr / Legato run on:", style="SubHeader.TLabel").pack(side=tk.LEFT, padx=(10, 10))
         for mode, label in zip(GPU_MODES, ("GPU (CUDA required)", "GPU if available", "CPU"), strict=True):
             ttk.Radiobutton(
                 engine_row, text=label, value=mode, variable=self.gpu_var, command=self._refresh_engine_status
@@ -684,6 +685,7 @@ class LentoConvertPDFApp:
         return OMRConfig(
             engine=self.engine_var.get(),
             audiveris_path=self.audiveris_path_var.get().strip(),
+            legato_python=self.legato_python_var.get().strip(),
             output_dir=out_dir,
             recursive=self.recursive_var.get(),
             overwrite_existing=self.overwrite_var.get(),
@@ -714,9 +716,10 @@ class LentoConvertPDFApp:
     def _show_engine_status(self, request: int, info: EngineAvailability) -> None:
         if request != self._status_request:
             return  # settings changed since this check started
-        needs_cuda = info.engine == "homr" and self.gpu_var.get() == "force"
+        needs_cuda = info.engine != "audiveris" and self.gpu_var.get() == "force"
         ok = info.installed and (info.cuda or not needs_cuda)
-        text = f"{'✔' if ok else '⚠'} {'homr' if info.engine == 'homr' else 'Audiveris'}: {info.details}"
+        name = {"homr": "homr", "audiveris": "Audiveris", "legato": "Legato"}.get(info.engine, info.engine)
+        text = f"{'✔' if ok else '⚠'} {name}: {info.details}"
         if info.installed and not ok:
             text += " — conversions will fail while CUDA is required"
         self.engine_status_var.set(text)
@@ -1496,7 +1499,7 @@ class LentoConvertPDFApp:
     def _open_engine_settings_dialog(self) -> None:
         dlg = tk.Toplevel(self.root)
         dlg.title("OMR Engine Configuration")
-        dlg.geometry("680x270")
+        dlg.geometry("680x310")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -1538,6 +1541,23 @@ class LentoConvertPDFApp:
                 self._refresh_engine_status()
 
         ttk.Button(arow, text="Browse...", command=_browse_audiveris).pack(side=tk.LEFT)
+
+        lrow = ttk.Frame(frame)
+        lrow.pack(fill=tk.X, pady=4)
+        ttk.Label(lrow, text="Legato python.exe (blank = find it):").pack(side=tk.LEFT)
+        ttk.Entry(lrow, textvariable=self.legato_python_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+
+        def _browse_legato() -> None:
+            p = filedialog.askopenfilename(
+                parent=dlg,
+                title="Locate python.exe in Legato's .venv\\Scripts folder",
+                filetypes=[("Python Executable", "python.exe"), ("All Files", "*.*")],
+            )
+            if p:
+                self.legato_python_var.set(p)
+                self._refresh_engine_status()
+
+        ttk.Button(lrow, text="Browse...", command=_browse_legato).pack(side=tk.LEFT)
 
         def _save_and_close() -> None:
             self._refresh_engine_status()

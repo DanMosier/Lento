@@ -40,6 +40,7 @@ VARIANTS = {
     "homr-gpu": {"engine": "homr", "gpu": "force"},
     "homr-cpu": {"engine": "homr", "gpu": "no"},
     "audiveris": {"engine": "audiveris"},
+    "legato": {"engine": "legato", "gpu": "auto"},
 }
 
 
@@ -96,7 +97,8 @@ def run(args: argparse.Namespace) -> int:
 
     configs: dict[str, OMRConfig] = {}
     for name in args.variants:
-        cfg = OMRConfig(homr_python=args.homr_python, audiveris_path=args.audiveris, instrument="", **VARIANTS[name])
+        cfg = OMRConfig(homr_python=args.homr_python, audiveris_path=args.audiveris,
+                        legato_python=args.legato_python, instrument="", **VARIANTS[name])
         status = check_engine(cfg)
         print(f"{name:10} {status.details}")
         if not status.installed or (cfg.gpu == "force" and cfg.engine == "homr" and not status.cuda):
@@ -192,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep", type=Path, help="folder for every MusicXML written and the report")
     parser.add_argument("--homr-python", default="")
     parser.add_argument("--audiveris", default="")
+    parser.add_argument("--legato-python", default="")
     return run(parser.parse_args(argv))
 
 
