@@ -79,6 +79,8 @@ function show(name: string): void {
   if (name === current) return;
   if (current) loadedFeatures.get(current)?.leave?.();
   for (const s of SCREENS) $(`view-${s}`).hidden = s !== name;
+  // A window left open on a screen now hidden would stay modal but invisible, and block every tap on this one.
+  for (const d of document.querySelectorAll<HTMLDialogElement>(".view[hidden] dialog[open]")) d.close();
   current = name;
   shows++;
   $("screen-name").textContent = NAMES[name];
