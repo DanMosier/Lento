@@ -41,7 +41,7 @@ ui.connect.addEventListener("click", async () => {
     say(ui.driveStatus, (e as Error).message, "error");
   } finally {
     ui.connect.disabled = false;
-    ui.signOut.hidden = !auth.signedIn;
+    ui.signOut.hidden = !(auth.signedIn || auth.remembered);
   }
 });
 ui.signOut.addEventListener("click", () => {
@@ -80,7 +80,7 @@ ui.clearSounds.addEventListener("click", async () => {
 export function enterSettings(): void {
   ui.folder.value = libraryFolder();
   ui.client.value = clientId();
-  ui.signOut.hidden = !auth.signedIn;
+  ui.signOut.hidden = !(auth.signedIn || auth.remembered);
   ui.a4.value = store.get<string>("a4") ?? "440";
   ui.delay.value = String(store.get<number>("avDelay") ?? 0);
   showDelay();
