@@ -28,6 +28,9 @@ INSTALL_HINT = (
 )
 TIMEOUT_BASE_SEC = 300
 TIMEOUT_PER_PAGE_SEC = 180
+# Audiveris rejects a sheet whose staff lines are closer than about 11 pixels ("try 300 DPI"). A phone photo of
+# small print is often 10, so photos smaller than this many pixels on their long side are enlarged first.
+MIN_IMAGE_LONG_SIDE = 3000
 
 
 def _candidates() -> list[Path]:
@@ -112,6 +115,20 @@ def _unpack(mxl: Path, dest: Path) -> None:
         dest.write_bytes(zf.read(root_file))
 
 
+def _enlarge_small_image(path: Path) -> bool:
+    """Scale a small page image up in place so its staff lines are far enough apart for Audiveris."""
+    from PIL import Image
+
+    with Image.open(path) as im:
+        long_side = max(im.size)
+        if long_side >= MIN_IMAGE_LONG_SIDE:
+            return False
+        scale = MIN_IMAGE_LONG_SIDE / long_side
+        big = im.convert("L").resize((round(im.width * scale), round(im.height * scale)), Image.Resampling.LANCZOS)
+    big.save(path)
+    return True
+
+
 def _error(log: str, returncode: int) -> str:
     lines = [ln.strip() for ln in log.splitlines() if ln.strip()]
     problems = [ln for ln in lines if "ERROR" in ln or "Exception" in ln]
@@ -136,6 +153,11 @@ def run_audiveris(
         work = Path(tmp)
         source = work / f"score{source_suffix(pdf_path)}"
         shutil.copyfile(pdf_path, source)
+        if source.suffix != ".pdf":
+            try:
+                _enlarge_small_image(source)
+            except OSError:
+                pass  # not an image PIL can read: let Audiveris report it
         out = work / "out"
         out.mkdir()
         def attempt(sheets: list[int] | None) -> tuple[int, str, list[Path]]:
