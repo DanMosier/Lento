@@ -1,4 +1,4 @@
-"""Folder scanning and batch conversion of PDFs with homr."""
+"""Folder scanning and batch conversion of PDFs with homr or Audiveris."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
+from .audiveris_runner import check_audiveris, run_audiveris
 from .homr_runner import EngineAvailability, OMRConfig, check_homr, run_homr
 from .models import VALID_ENGINES, PdfConversionItem
 
@@ -123,10 +124,15 @@ def extract_mxl_to_musicxml(mxl_path: Path, dest_musicxml_path: Path) -> Path:
     return dest_musicxml_path
 
 
+def check_engine(config: OMRConfig) -> EngineAvailability:
+    """Check whichever engine the config names."""
+    return check_audiveris(config) if config.engine == "audiveris" else check_homr(config)
+
+
 def convert_single_pdf(
     item: PdfConversionItem, config: OMRConfig, availability: EngineAvailability | None = None
 ) -> PdfConversionItem:
-    """Convert one PDF with homr. Failures are recorded on the item; nothing is written for them."""
+    """Convert one PDF with the configured engine. Failures are recorded on the item; nothing is written for them."""
     if config.engine not in VALID_ENGINES:
         raise ValueError(f"Unsupported OMR engine '{config.engine}'. Choose from {VALID_ENGINES}.")
 
@@ -141,14 +147,16 @@ def convert_single_pdf(
     target = out_dir / f"{item.pdf_path.stem}.musicxml"
     try:
         if config.overwrite_existing or not target.is_file():
-            status = availability or check_homr(config)
+            status = availability or check_engine(config)
             if not status.installed:
                 raise RuntimeError(status.details)
-            if config.gpu == "force" and not status.cuda:
-                raise RuntimeError(f"GPU required but not in use: {status.details}")
-            item.detected_instruments, item.quality = run_homr(
-                item.pdf_path, target, config, page_count=get_pdf_page_count(item.pdf_path)
-            )
+            pages = get_pdf_page_count(item.pdf_path)
+            if config.engine == "audiveris":
+                item.detected_instruments, item.quality = run_audiveris(item.pdf_path, target, config, page_count=pages)
+            else:
+                if config.gpu == "force" and not status.cuda:
+                    raise RuntimeError(f"GPU required but not in use: {status.details}")
+                item.detected_instruments, item.quality = run_homr(item.pdf_path, target, config, page_count=pages)
         item.output_musicxml_path = target
         item.status = "converted"
     except Exception as exc:
@@ -170,7 +178,7 @@ def batch_convert_pdfs(
     """Batch-convert all selected PdfConversionItems in order."""
     selected_items = [it for it in items if it.selected]
     total = len(selected_items)
-    availability = check_homr(config) if selected_items else None
+    availability = check_engine(config) if selected_items else None
 
     for idx, item in enumerate(selected_items, start=1):
         if cancel_check and cancel_check():

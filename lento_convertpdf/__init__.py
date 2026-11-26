@@ -1,6 +1,7 @@
 """Lento_ConvertPDF: batch PDF to MusicXML OMR converter, Side-by-Side PDF Reader, Multi-Piece PDF Splitter, and Open-Source VST MusicXML Player."""
 
 from .audio_player import MusicXMLAudioPlayer, synthesize_score_to_wav
+from .audiveris_runner import check_audiveris
 from .homr_runner import EngineAvailability, OMRConfig, check_homr
 from .models import (
     VALID_ENGINES,
@@ -13,6 +14,7 @@ from .models import (
 from .musicxml_parser import parse_musicxml, pitch_to_midi_and_name
 from .omr_engines import (
     batch_convert_pdfs,
+    check_engine,
     convert_single_pdf,
     scan_folder_for_pdfs,
 )
@@ -63,6 +65,8 @@ __all__ = [
     "assign_recommended_vsts_to_parts",
     "batch_convert_pdfs",
     "check_homr",
+    "check_audiveris",
+    "check_engine",
     "classify_instrument_category",
     "convert_single_pdf",
     "deep_search_and_download_vsts",
