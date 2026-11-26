@@ -31,7 +31,8 @@ const ui = {
   reviews: $("cv-reviews"),
   rvFilter: $<HTMLSelectElement>("cv-rv-filter"),
   rvList: $<HTMLUListElement>("cv-rv-list"),
-  splitBox: $<HTMLDetailsElement>("cv-split-box"),
+  splitOpen: $<HTMLButtonElement>("cv-split-open"),
+  split: $<HTMLDialogElement>("cv-split"),
   splitTitle: $("cv-split-title"),
   splitList: $<HTMLUListElement>("cv-split-list"),
   splitNote: $("cv-split-note"),
@@ -203,18 +204,21 @@ function renderReviews(): void {
   if (tidy) reviewedHere.save(mine);
   const todo = all.filter((it) => !verdict(it, mine)).length;
   ui.tabReview.textContent = todo ? `Review (${todo})` : "Review";
+  renderSplitButton();
   if (ui.reviews.hidden) return;
   const want = ui.rvFilter.value;
   const q = fold(ui.search.value.trim());
+  const l = currentSplit();
+  const toSplit = (it: ReviewItem) => !!it.pdf && isFlagged(l, it.piece.id, it.pdf.name);
   const list = all
     .filter((it) => (want === "all" ? true : want === "todo" ? !verdict(it, mine) : verdict(it, mine) === want))
     .filter((it) => !q || fold(`${it.piece.title} ${it.piece.composer}`).includes(q))
-    .sort((a, b) => (QUALITY_ORDER[a.xml.quality ?? ""] ?? 2) - (QUALITY_ORDER[b.xml.quality ?? ""] ?? 2) || a.piece.title.localeCompare(b.piece.title));
+    .sort((a, b) => Number(toSplit(a)) - Number(toSplit(b)) || (QUALITY_ORDER[a.xml.quality ?? ""] ?? 2) - (QUALITY_ORDER[b.xml.quality ?? ""] ?? 2) || a.piece.title.localeCompare(b.piece.title));
   const rows = list.slice(0, SHOWN).map((it, i) => {
     const row = li(it.piece.title, [it.piece.composer, it.xml.edition || it.xml.variant].filter(Boolean).join(" · "));
     const v = verdict(it, mine);
     const badge = v || (it.xml.quality === "UNRELIABLE" ? "unreliable" : it.xml.quality === "REVIEW" ? "review" : "");
-    if (it.pdf && isFlagged(currentSplit(), it.piece.id, it.pdf.name))
+    if (toSplit(it))
       row.firstElementChild?.append(Object.assign(document.createElement("span"), { className: "rv-badge split", textContent: "To split" }));
     if (badge) {
       const b = Object.assign(document.createElement("span"), { className: `rv-badge ${badge}`, textContent: { approved: "Approved", rejected: "Rejected", unreliable: "Likely wrong", review: "Check" }[badge] ?? badge });
@@ -226,7 +230,6 @@ function renderReviews(): void {
     row.append(open);
     return row;
   });
-  renderSplit();
   ui.rvList.replaceChildren(...rows);
   if (list.length > SHOWN) ui.rvList.append(li(`…and ${list.length - SHOWN} more. Search to narrow the list.`));
   if (!list.length) ui.rvList.append(li(want === "todo" ? (all.length ? "Nothing left to review." : "No conversions yet.") : "None."));
@@ -295,18 +298,37 @@ async function openPdf(piece: Piece, file: LibraryFile): Promise<void> {
   }
 }
 
+/** The button in the Review tab that opens the To split screen, with how many are waiting. */
+function renderSplitButton(): void {
+  const l = currentSplit();
+  const n = flagged(l).length;
+  ui.splitOpen.hidden = false; // always there: it also splits a PDF from this device
+  ui.splitOpen.textContent = n ? `To split (${n})` : "To split";
+}
+
+/** The To split screen: drawn only while it's open. */
 function renderSplit(): void {
+  if (!ui.split.open) return;
   const l = currentSplit();
   const todo = flagged(l);
   const done = recentlyDone(l);
-  ui.splitBox.hidden = false; // always there, for splitting a PDF from this device
   ui.splitTitle.textContent = todo.length ? `To split (${todo.length})` : "To split";
   ui.splitList.replaceChildren(...todo.map(splitRow), ...done.map(splitRow));
   if (!todo.length) ui.splitList.prepend(li(done.length ? "Nothing left to split." : "Nothing flagged. Flag a PDF from its review window."));
   ui.splitNote.textContent = splitSyncNote();
 }
 onSplitChanged(() => {
+  renderSplit();
   if (!ui.reviews.hidden) renderReviews();
+  else renderSplitButton();
+});
+ui.splitOpen.addEventListener("click", () => {
+  ui.split.showModal();
+  renderSplit();
+});
+$("cv-split-close").addEventListener("click", () => ui.split.close());
+ui.split.addEventListener("click", (e) => {
+  if (e.target === ui.split) ui.split.close(); // a tap on the backdrop
 });
 
 async function openAt(list: ReviewItem[], i: number): Promise<void> {

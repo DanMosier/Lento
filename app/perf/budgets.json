@@ -21,6 +21,8 @@
   "library-scroll-longest-block-ms": 100,
   "library-favorites-ms": 150,
   "library-lists-longest-block-ms": 100,
+  "review-big-score-ms": 3000,
+  "review-page-ms": 1000,
   "split-open-ms": 1000,
   "split-longest-block-ms": 200
 }

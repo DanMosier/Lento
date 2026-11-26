@@ -76,14 +76,15 @@ Practice with a score open asks first, then closes the score). Each feature is o
 screen. Features never import each other.
 
 - `src/core/` code every feature may use: `score.ts` (MusicXML reading), `app.ts` (saved settings, one shared
-  AudioContext, the open-score hand-off), `sounds.ts` (recorded instrument sounds), `live-pitch.ts` (microphone pitch for the tuner and wait mode), `perf.ts` (timing marks), `tolerance.ts` (your own judging windows, shared by Settings and Practice), and
+  AudioContext, the open-score hand-off), `sounds.ts` (recorded instrument sounds), `player.ts` (score playback and metronome, used by Practice and the Review window), `live-pitch.ts` (microphone pitch for the tuner and wait mode), `perf.ts` (timing marks), `tolerance.ts` (your own judging windows, shared by Settings and Practice), and
   `library/` (the Google Drive library: `model.ts`, `drive.ts`, `library.ts`, `auth.ts`, and `connection.ts`, the one
   connection Library, Convert and Settings share).
 - `src/practice/` Practice: `pitch.ts` (YIN pitch tracking, in a worker), `align.ts` and `analyze.ts` (ports of
-  `lento_practice` in Python, which stays the reference), `report.ts`, `player.ts` (playback and metronome),
+  `lento_practice` in Python, which stays the reference), `report.ts`,
   `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `marks.ts` and `marks-view.ts` (score marks), `layout.ts` (score size for the screen), `view.ts` (transpose and clef), `focus.ts` (the Hide controls mode), `recorder.ts`, `latency.ts` (headphone delay), `ui.ts`.
 - `src/library/` Library: browse and open scores. It hands a score to Practice with `requestOpenScore` from core.
-- `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status.
+- `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status; `review.ts` is the Review window,
+  and `review-play.ts` plays the score being reviewed (loaded only when Play is pressed).
 - `src/split/` the PDF splitter: `plan.ts` (pages and file names, like `lento_convertpdf/pdf_splitter.py`), `pdf.ts`
   (pdf.js: page pictures, bookmarks, copying pages), `ui.ts` (the window).
 - `src/tuner/` Tuner. `src/settings/` Settings (library connection, tuning, headphone delay, judging windows, sounds).
