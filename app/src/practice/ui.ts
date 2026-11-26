@@ -3,7 +3,8 @@ import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $, sharedAudio, store, takeOpenScore } from "../core/app";
 import { timed } from "../core/perf";
 import { LiveMic, type MicFrame } from "../core/live-pitch";
-import { defaultPart, midiName, parseScore, partXml, quickPartList, scoreText, type Score } from "../core/score";
+import { defaultPart, listParts, midiName, parseScore, partXml, quickPartList, scoreText, type Score } from "../core/score";
+import { customPitch, customTiming } from "../core/tolerance";
 import { choiceLabel, cleanChoice, pickParts, type PartChoice } from "./parts";
 import { analyze, DEFAULT_SETTINGS, PITCH_WINDOWS, TIMING_WINDOWS, type Analysis, type NoteResult, type Strictness } from "./analyze";
 import { type PitchTrack } from "./pitch";
@@ -21,6 +22,7 @@ import { library } from "../core/library/connection";
 import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
 import { pageLayout, parseScoreSize, phoneScreen, SCORE_SIZES } from "./layout";
 import { setUpFocus } from "./focus";
+import { applyView, CLEF_LABELS, cleanView, isPlain, MAX_TRANSPOSE, PLAIN_VIEW, transposeLabel, type ClefChoice, type ScoreView } from "./view";
 
 const ui = {
   scoreFile: $<HTMLInputElement>("score-file"),
@@ -44,6 +46,8 @@ const ui = {
   a4: $<HTMLInputElement>("a4"),
   pitchStrict: $<HTMLSelectElement>("pitch-strict"),
   timingStrict: $<HTMLSelectElement>("timing-strict"),
+  transpose: $<HTMLSelectElement>("transpose"),
+  clef: $<HTMLSelectElement>("clef"),
   playWhileRecording: $<HTMLInputElement>("play-while-recording"),
   delay: $<HTMLInputElement>("av-delay"),
   delayOut: $<HTMLOutputElement>("av-delay-out"),
@@ -63,6 +67,7 @@ let choice: PartChoice | null = null;
 let accompParts: Score[] | null = null; // the other shown parts, parsed the first time they are played
 let fileName = "";
 let pieceId: string | null = null; // the library piece the score came from, if any
+let view: ScoreView = PLAIN_VIEW; // transposition and clef, saved per score
 let score: Score | null = null;
 let ctx: AudioContext | null = null;
 let player: Player | null = null;
@@ -111,13 +116,26 @@ function updateTempoLabel(): void {
   store.set("tempo", pct);
 }
 
+/** The pitch and timing windows chosen: a preset, or "Custom" for the ones set in Settings. */
+function windows(): { goodCents: number; okCents: number; timingMs: number } {
+  const p = ui.pitchStrict.value === "custom" ? customPitch() : null;
+  const [good, ok] = p ? [p.good, p.ok] : (PITCH_WINDOWS[ui.pitchStrict.value as Strictness] ?? PITCH_WINDOWS.standard);
+  const timingMs = ui.timingStrict.value === "custom" ? customTiming() : (TIMING_WINDOWS[ui.timingStrict.value as Strictness] ?? TIMING_WINDOWS.standard);
+  return { goodCents: good, okCents: ok, timingMs };
+}
+
+/** Shows the custom windows' current values in the Pitch and Timing menus. */
+function labelCustom(): void {
+  const p = customPitch();
+  ui.pitchStrict.querySelector<HTMLOptionElement>('option[value="custom"]')!.textContent = `Custom (±${p.good} cents)`;
+  ui.timingStrict.querySelector<HTMLOptionElement>('option[value="custom"]')!.textContent = `Custom (±${customTiming()} ms)`;
+}
+
 function settings() {
   return {
     ...DEFAULT_SETTINGS,
     a4: +ui.a4.value || 440,
-    goodCents: PITCH_WINDOWS[ui.pitchStrict.value as Strictness][0],
-    okCents: PITCH_WINDOWS[ui.pitchStrict.value as Strictness][1],
-    timingMs: TIMING_WINDOWS[ui.timingStrict.value as Strictness],
+    ...windows(),
     measures: [score!.measures[+ui.from.value], score!.measures[+ui.to.value]] as [string, string],
     strict: false,
   };
@@ -250,11 +268,32 @@ async function openFile(name: string, text: string, from: string | null = null):
   await openScore(name, text, picked);
 }
 
+/**
+ * Reads the practised part of `doc` as the score is to be shown. With the score as written that's the file
+ * itself; transposed or in another clef, it's a changed copy of just the shown parts, so playback, wait mode and
+ * the check of a recording all use the same pitches the sheet shows.
+ */
+function readScore(doc: Document, v: ScoreView, title: string, picked?: PartChoice): Score & { full: Document } {
+  const parts = doc.documentElement?.localName === "score-partwise" && !doc.getElementsByTagName("parsererror").length ? listParts(doc) : [];
+  if (isPlain(v) || !parts.length) return Object.assign(parseScore(doc, picked?.practise, title), { full: doc }); // explains a bad file
+  const first = defaultPart(parts).id;
+  const c = (picked && cleanChoice(parts, picked)) ?? { practise: first, shown: [first] };
+  const copy = new DOMParser().parseFromString(partXml(doc, c.shown), "application/xml");
+  applyView(copy, v, c.shown, c.practise);
+  const s = parseScore(copy, c.practise, title);
+  s.parts = parts; // the part picker still offers every part
+  return Object.assign(s, { full: doc });
+}
+
 async function openScoreNow(name: string, text: string, picked?: PartChoice): Promise<void> {
   const title = name.replace(/\.[^.]+$/, "");
   const reuse = text === xml && fullDoc !== null;
-  const s = await timed("parse-score", () => parseScore(reuse ? fullDoc! : text, picked?.practise, title));
-  fullDoc = s.doc;
+  const keep = reuse && score ? [+ui.from.value, +ui.to.value] : null; // same score again: keep the chosen measures
+  const v = cleanView(store.get<ScoreView>(`view:${name}`));
+  const s = await timed("parse-score", () => readScore(reuse ? fullDoc! : new DOMParser().parseFromString(text, "application/xml"), v, title, picked));
+  fullDoc = s.full;
+  view = v;
+  showView();
   choice = (picked && cleanChoice(s.parts, picked)) ?? { practise: s.partId, shown: [s.partId] };
   accompParts = null;
   xml = text;
@@ -276,13 +315,15 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   ui.from.replaceChildren(...opts());
   ui.to.replaceChildren(...opts());
   ui.to.value = String(s.measures.length - 1);
+  if (keep && keep[1] < s.measures.length) [ui.from.value, ui.to.value] = keep.map(String);
   updateTempoLabel();
   plainXml = partXml(s.doc, choice.shown); // only the chosen parts are drawn
   await render(plainXml);
   loadSounds();
   showBest();
   void loadMarks();
-  status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.` : "This part has no notes.");
+  const shown = isPlain(v) ? "" : ` Shown ${[v.transpose ? transposeLabel(v.transpose).toLowerCase() : "", v.clef !== "written" ? `in ${CLEF_LABELS[v.clef].toLowerCase()} clef` : ""].filter(Boolean).join(", ")}.`;
+  status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.${shown}` : "This part has no notes.");
   if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
 
@@ -356,7 +397,8 @@ function follow(): void {
 /** The other shown parts, when "Play other shown parts" is ticked (parsed the first time). */
 function accompaniment(): Score[] {
   if (!ui.accomp.checked || !choice || !fullDoc) return [];
-  accompParts ??= choice.shown.filter((id) => id !== choice!.practise).map((id) => parseScore(fullDoc!, id));
+  const doc = score?.doc ?? fullDoc; // transposed with the practised part when the view is
+  accompParts ??= choice.shown.filter((id) => id !== choice!.practise).map((id) => parseScore(doc!, id));
   return accompParts;
 }
 
@@ -1037,8 +1079,9 @@ function drawScoreMarks(): void {
     ui.sheet.querySelector(".marks-layer")?.replaceChildren();
     return;
   }
-  places = notePlaces(osmd, ui.sheet, score, Math.max(0, choice.shown.indexOf(choice.practise)));
-  drawMarks(ui.sheet, places, marks ? marksIn(marks, score) : new Map(), marking ? lastTouched : null);
+  // marks belong to the written notes, so they stay on the same notes when the score is transposed
+  places = notePlaces(osmd, ui.sheet, score, Math.max(0, choice.shown.indexOf(choice.practise)), view.transpose);
+  drawMarks(ui.sheet, places, marks ? marksIn(marks, score, view.transpose) : new Map(), marking ? lastTouched : null);
   ui.sheet.querySelector(".marks-layer")?.classList.toggle("off", !mk.show.checked);
 }
 
@@ -1092,8 +1135,33 @@ mk.show.addEventListener("change", () => {
 });
 mk.show.checked = store.get<boolean>("marks.show") ?? true;
 
+// ---- transpose and clef: how the score is shown, saved for each score ----
+
+for (let t = MAX_TRANSPOSE; t >= -MAX_TRANSPOSE; t--) ui.transpose.append(new Option(transposeLabel(t), String(t)));
+for (const [k, label] of Object.entries(CLEF_LABELS)) ui.clef.append(new Option(label, k));
+
+function showView(): void {
+  ui.transpose.value = String(view.transpose);
+  ui.clef.value = view.clef;
+}
+
+async function changeView(): Promise<void> {
+  if (!score || !choice) return;
+  const next = cleanView({ transpose: +ui.transpose.value, clef: ui.clef.value as ClefChoice });
+  if (training()) stopTrainer();
+  if (player?.playing) stopPlayback();
+  if (waiting()) stopWait();
+  store.set(`view:${fileName}`, next);
+  status(next.transpose !== view.transpose ? "Transposing…" : "Changing the clef…");
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // let the message show first
+  await openScore(fileName, xml, choice).catch((e) => status((e as Error).message, "error"));
+}
+ui.transpose.addEventListener("change", () => void changeView());
+ui.clef.addEventListener("change", () => void changeView());
+
 // ---- restore the last session ----
 
+labelCustom();
 for (const [input, key] of [[ui.a4, "a4"], [ui.pitchStrict, "pitch"], [ui.timingStrict, "timing"], [ui.click, "click"]] as const) {
   const v = store.get<string>(key);
   if (v) input.value = v;
@@ -1149,19 +1217,27 @@ export function closeScore(): void {
   setMarking(false);
   marks = null;
   pieceId = null;
+  view = PLAIN_VIEW;
   ui.sheet.querySelector(".marks-layer")?.replaceChildren();
   ui.title.textContent = "";
   ui.welcome.hidden = false;
   status("Open a score to start.");
 }
 
-/** Called when the user opens the screen: pick up tuning and headphone delay changed in Settings or the Tuner. */
+/**
+ * Called when the user opens the screen: pick up tuning, headphone delay and judging windows changed in Settings
+ * or the Tuner.
+ */
 export function enterPractice(): void {
   const d = store.get<number>("avDelay");
   if (d !== null && d !== +ui.delay.value) setDelay(d);
+  const before = JSON.stringify([ui.a4.value, windows()]);
   const v = store.get<string>("a4");
-  if (v && v !== ui.a4.value) {
-    ui.a4.value = v;
-    if (analysis && take) void check();
+  if (v) ui.a4.value = v;
+  for (const [sel, key] of [[ui.pitchStrict, "pitch"], [ui.timingStrict, "timing"]] as const) {
+    const s = store.get<string>(key);
+    if (s) sel.value = s;
   }
+  labelCustom();
+  if (analysis && take && JSON.stringify([ui.a4.value, windows()]) !== before) void check(); // re-judge the same take
 }

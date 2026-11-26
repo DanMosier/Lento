@@ -10,6 +10,8 @@
   "rotate-relayouts": 1,
   "playing-relayouts": 0,
   "start-playback-ms": 250,
+  "transpose-score-ms": 2500,
+  "change-clef-ms": 2500,
   "check-3min-ms": 10000,
   "check-3min-longest-block-ms": 3500,
   "track-pitch-ms": 8000,
