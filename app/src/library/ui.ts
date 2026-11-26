@@ -214,7 +214,7 @@ function renderNow(): void {
     ui.body.replaceChildren(el("div", empty, "lib-empty"));
     ui.body.style.height = "";
   } else draw();
-  if (open) showDetail(open, openFrom); // its buttons may have changed
+  if (open && ui.detail.open) showDetail(open, openFrom); // its buttons may have changed
 }
 
 function tabs(): void {
@@ -450,7 +450,7 @@ async function openFile(p: Piece, f: LibraryFile, button: HTMLButtonElement): Pr
     }
     offlineKeys.add(fileKey(p, f));
     if (openFrom) changeLists((l) => markPlayed(l, openFrom!));
-    ui.detail.close();
+    closeDetail(); // before render() below, which would otherwise show it again (hidden behind Practice, blocking every tap)
     closeSetlists(); // the Setlists button reopens it on the same setlist
     requestOpenScore({ name: f.name, data: got.data!, pieceId: p.id });
     status(got.offline ? `${p.title}: opened the copy saved on this device (Drive not reachable).` : `${p.title}: opened in Practice.`);
@@ -530,9 +530,15 @@ ui.body.addEventListener("keydown", (e) => {
     if (r?.dataset.i) toggleFavorite(shown[Number(r.dataset.i)]);
   }
 });
-ui.detailClose.addEventListener("click", () => ui.detail.close());
+/** Closes the piece's window and forgets it at once (the dialog's own close event comes a moment later). */
+function closeDetail(): void {
+  open = null;
+  openFrom = null;
+  if (ui.detail.open) ui.detail.close();
+}
+ui.detailClose.addEventListener("click", closeDetail);
 ui.detail.addEventListener("click", (e) => {
-  if (e.target === ui.detail) ui.detail.close(); // a tap on the backdrop
+  if (e.target === ui.detail) closeDetail(); // a tap on the backdrop
 });
 ui.detail.addEventListener("close", () => {
   open = null;
@@ -551,7 +557,7 @@ onListsChanged(() => {
   if (!index) return;
   if (view === "fav") return render(); // the rows themselves change
   for (const [i, r] of live) star(r.children[0].firstElementChild as HTMLElement, isFavorite(currentLists(), shown[i].id));
-  if (open) showDetail(open, openFrom);
+  if (open && ui.detail.open) showDetail(open, openFrom);
 });
 window.addEventListener("resize", fitTable, { passive: true });
 ui.refresh.addEventListener("click", () => void refresh());

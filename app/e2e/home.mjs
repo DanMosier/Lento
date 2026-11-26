@@ -46,6 +46,29 @@ try {
     await page.waitForSelector(`#view-${screen}:not([hidden])`);
     await home(screen);
   }
+  // A score opened from the Library: the piece's window must not stay open (invisible, but modal) behind Practice,
+  // where it blocked every button, Home included.
+  await page.click('.home-card[data-go="library"]');
+  await page.click(".lib-body .lib-row");
+  await page.click('#lib-detail button:has-text("Practice")');
+  await page.waitForFunction(() => performance.getEntriesByName("lento:open-score").length, null, { timeout: 15000 });
+  if (await page.evaluate(() => [...document.querySelectorAll("dialog")].some((d) => d.open)))
+    failures.push("A window stayed open after opening a score from the Library");
+  try {
+    await page.click("#play", { timeout: 3000 });
+    await page.click("#play", { timeout: 3000 });
+  } catch {
+    failures.push("Practice buttons didn't respond after opening a score from the Library");
+  }
+  try {
+    await page.click("#home-btn", { timeout: 3000 });
+    await page.click('#leave-dialog button[value="ok"]', { timeout: 3000 }); // "Close score and go home"
+    await page.waitForSelector("#view-home:not([hidden])", { timeout: 3000 });
+  } catch {
+    failures.push("Home didn't go home from Practice after opening a score from the Library");
+    await page.goto("http://localhost:4319/");
+  }
+
   await page.click('.home-card[data-go="convert"]');
   await page.click("#cv-tab-review");
   await page.click(".cv-rv-open");
@@ -74,4 +97,4 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("Home works from every screen and after a review; Flag for splitting reaches the To split list.");
+console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting reaches the To split list.");

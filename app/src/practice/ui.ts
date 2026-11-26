@@ -60,6 +60,8 @@ const ui = {
   scoreSize: $<HTMLSelectElement>("score-size"),
   fitBtn: $<HTMLButtonElement>("fit-btn"),
   miniFit: $<HTMLButtonElement>("mini-fit"),
+  loading: $("loading"),
+  loadingText: $("loading-text"),
 };
 
 let xml = "";
@@ -166,7 +168,27 @@ function layOut(sheet: OpenSheetMusicDisplay, name: string): void {
   showFitOffer();
 }
 
-async function render(text: string): Promise<void> {
+/**
+ * Drawing a score holds the page (seconds for a long one, longer on a phone), so a loading panel covers the screen
+ * first: buttons that don't answer then look busy, not broken. Its spinner is a CSS animation, which keeps turning
+ * while the page is held.
+ */
+async function withLoading<T>(text: string, fn: () => Promise<T> | T): Promise<T> {
+  ui.loadingText.textContent = text;
+  ui.loading.hidden = false;
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // let the panel show first
+  try {
+    return await fn();
+  } finally {
+    ui.loading.hidden = true;
+  }
+}
+
+async function render(text: string, label = "Loading score…"): Promise<void> {
+  return withLoading(label, () => renderNow(text));
+}
+
+async function renderNow(text: string): Promise<void> {
   ui.sheet.hidden = false; // OSMD measures the container, so it must be visible first
   rendering = true;
   try {
@@ -226,11 +248,9 @@ async function refit(): Promise<void> {
   const before = ui.status.textContent ?? "";
   const kind = (ui.status.dataset.kind as "info" | "error") ?? "info";
   const secs = Math.round(layoutMs / 1000);
-  status(secs >= 2 ? `Fitting the score to the screen (about ${secs} seconds)…` : "Fitting the score to the screen…");
-  ui.fitBtn.textContent = ui.miniFit.textContent = "Fitting…";
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // let the message show first
-  if (widthChanged() && !document.hidden) relayout();
-  ui.fitBtn.textContent = ui.miniFit.textContent = "Fit to screen";
+  await withLoading(secs >= 2 ? `Fitting the score to the screen (about ${secs} seconds)…` : "Fitting the score to the screen…", () => {
+    if (widthChanged() && !document.hidden) relayout();
+  });
   status(before, kind);
   showFitOffer();
 }
@@ -347,7 +367,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   if (keep && keep[1] < s.measures.length) [ui.from.value, ui.to.value] = keep.map(String);
   updateTempoLabel();
   plainXml = partXml(s.doc, choice.shown); // only the chosen parts are drawn
-  await render(plainXml);
+  await render(plainXml, `Loading ${s.title}…`);
   loadSounds();
   showBest();
   void loadMarks();
