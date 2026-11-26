@@ -160,7 +160,7 @@ def run_legato(
             raise RuntimeError(f"Legato did not finish within {timeout} seconds.") from exc
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_error(log, returncode))
-        name_parts(produced, config.instrument, also_unnamed=True)
+        name_parts(produced, config.instrument, also_unnamed=True, source_name=pdf_path.stem)
         expand_multirests(produced)
         try:
             parts = check_output(produced, "Legato")
