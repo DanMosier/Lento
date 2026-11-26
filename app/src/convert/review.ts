@@ -26,7 +26,7 @@ const ui = {
   name: $("rv-name"),
   sub: $("rv-sub"),
   panes: $("rv-panes"),
-  pdf: $<HTMLIFrameElement>("rv-pdf"),
+  pdf: $<HTMLIFrameElement>("rv-pdf"), // replaced by a fresh frame for each PDF: see pdfFrame()
   pdfMsg: $("rv-pdf-msg"),
   xml: $("rv-xml"),
   xmlMsg: $("rv-xml-msg"),
@@ -59,6 +59,18 @@ let discardArmed = false; // a second press of Close/Next/Previous throws unsave
 let onDone: (name: string, status: string) => void = () => {};
 let osmd: OpenSheetMusicDisplay | null = null;
 let shown = 0; // which score is on screen, so a slow load of an earlier one can't replace it
+
+/**
+ * Shows a PDF in a new frame rather than changing the old frame's address: changing it would add entries to the
+ * app's history, and the Home button and the phone's Back button would then step through the PDF viewer instead.
+ */
+function pdfFrame(src: string | null): void {
+  const frame = ui.pdf.cloneNode(false) as HTMLIFrameElement;
+  frame.removeAttribute("src");
+  if (src) frame.src = src;
+  ui.pdf.replaceWith(frame);
+  ui.pdf = frame;
+}
 
 const phone = () => window.matchMedia("(max-width: 760px)").matches;
 
@@ -205,7 +217,7 @@ async function load(i: number): Promise<void> {
   const lib = library();
   if (!lib) return status("Your library isn't connected.", "error");
 
-  ui.pdf.removeAttribute("src");
+  pdfFrame(null);
   ui.pdfMsg.hidden = true;
   if (!it.pdf) {
     ui.pdfMsg.hidden = false;
@@ -216,7 +228,7 @@ async function load(i: number): Promise<void> {
       .then(({ link }) => {
         if (mine !== shown) return;
         if (!link) throw new Error("no link");
-        ui.pdf.src = link.replace(/\/view(\?.*)?$/, "/preview");
+        pdfFrame(link.replace(/\/view(\?.*)?$/, "/preview"));
       })
       .catch(() => {
         if (mine !== shown) return;
@@ -313,7 +325,7 @@ ui.dialog.addEventListener("cancel", (e) => {
   if (!mayLeave()) e.preventDefault();
 });
 ui.dialog.addEventListener("close", () => {
-  ui.pdf.removeAttribute("src");
+  pdfFrame(null);
   osmd?.clear();
   doc = null;
   shown++;
