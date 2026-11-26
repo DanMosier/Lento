@@ -444,3 +444,14 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 .sets-manage summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; color: var(--muted); }
 .sets-manage[open] { display: flex; flex-direction: column; gap: 8px; }
 .sets-manage .danger { align-self: flex-start; border-color: var(--rec); color: var(--rec); }
+
+.update-bar {
+  position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 32px);
+  padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--accent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+}
+.problem-list { margin: 6px 0; padding-left: 1.2em; font-size: 0.9rem; }
+.problem-list li { margin: 4px 0; }
+.problem-list small { color: var(--muted); display: block; }
+.sheet svg { display: block; margin-inline: auto; } /* a layout narrower than the screen (after turning the phone) sits in the middle */

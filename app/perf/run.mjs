@@ -91,9 +91,9 @@ try {
   results["open-big-score-ms"] = (await measure("open-score"))[1];
   results["open-big-score-longest-block-ms"] = await longestTask(t);
 
-  // 3b. The phone's address bar sliding away (height only) must not redraw the score. Turning the phone (which
-  // can resize the page a few times in a row, e.g. as full screen ends) must redraw it exactly once, and never in
-  // the middle of playing: it holds the page for seconds on a long score, so it waits until playback stops.
+  // 3b. Laying a long score out again holds the page for seconds, so it must never happen by itself: not when
+  // the phone's address bar slides away, not when the phone is turned (which resizes the page a few times in a
+  // row), not when playback stops. Turning the phone offers "Fit to screen" instead; pressing it lays out once.
   await page.setViewportSize({ width: 390, height: 780 });
   await page.waitForTimeout(600);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -103,18 +103,22 @@ try {
     await page.setViewportSize({ width: w, height: 390 });
     await page.waitForTimeout(200);
   }
-  await waitFor("relayout-score", 1);
   await page.waitForTimeout(1500);
-  const turns = await measure("relayout-score");
-  results["rotate-big-score-ms"] = turns[0];
-  results["rotate-relayouts"] = turns.length;
   await page.click("#play");
   await waitFor("start-playback", 1);
+  await page.waitForTimeout(1000);
+  await page.click("#play");
+  await page.waitForTimeout(1500);
+  results["unasked-relayouts"] = (await measure("relayout-score")).length;
+  await page.click("#fit-btn");
+  await waitFor("relayout-score", 1);
+  results["fit-big-score-ms"] = (await measure("relayout-score"))[0];
+  await page.waitForTimeout(500);
+  results["fit-relayouts"] = (await measure("relayout-score")).length;
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(2500);
-  results["playing-relayouts"] = (await measure("relayout-score")).length - turns.length;
-  await page.click("#play"); // stop: the postponed layout happens now
-  await waitFor("relayout-score", turns.length + 1);
+  await page.waitForTimeout(1500);
+  await page.click("#fit-btn");
+  await waitFor("relayout-score", 2);
 
   // 4. Start and stop playback on the 3-minute score
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
