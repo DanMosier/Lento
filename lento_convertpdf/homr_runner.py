@@ -199,6 +199,15 @@ def _homr_error(log: str, returncode: int) -> str:
     return f"homr failed (exit {returncode}): {lines[-1] if lines else 'no output'}"
 
 
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+
+
+def source_suffix(path: Path) -> str:
+    """The suffix the engine's copy of the input keeps: a page image stays an image, anything else is a PDF."""
+    suffix = path.suffix.lower()
+    return suffix if suffix in IMAGE_SUFFIXES else ".pdf"
+
+
 def check_output(xml_path: Path, engine: str = "homr") -> list[str]:
     """Return the part names the engine wrote; raise if the file holds no music."""
     root = ET.parse(xml_path).getroot()
@@ -286,7 +295,7 @@ def run_homr(
     timeout = config.timeout_base_sec + config.timeout_per_page_sec * max(1, page_count)
     with tempfile.TemporaryDirectory(prefix="homr_work_", ignore_cleanup_errors=True) as tmp:
         work = Path(tmp)
-        source = work / "score.pdf"
+        source = work / f"score{source_suffix(pdf_path)}"
         shutil.copyfile(pdf_path, source)  # homr writes beside its input
         trace_path = work / "trace.json"
         args = [str(BRIDGE), str(trace_path), "--gpu", config.gpu, str(source)]

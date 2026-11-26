@@ -137,3 +137,13 @@ def test_version_is_reported(fake_audiveris):
     config, _ = fake_audiveris(log="Audiveris version 5.11.0\n")
     status = check_audiveris(config)
     assert status.installed and "5.11.0" in status.details and not status.cuda
+
+
+def test_page_image_is_passed_on_as_an_image(fake_audiveris, tmp_path):
+    config, calls = fake_audiveris({"score.mxl": mxl(score())})
+    photo = tmp_path / "01.jpg"
+    photo.write_bytes(b"\xff\xd8 stand-in")
+    item = convert_single_pdf(PdfConversionItem(pdf_path=photo, relative_path="01.jpg"), config)
+    assert item.status == "converted", item.error_message
+    assert calls[-1][-1].endswith("score.jpg")
+    assert (tmp_path / "01.musicxml").is_file()

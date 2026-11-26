@@ -129,6 +129,12 @@ Runs every PDF that has a reference MusicXML beside it (the test fixtures by def
 MuseScore files the library exported to both PDF and MusicXML) through homr on the GPU, homr on the CPU and
 Audiveris, and writes `engine-comparison.md` and `.csv`: pitch and strict F1 against the reference, time taken, and
 how closely homr's CPU reading matches its GPU reading. `--variants homr-gpu audiveris` runs only some.
+Page images (.png, .jpg, …) work as well as PDFs. For the free [sheet-music-photos](https://github.com/liebharc/sheet-music-photos)
+dataset, point `--scores` at its `scans` folder: each hand-checked page (`page.pdf` + `page.musicxml`) and each photo
+of it is scored; pages with only homr's own reading (`reference.musicxml`) are left out because they favour homr.
+
+Measured 2026-11-25 on the fixtures: homr is as accurate on the CPU as on the GPU (97.4% pitch and 92.9% strict
+F1 on average for both; the two readings agree 99.6%), but takes about 1.8 times as long.
 
 ## Splitting a PDF of several pieces
 

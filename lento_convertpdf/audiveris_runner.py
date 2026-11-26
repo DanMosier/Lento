@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from .homr_runner import EngineAvailability, OMRConfig, check_output, name_parts, write_report
+from .homr_runner import EngineAvailability, OMRConfig, check_output, name_parts, source_suffix, write_report
 from .quality import QualityReport, assess
 
 INSTALL_HINT = (
@@ -125,7 +125,7 @@ def run_audiveris(
     timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_PAGE_SEC * max(1, page_count)
     with tempfile.TemporaryDirectory(prefix="audiveris_work_", ignore_cleanup_errors=True) as tmp:
         work = Path(tmp)
-        source = work / "score.pdf"
+        source = work / f"score{source_suffix(pdf_path)}"
         shutil.copyfile(pdf_path, source)
         out = work / "out"
         out.mkdir()

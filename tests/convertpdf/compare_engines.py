@@ -8,8 +8,11 @@ Answers two questions with one table:
     python tests/convertpdf/compare_engines.py --scores "G:\\...\\pieces" --variants homr-gpu audiveris
     python tests/convertpdf/compare_engines.py --keep out\\engines   # keep every MusicXML for a look
 
-A score is any PDF with a reference beside it of the same name (.mxl, .musicxml or .xml), for example a
-MuseScore file the library exported to both PDF and MusicXML. Results go to engine-comparison.csv and .md in
+A score is any PDF or page image with a reference beside it of the same name (.mxl, .musicxml or .xml), for
+example a MuseScore file the library exported to both PDF and MusicXML. In the sheet-music-photos dataset
+(github.com/liebharc/sheet-music-photos) that is each hand-checked page (page.pdf + page.musicxml), and each photo
+in its photos/ folder is scored against the same page.musicxml. Pages with only homr's own reading
+(reference.musicxml) are left out, since they would favour homr. Results go to engine-comparison.csv and .md in
 the --keep folder (or the current folder).
 """
 
@@ -28,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from compare_musicxml import compare  # noqa: E402
 
-from lento_convertpdf.homr_runner import OMRConfig  # noqa: E402
+from lento_convertpdf.homr_runner import IMAGE_SUFFIXES, OMRConfig  # noqa: E402
 from lento_convertpdf.models import PdfConversionItem  # noqa: E402
 from lento_convertpdf.omr_engines import check_engine, convert_single_pdf  # noqa: E402
 
@@ -59,20 +62,33 @@ def reference_for(pdf: Path) -> Path | None:
     return None
 
 
-def find_scores(folders: list[Path], limit: int) -> list[tuple[Path, Path]]:
-    found: list[tuple[Path, Path]] = []
+GENERIC_STEMS = {"page", "score", "print"}  # file names that say nothing: the folder names the score
+
+
+def score_name(source: Path) -> str:
+    return source.parent.name if source.stem.lower() in GENERIC_STEMS else source.stem
+
+
+def find_scores(folders: list[Path], limit: int) -> list[tuple[str, Path, Path]]:
+    """(name, PDF or image, reference) for every score under the folders."""
+    found: list[tuple[str, Path, Path]] = []
+    suffixes = (".pdf", *IMAGE_SUFFIXES)
     for folder in folders:
-        for pdf in sorted(folder.rglob("*.pdf")):
-            ref = reference_for(pdf)
-            if ref and "_duplicates" not in pdf.parts:
-                found.append((pdf, ref))
+        for source in sorted(p for p in folder.rglob("*") if p.suffix.lower() in suffixes and p.is_file()):
+            if "_duplicates" in source.parts:
+                continue
+            ref = reference_for(source)
+            if ref:
+                found.append((score_name(source), source, ref))
+            elif source.parent.name == "photos" and (source.parent.parent / "page.musicxml").is_file():
+                found.append((f"{source.parent.parent.name} photo {source.stem}", source, source.parent.parent / "page.musicxml"))
     return found[:limit] if limit else found
 
 
 def run(args: argparse.Namespace) -> int:
     scores = find_scores(args.scores or [FIXTURES], args.limit)
     if not scores:
-        print("No PDFs with a reference MusicXML beside them were found.")
+        print("No PDFs or page images with a reference MusicXML beside them were found.")
         return 2
     keep = args.keep.resolve() if args.keep else None
     work = keep or Path(tempfile.mkdtemp(prefix="engines_"))
@@ -93,27 +109,26 @@ def run(args: argparse.Namespace) -> int:
 
     rows: list[Row] = []
     outputs: dict[tuple[str, str], Path] = {}
-    for pdf, ref in scores:
+    for score, pdf, ref in scores:
         for name, cfg in configs.items():
-            out_dir = work / name
-            cfg.output_dir = out_dir
+            cfg.output_dir = work / name / "".join(c if c.isalnum() or c in "-_." else "_" for c in score)
             item = convert_single_pdf(PdfConversionItem(pdf_path=pdf, relative_path=pdf.name), cfg)
-            row = Row(pdf.stem, name, item.status, round(item.duration_sec, 1), detail=item.error_message)
+            row = Row(score, name, item.status, round(item.duration_sec, 1), detail=item.error_message)
             if item.status == "converted" and item.output_musicxml_path:
                 result = compare(ref, item.output_musicxml_path)
                 row.pitch_f1, row.strict_f1 = round(result.pitch.f1, 4), round(result.strict.f1, 4)
                 row.quality = item.quality.level if item.quality else ""
-                outputs[(pdf.stem, name)] = item.output_musicxml_path
+                outputs[(score, name)] = item.output_musicxml_path
             rows.append(row)
             f1 = f"pitch {row.pitch_f1:.1%}  strict {row.strict_f1:.1%}" if row.pitch_f1 is not None else row.detail
-            print(f"{pdf.stem[:40]:40} {name:10} {row.seconds:7.1f}s  {f1}", flush=True)
+            print(f"{score[:40]:40} {name:10} {row.seconds:7.1f}s  {f1}", flush=True)
 
     # Where both homr set-ups ran: how much of the GPU reading the CPU reading reproduces
     agreement: dict[str, float] = {}
-    for pdf, _ in scores:
-        gpu, cpu = outputs.get((pdf.stem, "homr-gpu")), outputs.get((pdf.stem, "homr-cpu"))
+    for score, _, _ in scores:
+        gpu, cpu = outputs.get((score, "homr-gpu")), outputs.get((score, "homr-cpu"))
         if gpu and cpu:
-            agreement[pdf.stem] = round(compare(gpu, cpu).strict.f1, 4)
+            agreement[score] = round(compare(gpu, cpu).strict.f1, 4)
 
     report_dir.mkdir(parents=True, exist_ok=True)
     with (report_dir / "engine-comparison.csv").open("w", newline="", encoding="utf-8") as f:
@@ -170,7 +185,8 @@ def _average(rows: list[Row], variant: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scores", type=Path, nargs="*", help="folders with PDFs and reference MusicXML (default: the fixtures)")
+    parser.add_argument("--scores", type=Path, nargs="*",
+                        help="folders with PDFs or page images and reference MusicXML (default: the fixtures)")
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     parser.add_argument("--limit", type=int, default=0, help="only the first N scores")
     parser.add_argument("--keep", type=Path, help="folder for every MusicXML written and the report")
