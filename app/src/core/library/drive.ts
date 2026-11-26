@@ -85,6 +85,29 @@ export class Drive {
     return (await res.json()) as DriveFile;
   }
 
+  /** Creates a text file (such as a corrected MusicXML score) inside `parentId`, or replaces one this app made. */
+  async putText(parentId: string, name: string, text: string, type: string, existingId?: string): Promise<DriveFile> {
+    if (existingId) {
+      const res = await this.request(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingId)}?uploadType=media&fields=${FIELDS}&supportsAllDrives=true`, {
+        method: "PATCH",
+        headers: { "Content-Type": type },
+        body: text,
+      });
+      return (await res.json()) as DriveFile;
+    }
+    const boundary = "lento" + Math.random().toString(36).slice(2);
+    const meta = { name, parents: [parentId], mimeType: type };
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
+      `--${boundary}\r\nContent-Type: ${type}; charset=UTF-8\r\n\r\n${text}\r\n--${boundary}--`;
+    const res = await this.request(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=${FIELDS}&supportsAllDrives=true`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    return (await res.json()) as DriveFile;
+  }
+
   /** Moves a file this app created to the Drive bin (it can be restored from there for 30 days). */
   async trash(id: string): Promise<void> {
     await this.request(`${API}/${encodeURIComponent(id)}?supportsAllDrives=true`, {

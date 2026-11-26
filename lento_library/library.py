@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import datetime
 import json
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ PIECE_FIELDS = ("catalog_no", "key", "clefs", "positions", "notes", "year", "gen
 KINDS = {".pdf": "pdf", ".musicxml": "musicxml", ".mxl": "musicxml", ".xml": "musicxml"}
 MUSESCORE = (".mscz", ".mscx")
 INDEX_NAME = "library.json"
+REVIEW_SUFFIX = ".review.json"  # <score>.review.json: approved or rejected in the app's Review window
 REQUESTS = "requests"
 FORMAT = "lento-library"
 VERSION = 1
@@ -216,6 +218,9 @@ class Library:
                         entry["from"] = "musescore"  # exported by MuseScore: exact, nothing to check
                     elif level:
                         entry["quality"] = level
+                    review = review_status(folder / f"{p.stem}{REVIEW_SUFFIX}")
+                    if review:
+                        entry["review"] = review
                 elif p.stem in requested:
                     entry["requested"] = True
                 elif p.stem in failed:
@@ -232,6 +237,9 @@ class Library:
                         entry["from"] = "musescore"
                     elif level:
                         entry["quality"] = level
+                    review = review_status(folder / f"{x.stem}{REVIEW_SUFFIX}")
+                    if review:
+                        entry["review"] = review
                     files.append(entry)
             if not files:
                 continue
@@ -353,6 +361,27 @@ class Library:
             return None
         return p if inside and p.is_file() and not p.is_symlink() else None
 
+    def apply_fixes(self) -> list[str]:
+        """Put scores corrected in the app in place: <score>.fixed replaces <score>, and the converter's version is
+        kept once as <score>.orig. The app can only write files of its own, so it leaves the fix beside the score."""
+        applied = []
+        for folder in self.folders():
+            for fixed in folder.glob(f"*{FIXED_SUFFIX}"):
+                target = fixed.with_name(fixed.name[: -len(FIXED_SUFFIX)])
+                if target.suffix.lower() not in KINDS or KINDS[target.suffix.lower()] != "musicxml" or not target.is_file():
+                    continue
+                try:
+                    if fixed.stat().st_size == 0:
+                        continue  # Drive still downloading it
+                    original = target.with_name(target.name + ORIGINAL_SUFFIX)
+                    if not original.exists():
+                        shutil.copy2(target, original)
+                    os.replace(fixed, target)
+                    applied.append(f"{folder.name}/{target.name}")
+                except OSError:
+                    continue  # in use or still syncing: tried again next look
+        return applied
+
     def fingerprint(self) -> tuple:
         """What library.json is built from (score files, catalog.csv, tags.md) with their sizes and modified times.
         The watcher compares it between looks, so files added, moved or renamed by hand are picked up."""
@@ -361,7 +390,7 @@ class Library:
         if req.is_dir():  # a request queued or removed in the app changes a PDF's "requested" flag
             files += [p for p in req.iterdir() if p.name.startswith(("convert__", "failed__"))]
         for folder in self.folders():
-            files += [p for p in folder.iterdir() if p.suffix.lower() in KINDS]
+            files += [p for p in folder.iterdir() if p.suffix.lower() in KINDS or p.name.endswith(REVIEW_SUFFIX)]
         out = []
         for p in files:
             try:
@@ -390,6 +419,19 @@ def file_entry(p: Path, row: dict[str, str] | None) -> dict:
         if row["pages"].isdigit():
             entry["pages"] = int(row["pages"])
     return entry
+
+
+FIXED_SUFFIX = ".fixed"  # <score>.musicxml.fixed: the score corrected in the app's Review window, for the PC to put in place
+ORIGINAL_SUFFIX = ".orig"  # <score>.musicxml.orig: the converter's version, kept the first time a fix replaces it
+
+
+def review_status(path: Path) -> str:
+    """'approved' or 'rejected', from the review the app saved beside a converted score, or blank."""
+    try:
+        status = json.loads(path.read_text(encoding="utf-8")).get("status")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return status if status in ("approved", "rejected") else ""
 
 
 def quality_level(path: Path) -> str:

@@ -13,6 +13,8 @@ export interface LibraryFile {
   quality?: "OK" | "REVIEW" | "UNRELIABLE" | string;
   /** "musescore": the MusicXML and PDF were exported from a MuseScore file, so the notes are exact. */
   from?: "musescore" | string;
+  /** Checked against the PDF in Convert PDF's Review window (saved as <score>.review.json). */
+  review?: "approved" | "rejected" | string;
   /** For a PDF with no MusicXML: conversion already asked for. */
   requested?: boolean;
   /** For a PDF with no MusicXML: the last conversion on the PC failed. */
@@ -140,7 +142,9 @@ export function folderIdFromLink(text: string): string | null {
 /** The MusicXML to practise from for this file: the file itself, or the one beside a PDF. */
 export function musicxmlOf(f: LibraryFile): LibraryFile | null {
   if (f.kind === "musicxml") return f;
-  return f.musicxml ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality, from: f.from } : null;
+  return f.musicxml
+    ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality, from: f.from, ...(f.review ? { review: f.review } : {}) }
+    : null;
 }
 
 /** "convert__<pdf name without .pdf>.json", the file `lento-library convert` looks for. */

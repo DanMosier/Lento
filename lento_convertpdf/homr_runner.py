@@ -69,6 +69,7 @@ class OMRConfig:
     homr_python: str = ""  # python.exe of homr's environment; blank = find it
     gpu: str = "force"  # "force" (fail without CUDA) | "auto" | "no"
     review_below: float = REVIEW_BELOW  # flag exports whose quality estimate is lower
+    instrument: str = "Cello"  # what single-staff parts are called when homr can't tell ("" keeps homr's "Voice")
     timeout_base_sec: int = 180
     timeout_per_page_sec: int = 90
     # called with (pdf, page, pages) as homr starts each page of a PDF
@@ -206,6 +207,40 @@ def _check_output(xml_path: Path) -> list[str]:
     return [name or f"Part {i}" for i, name in enumerate(names, start=1)]
 
 
+# MIDI program (1-based) and MusicXML instrument-sound for the instruments a part can be renamed to
+SOUNDS: dict[str, tuple[int, str]] = {
+    "cello": (43, "strings.cello"), "violoncello": (43, "strings.cello"), "viola": (42, "strings.viola"),
+    "violin": (41, "strings.violin"), "double bass": (44, "strings.contrabass"), "contrabass": (44, "strings.contrabass"),
+    "piano": (1, "keyboard.piano"), "voice": (54, "voice"),
+}
+
+
+def name_parts(xml_path: Path, instrument: str) -> int:
+    """Rename the parts homr called "Voice" (its name for every one-staff part) to instrument. Returns how many."""
+    if not instrument:
+        return 0
+    tree = ET.parse(xml_path)
+    program, sound = SOUNDS.get(instrument.lower(), (0, ""))
+    renamed = 0
+    for part in tree.getroot().findall("part-list/score-part"):
+        name = part.find("part-name")
+        if name is None or (name.text or "").strip() != "Voice":
+            continue
+        name.text = instrument
+        for el in part.findall("score-instrument/instrument-name"):
+            el.text = instrument
+        for el in part.findall("score-instrument/instrument-sound"):
+            if sound:
+                el.text = sound
+        for el in part.findall("midi-instrument/midi-program"):
+            if program:
+                el.text = str(program)
+        renamed += 1
+    if renamed:
+        tree.write(xml_path, encoding="UTF-8", xml_declaration=True)
+    return renamed
+
+
 def _read_trace(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -259,6 +294,7 @@ def run_homr(
         produced = work / "score.musicxml"
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_homr_error(log, returncode))
+        name_parts(produced, config.instrument)
         parts = _check_output(produced)
         report = assess(produced, _read_trace(trace_path), config.review_below)
 

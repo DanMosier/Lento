@@ -245,6 +245,9 @@ def run(lib: Library, cmd: list[str], gpu: str, interval: float = 30, once: bool
                 lib.write_index()
                 wrote = True
                 print(f"done: {len(pdfs) - len(failed)} converted, {len(failed)} failed", flush=True)
+            fixes = lib.apply_fixes()  # scores corrected in the app's Review window
+            if fixes:
+                print(f"applied fixes from the app: {', '.join(fixes)}", flush=True)
             # rebuilt above after a conversion or export, so this only fires for changes made by hand
             fp = lib.fingerprint()
             if fp != built and not wrote:

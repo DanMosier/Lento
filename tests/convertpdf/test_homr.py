@@ -254,3 +254,25 @@ def test_accuracy(pdf, tmp_path):
         assert result.placed_pitch.f1 >= baseline["placed_pitch_f1"]
         assert result.placed_strict.f1 >= baseline["placed_strict_f1"]
         assert all(pitch.candidate for pitch, _ in result.instruments.values())
+
+
+def test_parts_homr_calls_voice_are_renamed_to_the_default_instrument(tmp_path):
+    import xml.etree.ElementTree as ET
+    from lento_convertpdf.homr_runner import name_parts
+
+    xml = tmp_path / "s.musicxml"
+    xml.write_text(
+        '<score-partwise><part-list>'
+        '<score-part id="P1"><part-name>Voice</part-name><score-instrument id="P1-I1"><instrument-name>Voice</instrument-name>'
+        '<instrument-sound>voice</instrument-sound></score-instrument><midi-instrument id="P1-I1"><midi-program>54</midi-program></midi-instrument></score-part>'
+        '<score-part id="P2"><part-name>Piano</part-name></score-part>'
+        '</part-list><part id="P1"/><part id="P2"/></score-partwise>',
+        encoding="utf-8",
+    )
+    assert name_parts(xml, "Cello") == 1
+    root = ET.parse(xml).getroot()
+    assert [p.findtext("part-name") for p in root.iter("score-part")] == ["Cello", "Piano"]
+    assert root.findtext(".//instrument-sound") == "strings.cello"
+    assert root.findtext(".//midi-program") == "43"
+    assert name_parts(xml, "Cello") == 0  # nothing left to rename
+    assert name_parts(xml, "") == 0

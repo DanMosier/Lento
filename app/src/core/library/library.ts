@@ -119,6 +119,17 @@ export class DriveLibrary {
     await this.cache.put(`pieces/${pieceId}/${name}`, { data: new TextEncoder().encode(JSON.stringify(content)).buffer as ArrayBuffer, modifiedTime: saved.modifiedTime });
   }
 
+  /**
+   * Saves a corrected score as `<score>.fixed` beside it. The app can't change the PC's files, so the PC's watcher
+   * puts it in place of the score (keeping the converter's version as `<score>.orig`).
+   */
+  async writeFixedScore(pieceId: string, scoreName: string, xml: string): Promise<void> {
+    const folderId = await this.folder(["pieces", pieceId]);
+    const name = `${scoreName}.fixed`;
+    const f = await this.drive.child(folderId, name);
+    await this.drive.putText(folderId, name, xml, "application/vnd.recordare.musicxml+xml", f?.id);
+  }
+
   private async folder(path: string[]): Promise<string> {
     let id = this.rootId;
     for (let i = 0; i < path.length; i++) {

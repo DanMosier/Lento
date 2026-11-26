@@ -4,10 +4,11 @@
  * this screen writes the small request files it picks up and shows what is waiting and what is done.
  */
 import { $ } from "../core/app";
-import { library, libraryChanged, onLibraryChanged, requestedHere } from "../core/library/connection";
+import { library, libraryChanged, onLibraryChanged, requestedHere, reviewedHere } from "../core/library/connection";
 import type { LibraryFile, LibraryIndex, Piece } from "../core/library/model";
 import { fold, musicxmlOf, pcOnline, requestName, requestNameOf, type PcStatus } from "../core/library/model";
 import { buildQueue, duration, item, namesOf, type Names, type QueueItem } from "./queue";
+import type { ReviewItem } from "./review";
 
 const SHOWN = 200;
 
@@ -24,6 +25,10 @@ const ui = {
   todo: $<HTMLUListElement>("cv-todo"),
   tabPick: $<HTMLButtonElement>("cv-tab-pick"),
   tabQueue: $<HTMLButtonElement>("cv-tab-queue"),
+  tabReview: $<HTMLButtonElement>("cv-tab-review"),
+  reviews: $("cv-reviews"),
+  rvFilter: $<HTMLSelectElement>("cv-rv-filter"),
+  rvList: $<HTMLUListElement>("cv-rv-list"),
   pick: $("cv-pick"),
   queue: $("cv-queue"),
   qBatch: $("cv-q-batch"),
@@ -38,13 +43,11 @@ const ui = {
   qAll: $<HTMLButtonElement>("cv-q-all"),
   qNone: $<HTMLButtonElement>("cv-q-none"),
   qRemove: $<HTMLButtonElement>("cv-q-remove"),
-  review: $<HTMLUListElement>("cv-review"),
   failedBox: $<HTMLDetailsElement>("cv-failed-box"),
   failedTitle: $("cv-failed-title"),
   failed: $<HTMLUListElement>("cv-failed"),
   failedAll: $<HTMLButtonElement>("cv-failed-all"),
   retry: $<HTMLButtonElement>("cv-retry"),
-  reviewBox: $<HTMLDetailsElement>("cv-review-box"),
 };
 
 type Item = { piece: Piece; file: LibraryFile };
@@ -124,16 +127,13 @@ function render(): void {
   const todo: Item[] = [];
   const failed: Item[] = [];
   const waiting: Item[] = [];
-  const review: Item[] = [];
   let done = 0;
   for (const piece of index.pieces)
     for (const file of piece.files) {
       if (file.kind !== "pdf") continue;
       const xml = musicxmlOf(file);
-      if (xml) {
-        done++;
-        if (xml.quality === "REVIEW" || xml.quality === "UNRELIABLE") review.push({ piece, file: xml });
-      } else if ((file.requested || mine.has(requestName(file))) && !removedHere.has(file.name)) waiting.push({ piece, file });
+      if (xml) done++;
+      else if ((file.requested || mine.has(requestName(file))) && !removedHere.has(file.name)) waiting.push({ piece, file });
       else if (file.convert_failed) failed.push({ piece, file }); // set apart, so "Select all shown" can't pick them
       else todo.push({ piece, file });
     }
@@ -163,10 +163,72 @@ function render(): void {
   if (failedShown.length > SHOWN) ui.failed.append(li(`…and ${failedShown.length - SHOWN} more. Search to narrow the list.`));
 
   ui.tabQueue.textContent = waiting.length ? `Queue (${waiting.length})` : "Queue";
-  ui.reviewBox.hidden = !review.length;
-  ui.review.replaceChildren(
-    ...review.map((it) => li(label(it)[0], it.file.quality === "REVIEW" ? "some measures may be wrong" : "probably wrong in many places")),
-  );
+  renderReviews();
+}
+
+// ---- the Review tab ----
+
+/** Every converted score, with the PDF it came from. MuseScore exports are exact, so they aren't listed. */
+function conversions(): ReviewItem[] {
+  const out: ReviewItem[] = [];
+  for (const piece of index?.pieces ?? [])
+    for (const file of piece.files) {
+      if (file.from === "musescore") continue;
+      if (file.kind === "pdf" && file.musicxml) out.push({ piece, pdf: file, xml: musicxmlOf(file)! });
+      else if (file.kind === "musicxml") out.push({ piece, pdf: null, xml: file });
+    }
+  return out;
+}
+
+const verdict = (it: ReviewItem, mine: Record<string, string>) => mine[it.xml.name] ?? it.xml.review ?? "";
+const QUALITY_ORDER: Record<string, number> = { UNRELIABLE: 0, REVIEW: 1 };
+
+function renderReviews(): void {
+  const mine = reviewedHere.all();
+  const all = conversions();
+  // forget local verdicts once the index has them too
+  let tidy = false;
+  for (const it of all)
+    if (mine[it.xml.name] && mine[it.xml.name] === it.xml.review) {
+      delete mine[it.xml.name];
+      tidy = true;
+    }
+  if (tidy) reviewedHere.save(mine);
+  const todo = all.filter((it) => !verdict(it, mine)).length;
+  ui.tabReview.textContent = todo ? `Review (${todo})` : "Review";
+  if (ui.reviews.hidden) return;
+  const want = ui.rvFilter.value;
+  const q = fold(ui.search.value.trim());
+  const list = all
+    .filter((it) => (want === "all" ? true : want === "todo" ? !verdict(it, mine) : verdict(it, mine) === want))
+    .filter((it) => !q || fold(`${it.piece.title} ${it.piece.composer}`).includes(q))
+    .sort((a, b) => (QUALITY_ORDER[a.xml.quality ?? ""] ?? 2) - (QUALITY_ORDER[b.xml.quality ?? ""] ?? 2) || a.piece.title.localeCompare(b.piece.title));
+  const rows = list.slice(0, SHOWN).map((it, i) => {
+    const row = li(it.piece.title, [it.piece.composer, it.xml.edition || it.xml.variant].filter(Boolean).join(" · "));
+    const v = verdict(it, mine);
+    const badge = v || (it.xml.quality === "UNRELIABLE" ? "unreliable" : it.xml.quality === "REVIEW" ? "review" : "");
+    if (badge) {
+      const b = Object.assign(document.createElement("span"), { className: `rv-badge ${badge}`, textContent: { approved: "Approved", rejected: "Rejected", unreliable: "Likely wrong", review: "Check" }[badge] ?? badge });
+      row.firstElementChild?.append(b);
+    }
+    const open = Object.assign(document.createElement("button"), { type: "button", className: "cv-rv-open", textContent: "Review" });
+    open.setAttribute("aria-label", `Review ${it.piece.title}`);
+    open.addEventListener("click", () => void openAt(list, i));
+    row.append(open);
+    return row;
+  });
+  ui.rvList.replaceChildren(...rows);
+  if (list.length > SHOWN) ui.rvList.append(li(`…and ${list.length - SHOWN} more. Search to narrow the list.`));
+  if (!list.length) ui.rvList.append(li(want === "todo" ? (all.length ? "Nothing left to review." : "No conversions yet.") : "None."));
+}
+
+async function openAt(list: ReviewItem[], i: number): Promise<void> {
+  try {
+    const { openReview } = await import("./review");
+    openReview(list, i, () => renderReviews());
+  } catch (e) {
+    status(`Couldn't open the review window: ${(e as Error).message}`, "error");
+  }
 }
 
 let allFailed: Item[] = [];
@@ -431,12 +493,17 @@ function updateTimers(): void {
   }
 }
 
-function showTab(queue: boolean): void {
-  ui.pick.hidden = queue;
+function showTab(tab: "pick" | "queue" | "review"): void {
+  const queue = tab === "queue";
+  ui.pick.hidden = tab !== "pick";
   ui.queue.hidden = !queue;
+  ui.reviews.hidden = tab !== "review";
   ui.search.hidden = queue;
-  ui.tabPick.setAttribute("aria-selected", String(!queue));
+  ui.tabPick.setAttribute("aria-selected", String(tab === "pick"));
   ui.tabQueue.setAttribute("aria-selected", String(queue));
+  ui.tabReview.setAttribute("aria-selected", String(tab === "review"));
+  ui.search.placeholder = tab === "review" ? "Search conversions" : "Search PDFs without MusicXML";
+  if (tab === "review") renderReviews();
   if (queue) {
     renderQueue();
     void loadPc();
@@ -452,8 +519,10 @@ ui.qNone.addEventListener("click", () => {
   renderQueue();
 });
 ui.qRemove.addEventListener("click", () => void removeSelected());
-ui.tabPick.addEventListener("click", () => showTab(false));
-ui.tabQueue.addEventListener("click", () => showTab(true));
+ui.tabPick.addEventListener("click", () => showTab("pick"));
+ui.tabQueue.addEventListener("click", () => showTab("queue"));
+ui.tabReview.addEventListener("click", () => showTab("review"));
+ui.rvFilter.addEventListener("change", renderReviews);
 document.addEventListener("visibilitychange", () => {
   updateTimers();
   if (queueVisible()) void loadPc();

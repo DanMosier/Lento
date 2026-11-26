@@ -354,3 +354,55 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
    hover) cost up to 90 ms a time on a phone. Its own layer means the cursor moving over it never repaints it. */
 .sheet svg { pointer-events: none; will-change: transform; }
 .lib-body .lib-row > :first-child > span { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; line-height: 1.25; }
+
+/* ---- Convert PDF: reviewing a conversion against its PDF ---- */
+.cv-rv-list li { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: center; }
+.cv-rv-list li > small { grid-column: 1; }
+.cv-rv-open { grid-column: 2; grid-row: 1 / span 2; min-height: 40px; }
+.rv-badge { font-size: 0.8rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; margin-left: 6px; }
+.rv-badge.approved { color: var(--in_tune); }
+.rv-badge.rejected, .rv-badge.unreliable { color: var(--out_of_tune); }
+.rv-badge.review { color: var(--slightly_off); }
+.rv { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: none; box-sizing: border-box; overflow: hidden; background: var(--bg); color: var(--ink); }
+.rv * { box-sizing: border-box; }
+.rv-switch, .rv-bottom, .rv-top { flex: none; }
+.rv[open] { display: flex; flex-direction: column; }
+.rv-top { display: flex; align-items: center; gap: 6px; padding: 6px max(10px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+.rv-top button { min-width: 44px; min-height: 44px; font-size: 1.3rem; background: none; border: none; color: var(--ink); }
+.rv-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rv-title strong, .rv-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-title small { color: var(--muted); }
+.rv-switch { display: flex; gap: 4px; padding: 6px max(10px, env(safe-area-inset-left)); }
+.rv-switch button { flex: 1; min-height: 40px; }
+.rv-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.rv-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+.rv-panes[data-show="pdf"] { grid-template-columns: 1fr; }
+.rv-panes[data-show="pdf"] .rv-xml, .rv-panes[data-show="xml"] .rv-pdf { display: none; }
+.rv-panes[data-show="xml"] { grid-template-columns: 1fr; }
+.rv-pane { background: var(--bg); overflow: auto; min-height: 0; position: relative; -webkit-overflow-scrolling: touch; }
+.rv-pdf iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+.rv-xml #rv-xml { background: #fff; min-height: 100%; }
+.rv-pane .hint { padding: 16px; }
+.rv-bottom { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px max(10px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.rv-bottom input { flex: 1 1 200px; min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
+.rv-bottom button { min-height: 44px; }
+.rv-bottom .status { flex-basis: 100%; margin: 0; }
+@media (max-width: 760px) {
+  .rv-panes[data-show="both"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+}
+.rv-fix { border-top: 1px solid var(--line); max-height: 40dvh; overflow: auto; padding: 0 max(10px, env(safe-area-inset-left)); }
+.rv-fix { flex: none; }
+.rv-fix summary { min-height: 44px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }
+.rv-fix-body { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding-bottom: 10px; }
+.rv-fix-body > label, .rv-fix-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rv-fix-row { flex-basis: 100%; }
+.rv-fix select, .rv-fix input[type="number"] { min-height: 40px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.rv-fix input[type="number"] { width: 5.5em; }
+.rv-fix button { min-height: 40px; }
+.rv-fix .hint { flex-basis: 100%; margin: 0; }
+.rv-check { flex-basis: 100%; font-size: 0.9rem; color: var(--muted); }
+.rv-warn { margin: 0 0 8px; padding-left: 18px; color: var(--slightly_off); }
+.rv-warn:empty { display: none; }
+.rv-changes { margin: 0; padding-left: 18px; font-size: 0.9rem; flex-basis: 100%; }
+.rv-changes:empty { display: none; }
+@media (max-width: 760px) { .rv-bottom input { flex-basis: 100%; } .rv-bottom button { flex: 1; } }
