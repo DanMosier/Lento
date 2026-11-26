@@ -186,6 +186,10 @@ written until you press Split, and the original is never changed. Check the prop
 
 The pieces go to a new folder beside the PDF, or to `inbox/` for a PDF in a Lento library's `pieces/`.
 
+The app can split a PDF too, on a phone as well as the PC: in Convert PDF > Review > To split, press Split on a
+flagged PDF. It names the pieces and folder the same way and saves them to the library's `inbox/` in Drive. It
+splits only between pages; for a piece that starts halfway down a page, use this tool, which can cut a page in two.
+
 ## Tests
 
 ```powershell
