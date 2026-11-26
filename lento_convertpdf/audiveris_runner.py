@@ -9,6 +9,7 @@ quality estimate rests on the musical consistency checks alone.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -85,9 +86,32 @@ def check_audiveris(config: OMRConfig | None = None) -> EngineAvailability:
             _, out = _run(exe, ["-batch", "-version"], Path(tmp), timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return EngineAvailability("audiveris", False, str(exe), f"Audiveris could not be started: {exc}", INSTALL_HINT)
-    version = next((ln.strip() for ln in out.splitlines() if "audiveris" in ln.lower() and any(c.isdigit() for c in ln)), "")
-    details = f"Ready, CPU, {version or 'version not reported'} ({exe})"
+    found = re.search(r"\b(\d+\.\d+(?:\.\d+)?)\b", "\n".join(ln for ln in out.splitlines() if "audiveris" in ln.lower()))
+    details = f"Ready, CPU, {f'Audiveris {found.group(1)}' if found else 'version not reported'} ({exe})"
     return EngineAvailability("audiveris", True, str(exe), details, INSTALL_HINT)
+
+
+def pages_with_staves(pdf: Path) -> tuple[int, list[int]]:
+    """(number of pages, the 1-based pages where at least one 5-line staff can be seen)."""
+    from .staff_detection import detect_staves_in_image
+
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:  # pragma: no cover
+        return 0, []
+    try:
+        doc = pdfium.PdfDocument(str(pdf))
+    except Exception:
+        return 0, []
+    music: list[int] = []
+    try:
+        for i in range(len(doc)):
+            image = doc[i].render(scale=100 / 72).to_pil().convert("L")
+            if detect_staves_in_image(image):
+                music.append(i + 1)
+        return len(doc), music
+    finally:
+        doc.close()
 
 
 def _unpack(mxl: Path, dest: Path) -> None:
@@ -135,13 +159,27 @@ def run_audiveris(
         shutil.copyfile(pdf_path, source)
         out = work / "out"
         out.mkdir()
-        args = ["-batch", "-transcribe", "-export", "-output", str(out), "--", str(source)]
-        try:
-            returncode, log = _run(exe, args, work, timeout)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"Audiveris did not finish within {timeout} seconds.") from exc
+        def attempt(sheets: list[int] | None) -> tuple[int, str, list[Path]]:
+            shutil.rmtree(out, ignore_errors=True)
+            out.mkdir()
+            only = ["-sheets", *map(str, sheets)] if sheets else []
+            args = ["-batch", "-transcribe", "-export", "-output", str(out), *only, "--", str(source)]
+            try:
+                code, text = _run(exe, args, work, timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(f"Audiveris did not finish within {timeout} seconds.") from exc
+            files = sorted(out.rglob("*.mxl")) or sorted(out.rglob("*.musicxml")) or sorted(out.rglob("*.xml"))
+            return code, text, files
 
-        exported = sorted(out.rglob("*.mxl")) or sorted(out.rglob("*.musicxml")) or sorted(out.rglob("*.xml"))
+        returncode, log, exported = attempt(None)
+        skipped: list[int] = []
+        if not exported and source.suffix == ".pdf":
+            # Audiveris gives up on the whole PDF when one page has no staff ("No system found"), such as a
+            # blank last page. Try again with only the pages that have staves.
+            pages, music = pages_with_staves(source)
+            if music and len(music) < pages:
+                skipped = [n for n in range(1, pages + 1) if n not in music]
+                returncode, log, exported = attempt(music)
         if not exported:
             raise RuntimeError(_error(log, returncode))
         produced = work / "score.musicxml"
@@ -153,6 +191,8 @@ def run_audiveris(
         name_parts(produced, config.instrument, also_unnamed=True)
         parts = check_output(produced, "Audiveris")
         report = assess(produced, None, config.review_below)
+        if skipped:
+            report.problems.append(f"page {', '.join(map(str, skipped))} had no staves and was left out")
         if len(exported) > 1:
             report.problems.append(f"Audiveris split this PDF into {len(exported)} movements; only the first was kept")
             report.level = "review" if report.level == "good" else report.level

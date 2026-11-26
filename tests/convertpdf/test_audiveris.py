@@ -160,3 +160,30 @@ def test_audiveris_folder_beside_the_project_is_found(monkeypatch, tmp_path):
     monkeypatch.delenv("ProgramW6432", raising=False)
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     assert discover_audiveris() == exe
+
+
+def test_page_without_staves_is_left_out_on_a_second_try(monkeypatch, tmp_path):
+    exe = tmp_path / "Audiveris.exe"
+    exe.write_bytes(b"")
+    calls: list[list[str]] = []
+
+    def run(path, args, cwd, timeout):
+        calls.append(args)
+        if "-sheets" in args:
+            out = Path(args[args.index("-output") + 1])
+            (out / "score.mxl").write_bytes(mxl(score()))
+            return 0, ""
+        return 1, "java.lang.Exception: Error in reaching step PAGE"
+
+    monkeypatch.setattr(audiveris_runner, "_run", run)
+    monkeypatch.setattr(audiveris_runner, "pages_with_staves", lambda _pdf: (3, [1, 2]))
+    config = OMRConfig(engine="audiveris", audiveris_path=str(exe))
+    item = convert_single_pdf(PdfConversionItem(pdf_path=pdf(tmp_path), relative_path="piece.pdf"), config)
+    assert item.status == "converted", item.error_message
+    assert calls[-1][calls[-1].index("-sheets") + 1 : calls[-1].index("--")] == ["1", "2"]
+    assert item.quality is not None and any("page 3 had no staves" in p for p in item.quality.problems)
+
+
+def test_version_ignores_other_log_lines(fake_audiveris):
+    config, _ = fake_audiveris(log="INFO [] TesseractOCR 137 | Creating OCR folder\nAudiveris 5.11.0\n")
+    assert "Audiveris 5.11.0" in check_audiveris(config).details
