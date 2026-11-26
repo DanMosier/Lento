@@ -59,6 +59,12 @@ export const requestedHere = {
   save: (s: Set<string>): void => store.set("library.requested", [...s]),
 };
 
+/** Reviews made on this device (score name -> "approved" or "rejected") that the index doesn't show yet. */
+export const reviewedHere = {
+  all: (): Record<string, string> => store.get<Record<string, string>>("library.reviewed") ?? {},
+  save: (r: Record<string, string>): void => store.set("library.reviewed", r),
+};
+
 /** Tell open screens that the library index changed, so they redraw. */
 const CHANGED = "lento:library-changed";
 export const libraryChanged = (): boolean => window.dispatchEvent(new Event(CHANGED));

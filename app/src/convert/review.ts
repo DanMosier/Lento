@@ -1,0 +1,333 @@
+/**
+ * The Review window: a converted score's PDF and MusicXML side by side (or one at a time on a phone), with quick
+ * fixes for the clef, key, time signature and instrument, then Approve or Reject.
+ *
+ * Loaded only when a review is opened, with the score renderer, so it costs nothing at startup. The PDF is shown
+ * by Google Drive's own viewer, so it isn't downloaded or drawn here.
+ */
+import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import { $ } from "../core/app";
+import { library, reviewedHere } from "../core/library/connection";
+import type { LibraryFile, Piece } from "../core/library/model";
+import { scoreText } from "../core/score";
+import { CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, serialize, setClef, setInstrument, setKey, setTime, staves, warnings, type Clef } from "./fixes";
+
+export interface ReviewItem {
+  piece: Piece;
+  pdf: LibraryFile | null; // null for MusicXML with no PDF beside it
+  xml: LibraryFile;
+}
+
+const ui = {
+  dialog: $<HTMLDialogElement>("rv"),
+  prev: $<HTMLButtonElement>("rv-prev"),
+  next: $<HTMLButtonElement>("rv-next"),
+  close: $<HTMLButtonElement>("rv-close"),
+  name: $("rv-name"),
+  sub: $("rv-sub"),
+  panes: $("rv-panes"),
+  pdf: $<HTMLIFrameElement>("rv-pdf"),
+  pdfMsg: $("rv-pdf-msg"),
+  xml: $("rv-xml"),
+  xmlMsg: $("rv-xml-msg"),
+  fix: $<HTMLDetailsElement>("rv-fix"),
+  fixCount: $("rv-fix-count"),
+  warn: $<HTMLUListElement>("rv-warn"),
+  staff: $<HTMLSelectElement>("rv-staff"),
+  from: $<HTMLInputElement>("rv-from"),
+  inst: $<HTMLSelectElement>("rv-inst"),
+  clef: $<HTMLSelectElement>("rv-clef"),
+  move: $<HTMLInputElement>("rv-move"),
+  key: $<HTMLSelectElement>("rv-key"),
+  beats: $<HTMLInputElement>("rv-beats"),
+  beatType: $<HTMLSelectElement>("rv-beat-type"),
+  undo: $<HTMLButtonElement>("rv-undo"),
+  changes: $<HTMLUListElement>("rv-changes"),
+  note: $<HTMLInputElement>("rv-note"),
+  edit: $<HTMLButtonElement>("rv-edit"),
+  reject: $<HTMLButtonElement>("rv-reject"),
+  approve: $<HTMLButtonElement>("rv-approve"),
+  status: $("rv-status"),
+};
+
+let items: ReviewItem[] = [];
+let at = 0;
+let doc: Document | null = null; // the MusicXML being reviewed, with any fixes made so far
+let history: string[] = []; // the score before each fix, for Undo
+let changes: string[] = [];
+let discardArmed = false; // a second press of Close/Next/Previous throws unsaved fixes away
+let onDone: (name: string, status: string) => void = () => {};
+let osmd: OpenSheetMusicDisplay | null = null;
+let shown = 0; // which score is on screen, so a slow load of an earlier one can't replace it
+
+const phone = () => window.matchMedia("(max-width: 760px)").matches;
+
+function status(text: string, kind: "info" | "error" = "info"): void {
+  ui.status.textContent = text;
+  ui.status.dataset.kind = kind;
+}
+
+function show(mode: string): void {
+  ui.panes.dataset.show = mode;
+  for (const b of ui.dialog.querySelectorAll<HTMLButtonElement>(".rv-switch button")) b.setAttribute("aria-pressed", String(b.dataset.show === mode));
+  if (mode !== "pdf") void draw();
+}
+
+async function renderer(): Promise<OpenSheetMusicDisplay> {
+  if (osmd) return osmd;
+  const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
+  osmd = new OpenSheetMusicDisplay(ui.xml, { autoResize: false, backend: "svg", drawTitle: true, drawPartNames: true, drawingParameters: "compacttight" });
+  return osmd;
+}
+
+/** Draws the MusicXML (as fixed so far) into its pane. */
+async function draw(): Promise<void> {
+  if (!doc || ui.panes.dataset.show === "pdf") return;
+  const mine = shown;
+  const o = await renderer();
+  try {
+    await o.load(serialize(doc));
+    if (mine !== shown) return;
+    o.zoom = phone() ? 0.55 : ui.panes.dataset.show === "both" ? 0.65 : 0.85;
+    o.render();
+    ui.xmlMsg.hidden = true;
+  } catch (e) {
+    ui.xmlMsg.hidden = false;
+    ui.xmlMsg.textContent = `Couldn't draw this MusicXML: ${(e as Error).message}`;
+  }
+}
+
+function fillStaffs(): void {
+  if (!doc) return;
+  const list = staves(doc);
+  const before = ui.staff.value;
+  ui.staff.replaceChildren(
+    ...list.map((s) => {
+      const clef = CLEFS.find((c) => c.id === s.clef)?.name ?? s.clef;
+      return new Option(`${s.name}${s.staves > 1 ? ` (staff ${s.staff})` : ""}, ${clef.toLowerCase()} clef`, `${s.part}:${s.staff}`);
+    }),
+  );
+  if (list.some((s) => `${s.part}:${s.staff}` === before)) ui.staff.value = before;
+  ui.from.max = String(measureCount(doc));
+  ui.warn.replaceChildren(...warnings(doc).map((w) => Object.assign(document.createElement("li"), { textContent: w })));
+  ui.changes.replaceChildren(...changes.map((c) => Object.assign(document.createElement("li"), { textContent: c })));
+  ui.fixCount.textContent = changes.length ? ` (${changes.length} unsaved)` : "";
+  ui.undo.disabled = !history.length;
+}
+
+/** Applies one fix to the score, keeping the previous version for Undo, and redraws. */
+function fix(what: (d: Document, from: number) => string): void {
+  if (!doc) return;
+  const from = Math.max(1, Math.min(measureCount(doc), Math.round(Number(ui.from.value) || 1)));
+  const saved = serialize(doc);
+  try {
+    changes.push(what(doc, from));
+    history.push(saved);
+    discardArmed = false;
+    fillStaffs();
+    status("");
+    void draw();
+  } catch (e) {
+    doc = new DOMParser().parseFromString(saved, "application/xml");
+    status((e as Error).message, "error");
+  }
+}
+
+function staffChoice(): [string, number] {
+  const [part, staff] = ui.staff.value.split(":");
+  return [part, Number(staff)];
+}
+
+ui.inst.replaceChildren(...INSTRUMENTS.map((i) => new Option(i.name, i.name)));
+ui.clef.replaceChildren(...CLEFS.map((c) => new Option(c.name, c.id)));
+ui.key.replaceChildren(...KEYS.map((k) => new Option(k.name, String(k.fifths))));
+ui.key.value = "0";
+
+$("rv-inst-go").addEventListener("click", () =>
+  fix((d) => {
+    const [part] = staffChoice();
+    const old = staves(d).find((s) => s.part === part)?.name ?? part;
+    setInstrument(d, part, ui.inst.value);
+    return `${old} is now ${ui.inst.value}`;
+  }),
+);
+$("rv-clef-go").addEventListener("click", () =>
+  fix((d, from) => {
+    const [part, staff] = staffChoice();
+    const name = staves(d).find((s) => s.part === part && s.staff === staff)?.name ?? part;
+    const to = setClef(d, part, staff, from, ui.clef.value as Clef, ui.move.checked);
+    const clef = CLEFS.find((c) => c.id === ui.clef.value)!.name.toLowerCase();
+    return `${name}: ${clef} clef in measures ${measureNumber(d, from)}–${measureNumber(d, to)}${ui.move.checked ? ", notes moved with it" : ""}`;
+  }),
+);
+$("rv-key-go").addEventListener("click", () =>
+  fix((d, from) => {
+    const to = setKey(d, from, Number(ui.key.value));
+    return `${ui.key.selectedOptions[0].text} in measures ${measureNumber(d, from)}–${measureNumber(d, to)}`;
+  }),
+);
+$("rv-time-go").addEventListener("click", () =>
+  fix((d, from) => {
+    const beats = Math.max(1, Math.min(32, Math.round(Number(ui.beats.value) || 4)));
+    const to = setTime(d, from, beats, Number(ui.beatType.value));
+    return `${beats}/${ui.beatType.value} time in measures ${measureNumber(d, from)}–${measureNumber(d, to)}`;
+  }),
+);
+ui.undo.addEventListener("click", () => {
+  const last = history.pop();
+  if (last == null) return;
+  doc = new DOMParser().parseFromString(last, "application/xml");
+  changes.pop();
+  fillStaffs();
+  void draw();
+});
+
+const stem = (name: string) => name.replace(/\.(musicxml|mxl|xml)$/i, "");
+const canFix = (it: ReviewItem) => !/\.mxl$/i.test(it.xml.name); // the PC replaces the score with plain MusicXML
+
+async function load(i: number): Promise<void> {
+  at = i;
+  const it = items[i];
+  const mine = ++shown;
+  doc = null;
+  history = [];
+  changes = [];
+  discardArmed = false;
+  ui.prev.disabled = i === 0;
+  ui.next.disabled = i === items.length - 1;
+  ui.name.textContent = it.piece.title;
+  ui.sub.textContent = [it.piece.composer, it.xml.edition || it.xml.variant, `${i + 1} of ${items.length}`].filter(Boolean).join(" · ");
+  ui.note.value = "";
+  ui.fix.hidden = !canFix(it);
+  status("Loading…");
+  osmd?.clear();
+  fillStaffs();
+  const lib = library();
+  if (!lib) return status("Your library isn't connected.", "error");
+
+  ui.pdf.removeAttribute("src");
+  ui.pdfMsg.hidden = true;
+  if (!it.pdf) {
+    ui.pdfMsg.hidden = false;
+    ui.pdfMsg.textContent = "There's no PDF beside this score.";
+  } else
+    lib
+      .open(it.piece, it.pdf, false)
+      .then(({ link }) => {
+        if (mine !== shown) return;
+        if (!link) throw new Error("no link");
+        ui.pdf.src = link.replace(/\/view(\?.*)?$/, "/preview");
+      })
+      .catch(() => {
+        if (mine !== shown) return;
+        ui.pdfMsg.hidden = false;
+        ui.pdfMsg.textContent = "Couldn't show the PDF (offline?).";
+      });
+
+  try {
+    const { data } = await lib.open(it.piece, it.xml);
+    if (mine !== shown) return;
+    if (!data) throw new Error("the file couldn't be downloaded");
+    doc = new DOMParser().parseFromString(scoreText(it.xml.name, data), "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("it isn't valid MusicXML");
+    fillStaffs();
+    const review = reviewedHere.all()[it.xml.name] ?? it.xml.review;
+    status(review ? `You ${review} this before.` : "");
+    await draw();
+  } catch (e) {
+    if (mine !== shown) return;
+    ui.xmlMsg.hidden = false;
+    ui.xmlMsg.textContent = `Couldn't load the MusicXML: ${(e as Error).message}`;
+    status("");
+  }
+}
+
+/** Unsaved fixes are only thrown away on a second press. Returns whether it's fine to leave this score. */
+function mayLeave(): boolean {
+  if (!changes.length || discardArmed) return true;
+  discardArmed = true;
+  status(`You have ${changes.length} unsaved fix${changes.length > 1 ? "es" : ""}. Approve to save them, or press again to discard.`, "error");
+  return false;
+}
+
+async function decide(verdict: "approved" | "rejected"): Promise<void> {
+  const it = items[at];
+  const lib = library();
+  if (!lib || !doc) return;
+  ui.approve.disabled = ui.reject.disabled = true;
+  status(verdict === "approved" ? "Saving…" : "Saving the rejection…");
+  try {
+    const fixes = verdict === "approved" ? changes : [];
+    if (fixes.length) await lib.writeFixedScore(it.piece.id, it.xml.name, serialize(doc));
+    const record: Record<string, unknown> = { status: verdict, at: new Date().toISOString() };
+    if (ui.note.value.trim()) record.note = ui.note.value.trim();
+    if (fixes.length) record.fixes = fixes;
+    if (it.xml.quality) record.quality = it.xml.quality;
+    await lib.writeSidecar(it.piece.id, `${stem(it.xml.name)}.review.json`, record);
+    const mine = reviewedHere.all();
+    mine[it.xml.name] = verdict;
+    reviewedHere.save(mine);
+    onDone(it.xml.name, verdict);
+    changes = [];
+    history = [];
+    const saved = verdict === "approved" ? (fixes.length ? `Approved with ${fixes.length} fix${fixes.length > 1 ? "es" : ""}; your PC puts them into the MusicXML.` : "Approved.") : "Rejected.";
+    if (at < items.length - 1) {
+      await load(at + 1);
+      status(`${saved} Here's the next one.`);
+    } else {
+      fillStaffs();
+      status(`${saved} That was the last one.`);
+    }
+  } catch (e) {
+    status((e as Error).message, "error");
+  } finally {
+    ui.approve.disabled = ui.reject.disabled = false;
+  }
+}
+
+/** Hands the MusicXML (with any fixes) to the device: the share sheet on a phone, a download on a computer. */
+async function edit(): Promise<void> {
+  const it = items[at];
+  if (!doc) return;
+  const file = new File([serialize(doc)], it.xml.name.replace(/\.mxl$/i, ".musicxml"), { type: "application/vnd.recordare.musicxml+xml" });
+  const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+  try {
+    if (mobile && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: it.piece.title });
+      status("Sent to the app you picked.");
+      return;
+    }
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return;
+  }
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(file), download: file.name });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  status(`Downloaded ${file.name}: open it from your downloads. To keep your edits, save it as MusicXML over pieces/${it.piece.id}/${it.xml.name} in the library folder.`);
+}
+
+ui.prev.addEventListener("click", () => mayLeave() && void load(at - 1));
+ui.next.addEventListener("click", () => mayLeave() && void load(at + 1));
+ui.close.addEventListener("click", () => mayLeave() && ui.dialog.close());
+ui.dialog.addEventListener("cancel", (e) => {
+  if (!mayLeave()) e.preventDefault();
+});
+ui.dialog.addEventListener("close", () => {
+  ui.pdf.removeAttribute("src");
+  osmd?.clear();
+  doc = null;
+  shown++;
+});
+for (const b of ui.dialog.querySelectorAll<HTMLButtonElement>(".rv-switch button")) b.addEventListener("click", () => show(b.dataset.show ?? "both"));
+ui.approve.addEventListener("click", () => void decide("approved"));
+ui.reject.addEventListener("click", () => void decide("rejected"));
+ui.edit.addEventListener("click", () => void edit());
+
+/** Opens the window on items[start]; Previous and Next go through the rest. */
+export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {
+  items = list;
+  onDone = done;
+  ui.dialog.showModal();
+  show("both");
+  void load(start);
+}

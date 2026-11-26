@@ -356,3 +356,40 @@ def test_fingerprint_changes_when_a_request_is_removed(tmp_path: Path) -> None:
     before = lib.fingerprint()
     r.unlink()
     assert lib.fingerprint() != before
+
+
+def test_reviews_from_the_app_reach_the_index_and_trigger_a_rebuild(tmp_path: Path) -> None:
+    make_library(tmp_path)
+    folder = tmp_path / "pieces" / "a_b"
+    folder.mkdir()
+    (folder / "a_b__x.pdf").write_bytes(b"%PDF")
+    (folder / "a_b__x.musicxml").write_text("<score-partwise/>")
+    (folder / "a_b__y.pdf").write_bytes(b"%PDF")
+    (folder / "a_b__y.musicxml").write_text("<score-partwise/>")
+    lib = Library(tmp_path)
+    before = lib.fingerprint()
+    (folder / "a_b__x.review.json").write_text(json.dumps({"status": "approved", "at": "2026-11-26"}))
+    (folder / "a_b__y.review.json").write_text(json.dumps({"status": "rejected", "note": "bar 12 wrong"}))
+    assert lib.fingerprint() != before
+    files = {f["name"]: f for p in lib.index()["pieces"] for f in p["files"]}
+    assert files["a_b__x.pdf"]["review"] == "approved"
+    assert files["a_b__y.pdf"]["review"] == "rejected"
+
+
+def test_scores_fixed_in_the_app_replace_the_conversion_and_keep_the_original(tmp_path: Path) -> None:
+    make_library(tmp_path)
+    folder = tmp_path / "pieces" / "a_b"
+    folder.mkdir()
+    (folder / "a_b__x.pdf").write_bytes(b"%PDF")
+    (folder / "a_b__x.musicxml").write_text("<converted/>")
+    (folder / "a_b__x.musicxml.fixed").write_text("<fixed/>")
+    (folder / "a_b__y.musicxml.fixed").write_text("<orphan/>")  # no score to replace: left alone
+    lib = Library(tmp_path)
+    assert lib.apply_fixes() == ["a_b/a_b__x.musicxml"]
+    assert (folder / "a_b__x.musicxml").read_text() == "<fixed/>"
+    assert (folder / "a_b__x.musicxml.orig").read_text() == "<converted/>"
+    assert not (folder / "a_b__x.musicxml.fixed").exists()
+    (folder / "a_b__x.musicxml.fixed").write_text("<fixed again/>")
+    assert lib.apply_fixes() == ["a_b/a_b__x.musicxml"]
+    assert (folder / "a_b__x.musicxml.orig").read_text() == "<converted/>"  # the first original is kept
+    assert [f["name"] for p in lib.index()["pieces"] if p["id"] == "a_b" for f in p["files"]] == ["a_b__x.pdf"]

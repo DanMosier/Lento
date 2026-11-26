@@ -270,6 +270,7 @@
         <div class="cv-tabs" role="tablist" aria-label="Convert PDF">
           <button id="cv-tab-pick" type="button" role="tab" aria-selected="true" aria-controls="cv-pick">Choose PDFs</button>
           <button id="cv-tab-queue" type="button" role="tab" aria-selected="false" aria-controls="cv-queue">Queue</button>
+          <button id="cv-tab-review" type="button" role="tab" aria-selected="false" aria-controls="cv-reviews">Review</button>
         </div>
         <div id="cv-pick" role="tabpanel" aria-labelledby="cv-tab-pick">
           <p id="cv-counts" class="hint"></p>
@@ -288,7 +289,18 @@
             </div>
             <ul id="cv-failed" class="cv-list"></ul>
           </details>
-          <details id="cv-review-box" class="cv-box" hidden><summary>Converted, worth checking</summary><ul id="cv-review" class="cv-list"></ul></details>
+        </div>
+        <div id="cv-reviews" role="tabpanel" aria-labelledby="cv-tab-review" hidden>
+          <p class="hint">Automatic conversions can have wrong notes. Open one to see the PDF and the MusicXML side by side, then approve it or reject it with a note.</p>
+          <div class="tools">
+            <select id="cv-rv-filter" aria-label="Show">
+              <option value="todo">To review</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All conversions</option>
+            </select>
+          </div>
+          <ul id="cv-rv-list" class="cv-list cv-rv-list"></ul>
         </div>
         <div id="cv-queue" role="tabpanel" aria-labelledby="cv-tab-queue" hidden>
           <div id="cv-q-batch" class="cv-batch" hidden>
@@ -324,6 +336,53 @@
         </details>
       </section>
     </div>
+
+    <dialog id="rv" class="rv" aria-label="Review a conversion">
+      <header class="rv-top">
+        <button id="rv-prev" type="button" aria-label="Previous">‹</button>
+        <div class="rv-title"><strong id="rv-name"></strong><small id="rv-sub"></small></div>
+        <button id="rv-next" type="button" aria-label="Next">›</button>
+        <button id="rv-close" type="button" aria-label="Close">✕</button>
+      </header>
+      <div class="rv-switch" role="group" aria-label="Show">
+        <button type="button" data-show="pdf">PDF</button>
+        <button type="button" data-show="both">Both</button>
+        <button type="button" data-show="xml">MusicXML</button>
+      </div>
+      <div id="rv-panes" class="rv-panes" data-show="both">
+        <div class="rv-pane rv-pdf"><iframe id="rv-pdf" title="The PDF" loading="lazy" referrerpolicy="no-referrer"></iframe><p id="rv-pdf-msg" class="hint" hidden></p></div>
+        <div class="rv-pane rv-xml"><div id="rv-xml"></div><p id="rv-xml-msg" class="hint" hidden></p></div>
+      </div>
+      <details id="rv-fix" class="rv-fix">
+        <summary>Fix clef, key, time or instrument<span id="rv-fix-count"></span></summary>
+        <ul id="rv-warn" class="rv-warn"></ul>
+        <div class="rv-fix-body">
+          <label>Staff <select id="rv-staff"></select></label>
+          <label>From measure <input id="rv-from" type="number" min="1" value="1" inputmode="numeric" /></label>
+          <div class="rv-fix-row"><label>Instrument <select id="rv-inst"></select></label><button id="rv-inst-go" type="button">Set</button></div>
+          <div class="rv-fix-row">
+            <label>Clef <select id="rv-clef"></select></label><button id="rv-clef-go" type="button">Set</button>
+            <label class="rv-check"><input id="rv-move" type="checkbox" checked /> Notes keep their place on the staff (the clef was misread)</label>
+          </div>
+          <div class="rv-fix-row"><label>Key <select id="rv-key"></select></label><button id="rv-key-go" type="button">Set</button></div>
+          <div class="rv-fix-row">
+            <label>Time <input id="rv-beats" type="number" min="1" max="32" value="4" inputmode="numeric" aria-label="Beats" /></label>
+            <select id="rv-beat-type" aria-label="Beat"><option>2</option><option selected>4</option><option>8</option><option>16</option></select>
+            <button id="rv-time-go" type="button">Set</button>
+          </div>
+          <p class="hint">Each change runs from that measure to the next clef, key or time change in the score. Approve saves them; your PC then updates the MusicXML.</p>
+          <div class="rv-fix-row"><button id="rv-undo" type="button" disabled>Undo</button></div>
+          <ul id="rv-changes" class="rv-changes"></ul>
+        </div>
+      </details>
+      <footer class="rv-bottom">
+        <input id="rv-note" type="text" placeholder="What's wrong? (optional, saved with a rejection)" aria-label="Note" />
+        <button id="rv-edit" type="button" title="Open the MusicXML in the app your device uses for it">Edit</button>
+        <button id="rv-reject" type="button">Reject</button>
+        <button id="rv-approve" type="button" class="primary">Approve</button>
+        <p id="rv-status" class="status" role="status" aria-live="polite"></p>
+      </footer>
+    </dialog>
 
     <div id="view-settings" class="view" aria-label="Settings" hidden>
       <section class="page settings">

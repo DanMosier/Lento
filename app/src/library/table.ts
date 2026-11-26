@@ -28,14 +28,16 @@ export const COLUMNS: Column[] = [
 ];
 
 /** "Yes", "check" (converted automatically, may be wrong), "MuseScore", or "" for none. */
+const RANK: Record<string, number> = { Approved: 4, Yes: 3, check: 2, Rejected: 1 }; // the best file of a piece decides
+
 export function xmlState(p: Piece): string {
   let best = "";
   for (const f of p.files) {
     const x = musicxmlOf(f);
     if (!x) continue;
     if (x.from === "musescore") return "MuseScore";
-    const s = x.quality === "REVIEW" || x.quality === "UNRELIABLE" ? "check" : "Yes";
-    if (s === "Yes" || !best) best = s;
+    const s = x.review === "approved" ? "Approved" : x.review === "rejected" ? "Rejected" : x.quality === "REVIEW" || x.quality === "UNRELIABLE" ? "check" : "Yes";
+    if ((RANK[s] ?? 0) > (RANK[best] ?? 0)) best = s;
   }
   return best;
 }

@@ -273,6 +273,10 @@ function item(p: Piece): HTMLLIElement {
         const q = el("span", "MuseScore", "quality ok");
         q.title = "Exported from a MuseScore file, so the notes are exact";
         row.append(q);
+      } else if (xml.review === "approved" || xml.review === "rejected") {
+        const q = el("span", xml.review === "approved" ? "approved" : "rejected", `rv-badge ${xml.review}`);
+        q.title = xml.review === "approved" ? "You checked this against the PDF and approved it" : "You rejected this conversion in Convert PDF's Review tab";
+        row.append(q);
       } else if (xml.quality && QUALITY[xml.quality]) {
         const q = el("span", xml.quality === "REVIEW" ? "check" : "unreliable", `quality ${xml.quality.toLowerCase()}`);
         q.title = QUALITY[xml.quality];

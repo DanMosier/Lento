@@ -60,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Flag exports whose quality estimate is lower than this (default: {REVIEW_BELOW}).",
     )
     parser.add_argument(
+        "--instrument",
+        default="Cello",
+        help='Name for one-staff parts homr can\'t identify (it calls them "Voice"). Default: Cello. "" keeps "Voice".',
+    )
+    parser.add_argument(
         "--homr-python",
         default="",
         help="python.exe of the homr environment (default: HOMR_PYTHON, then a homr folder beside the project).",
@@ -205,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         gpu=args.gpu,
         homr_python=args.homr_python,
         review_below=args.review_below,
+        instrument=args.instrument,
         # "page 2/5: name.pdf" lines let lento-library show how far a PDF has got
         on_page=lambda pdf, page, pages: print(f"      page {page}/{pages}: {pdf.name}", flush=True),
     )
