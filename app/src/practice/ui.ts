@@ -11,7 +11,7 @@ import { type PitchTrack } from "./pitch";
 import { trackPitchAsync } from "./pitch-async";
 import { roomOut } from "../core/room";
 import { SoundBank } from "../core/sounds";
-import { partInstrument, Player } from "./player";
+import { partInstrument, Player } from "../core/player";
 import { reportedDelay, TapTest } from "./latency";
 import { decodeFile, encodeWav, Recorder, toAnalysisRate } from "./recorder";
 import { coloredScore, describe, LABELS, problemSpots, summarize, type Spot } from "./report";

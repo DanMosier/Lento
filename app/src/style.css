@@ -406,6 +406,14 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 @media (max-width: 760px) {
   .rv-panes[data-show="both"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
 }
+.rv-play { flex: none; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px max(10px, env(safe-area-inset-left)); border-top: 1px solid var(--line); }
+.rv-play button { min-height: 44px; min-width: 5.5em; }
+@media (max-width: 760px) { .rv-play .rv-wide { display: none; } .rv-play { gap: 6px 8px; } }
+.rv-play button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.rv-play label { display: flex; gap: 6px; align-items: center; }
+.rv-play select, .rv-play input { min-height: 40px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.rv-play input { width: 4.5em; }
+.rv-play-at { color: var(--muted); font-variant-numeric: tabular-nums; }
 .rv-fix { border-top: 1px solid var(--line); max-height: 40dvh; overflow: auto; padding: 0 max(10px, env(safe-area-inset-left)); }
 .rv-fix { flex: none; }
 .rv-fix summary { min-height: 44px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }

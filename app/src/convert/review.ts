@@ -1,6 +1,7 @@
 /**
  * The Review window: a converted score's PDF and MusicXML side by side (or one at a time on a phone), with quick
- * fixes for the clef, key, time signature and instrument, then Approve or Reject.
+ * fixes for the clef, key, time signature and instrument, a Play button to listen to it (see review-play.ts), then
+ * Approve or Reject.
  *
  * Loaded only when a review is opened, with the score renderer, so it costs nothing at startup. The PDF is shown
  * by Google Drive's own viewer, so it isn't downloaded or drawn here.
@@ -51,6 +52,10 @@ const ui = {
   reject: $<HTMLButtonElement>("rv-reject"),
   approve: $<HTMLButtonElement>("rv-approve"),
   status: $("rv-status"),
+  play: $<HTMLButtonElement>("rv-play"),
+  playFrom: $<HTMLInputElement>("rv-play-from"),
+  speed: $<HTMLSelectElement>("rv-speed"),
+  playAt: $("rv-play-at"),
 };
 
 let items: ReviewItem[] = [];
@@ -139,6 +144,7 @@ function fix(what: (d: Document, from: number) => string): void {
     changes.push(what(doc, from));
     history.push(saved);
     discardArmed = false;
+    stopPlay();
     fillStaffs();
     status("");
     void draw();
@@ -193,6 +199,7 @@ ui.undo.addEventListener("click", () => {
   if (last == null) return;
   doc = new DOMParser().parseFromString(last, "application/xml");
   changes.pop();
+  stopPlay();
   fillStaffs();
   void draw();
 });
@@ -225,6 +232,8 @@ async function load(i: number): Promise<void> {
   at = i;
   const it = items[i];
   const mine = ++shown;
+  stopPlay();
+  ui.playFrom.value = "1";
   doc = null;
   history = [];
   changes = [];
@@ -276,6 +285,50 @@ async function load(i: number): Promise<void> {
     ui.xmlMsg.hidden = false;
     ui.xmlMsg.textContent = `Couldn't load the MusicXML: ${(e as Error).message}`;
     status("");
+  }
+}
+
+// ---- Listening: the player and its sounds load the first time Play is pressed ----
+type Playback = typeof import("./review-play");
+let playback: Playback | null = null;
+let playTimer: number | null = null;
+
+function setPlaying(on: boolean): void {
+  ui.play.textContent = on ? "■ Stop" : "▶ Play";
+  ui.play.setAttribute("aria-pressed", String(on));
+  if (playTimer !== null) window.clearInterval(playTimer);
+  playTimer = null;
+  ui.playAt.textContent = "";
+  if (on)
+    playTimer = window.setInterval(() => {
+      const m = playback?.nowMeasure();
+      ui.playAt.textContent = m ? `m. ${m}` : "";
+    }, 250);
+}
+
+function stopPlay(): void {
+  playback?.stop();
+  setPlaying(false);
+}
+
+/** Plays the score as fixed so far, from the chosen measure, or stops it. */
+async function togglePlay(): Promise<void> {
+  if (playback?.isPlaying()) return stopPlay();
+  if (!doc) return;
+  const mine = shown;
+  const xml = serialize(doc);
+  ui.play.disabled = true;
+  try {
+    playback ??= await import("./review-play");
+    if (mine !== shown) return;
+    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false));
+    if (mine !== shown) return playback.stop();
+    ui.playFrom.max = String(measures);
+    setPlaying(true);
+  } catch (e) {
+    status((e as Error).message, "error");
+  } finally {
+    ui.play.disabled = false;
   }
 }
 
@@ -350,6 +403,7 @@ ui.dialog.addEventListener("cancel", (e) => {
   if (!mayLeave()) e.preventDefault();
 });
 ui.dialog.addEventListener("close", () => {
+  stopPlay();
   pdfFrame(null);
   osmd?.clear();
   doc = null;
@@ -360,6 +414,7 @@ ui.approve.addEventListener("click", () => void decide("approved"));
 ui.reject.addEventListener("click", () => void decide("rejected"));
 ui.edit.addEventListener("click", () => void edit());
 ui.split.addEventListener("click", toggleSplit);
+ui.play.addEventListener("click", () => void togglePlay());
 
 /** Opens the window on items[start]; Previous and Next go through the rest. */
 export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {
