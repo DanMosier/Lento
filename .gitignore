@@ -8,3 +8,7 @@ dist/
 open_source_vsts/
 # third-party sheet music used as test fixtures; do not publish
 tests/fixtures/homr/
+# Playwright's results and reports (app/playwright-report/index.html after a run)
+app/test-results/
+app/playwright-report/
+app/playwright/.cache/

@@ -37,7 +37,8 @@ It installs as an app (PWA), works offline, and keeps everything on the device.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # analyzer tests on synthetic cello takes
+npm test         # unit tests
+npm run e2e      # browser (GUI) tests at phone, tablet and desktop size; npm run e2e:watch to watch them
 npm run build    # static site in dist/
 ```
 
