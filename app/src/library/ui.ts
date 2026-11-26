@@ -1,6 +1,6 @@
 /** The Library screen: browse the score library in Google Drive and open a score into Practice. */
 import { $, requestOpenScore } from "../core/app";
-import { cache, findLibrary, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
+import { auth, cache, findLibrary, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
 import { fileKey, type DriveLibrary } from "../core/library/library";
 import { store } from "../core/app";
 import { allTags, musicxmlOf, requestName, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
@@ -56,22 +56,47 @@ function setup(): DriveLibrary | null {
   return lib;
 }
 
+/**
+ * Looks for a newer library.json in Drive without being asked (the PC's watcher rewrites it after conversions and
+ * changes). Only while already signed in, so it never opens Google's sign-in window by itself.
+ */
+async function checkForUpdate(): Promise<void> {
+  const lib = connect();
+  if (!lib || !auth.signedIn || checking || ui.refresh.disabled) return;
+  checking = true;
+  try {
+    const fresh = await lib.newerIndex();
+    if (!fresh || ui.refresh.disabled) return;
+    await loaded(fresh);
+  } catch {
+    /* offline: the saved copy stays, and Refresh says what's wrong */
+  } finally {
+    checking = false;
+  }
+}
+let checking = false;
+
+/** Shows a newly fetched index. */
+async function loaded(fresh: LibraryIndex): Promise<void> {
+  index = fresh;
+  offlineKeys = new Set(await cache.keys());
+  const stillWaiting = new Set(index.pieces.flatMap((p) => p.files.filter(needsXml).map(requestName)));
+  const mine = requests.all();
+  for (const r of [...mine]) if (!stillWaiting.has(r)) mine.delete(r);
+  requests.save(mine);
+  menus();
+  render();
+  fitTable();
+  libraryChanged();
+}
+
 async function refresh(): Promise<void> {
   const lib = setup();
   if (!lib) return;
   ui.refresh.disabled = true;
   status("Loading the library from Google Drive…");
   try {
-    index = await lib.loadIndex();
-    offlineKeys = new Set(await cache.keys());
-    const stillWaiting = new Set(index.pieces.flatMap((p) => p.files.filter(needsXml).map(requestName)));
-    const mine = requests.all();
-    for (const r of [...mine]) if (!stillWaiting.has(r)) mine.delete(r);
-    requests.save(mine);
-    menus();
-    render();
-    fitTable();
-    libraryChanged();
+    await loaded(await lib.loadIndex());
     void syncLists(true);
   } catch (e) {
     status((e as Error).message, "error");
@@ -171,7 +196,7 @@ function renderNow(): void {
   const base = view === "fav" ? index.pieces.filter((p) => favs.has(p.id)) : index.pieces;
   shown = rows(base, f, sort);
   ui.clear.hidden = !(f.genre || f.instrumentation || f.level || f.tag || f.musicxml);
-  const when = index.generated ? ` · index from ${new Date(index.generated).toLocaleDateString()}` : "";
+  const when = index.generated ? ` · updated ${new Date(index.generated).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "";
   const what = view === "fav" ? "favorites" : "pieces";
   status(shown.length === base.length ? `${base.length} ${what}${view === "fav" ? "" : when}` : `${shown.length} of ${base.length} ${what}`);
   header();
@@ -554,7 +579,7 @@ export async function enterLibrary(): Promise<void> {
   requestAnimationFrame(fitTable);
   // other devices' favorites and setlists, after the table is up (only if already signed in: no sign-in window)
   window.setTimeout(() => void syncLists(false), 300);
-  if (started) return;
+  if (started) return void checkForUpdate();
   started = true;
   const lib = setup();
   if (!lib) {
@@ -572,4 +597,10 @@ export async function enterLibrary(): Promise<void> {
     render();
     requestAnimationFrame(fitTable);
   } else status("Press Refresh to load your library from Google Drive.");
+  void checkForUpdate(); // after the saved copy, so a newer one from Drive replaces it and not the other way round
 }
+
+// coming back to the app with the Library open: the PC may have changed the library meanwhile
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !$("view-library").hidden) void checkForUpdate();
+});
