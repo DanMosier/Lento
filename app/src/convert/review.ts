@@ -12,6 +12,7 @@ import { library, reviewedHere } from "../core/library/connection";
 import type { LibraryFile, Piece } from "../core/library/model";
 import { guardRenderer, skippedNote, takeSkipped } from "../core/osmd-safety";
 import { timed } from "../core/perf";
+import { beatAt, beatPlaces, type BeatPlace } from "../core/tap";
 import { scoreText } from "../core/score";
 import { isFlagged, setSplit } from "./split-list";
 import { changeSplit, currentSplit, onSplitChanged } from "./split-store";
@@ -74,6 +75,8 @@ let onDone: (name: string, status: string) => void = () => {};
 let osmd: OpenSheetMusicDisplay | null = null;
 let shown = 0; // which score is on screen, so a slow load of an earlier one can't replace it
 let page = 0; // which group of bars is drawn
+let pageFirst = 0; // index of the first bar drawn
+let tapPlaces: BeatPlace[] | null = null; // where the drawn notes are, found on the first tap after a draw
 let drawing = 0; // bumped by each draw, so a slower earlier one can't replace a newer one
 
 /**
@@ -140,6 +143,8 @@ async function draw(): Promise<void> {
       return true;
     });
     if (!drew) return;
+    pageFirst = p.pages === 1 ? 0 : p.first;
+    tapPlaces = null; // drawn again: notes have moved
     ui.xml.parentElement?.scrollTo({ top: 0 });
     const left = skippedNote();
     ui.xmlMsg.hidden = !left;
@@ -346,9 +351,9 @@ function stopPlay(): void {
   setPlaying(false);
 }
 
-/** Plays the score as fixed so far, from the chosen measure, or stops it. */
-async function togglePlay(): Promise<void> {
-  if (playback?.isPlaying()) return stopPlay();
+/** Plays the score as fixed so far, from the chosen measure, or stops it. A tapped note plays from that note. */
+async function togglePlay(tapped?: { pageFirst: number; beat: number }): Promise<void> {
+  if (playback?.isPlaying() && !tapped) return stopPlay();
   if (!doc) return;
   const mine = shown;
   const xml = serialize(doc);
@@ -356,7 +361,7 @@ async function togglePlay(): Promise<void> {
   try {
     playback ??= await import("./review-play");
     if (mine !== shown) return;
-    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false));
+    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false), tapped);
     if (mine !== shown) return playback.stop();
     ui.playFrom.max = String(measures);
     setPlaying(true);
@@ -458,6 +463,16 @@ ui.reject.addEventListener("click", () => void decide("rejected"));
 ui.edit.addEventListener("click", () => void edit());
 ui.split.addEventListener("click", toggleSplit);
 ui.play.addEventListener("click", () => void togglePlay());
+
+// Tap a note in the drawn MusicXML to listen from there (tapping again while it plays jumps)
+ui.xml.addEventListener("click", (e) => {
+  if (!osmd || !doc || drawing === 0) return;
+  tapPlaces ??= beatPlaces(osmd, ui.xml);
+  const c = ui.xml.getBoundingClientRect();
+  const beat = beatAt(tapPlaces, e.clientX - c.left + ui.xml.scrollLeft, e.clientY - c.top + ui.xml.scrollTop);
+  if (beat === null) return;
+  void togglePlay({ pageFirst, beat });
+});
 
 /** Opens the window on items[start]; Previous and Next go through the rest. */
 export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {

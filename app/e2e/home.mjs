@@ -10,7 +10,7 @@ import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const xml = `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Voice</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure></part></score-partwise>`;
+const xml = `<?xml version="1.0" encoding="UTF-8"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Voice</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure><measure number="2"><note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure><measure number="3"><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure></part></score-partwise>`;
 const server = await createServer({ root, logLevel: "error", server: { port: 4319, strictPort: true } });
 await server.listen();
 const browser = await chromium.launch();
@@ -81,6 +81,23 @@ try {
   if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/review-playing.png` });
   await page.click("#rv-play");
   if ((await page.getAttribute("#rv-play", "aria-pressed")) !== "false") failures.push("Stop in the review window didn't stop playback");
+  // Tap the last note drawn: it plays from there, not from the first measure
+  const lastHead = await page.evaluate(() => {
+    const h = [...document.querySelectorAll("#rv-xml svg g.vf-notehead")].at(-1);
+    if (!h) return null;
+    h.scrollIntoView({ block: "center" });
+    const r = h.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  if (lastHead) {
+    await page.mouse.click(lastHead.x, lastHead.y);
+    await page.waitForFunction(() => document.querySelector("#rv-play").getAttribute("aria-pressed") === "true", null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const at = await page.textContent("#rv-play-at");
+    if ((await page.getAttribute("#rv-play", "aria-pressed")) !== "true") failures.push("Tapping a note in the review window didn't start playback");
+    else if (at === "m. 1") failures.push(`Tapping the last note in the review window played from ${at}`);
+    await page.click("#rv-play");
+  } else failures.push("the review window drew no noteheads to tap");
   await page.waitForTimeout(500); // let the PDF frame load and add its history entry
   await page.click("#rv-split"); // flags the first one, "Other Piece"
   if ((await page.getAttribute("#rv-split", "aria-pressed")) !== "true") failures.push("Flag for splitting didn't flag the PDF");
@@ -113,4 +130,4 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen; the review window plays and stops the score.");
+console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen; the review window plays and stops the score, and plays from a tapped note.");
