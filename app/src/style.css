@@ -399,6 +399,10 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 .rv-pdf iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
 .rv-xml #rv-xml { background: #fff; min-height: 100%; }
 .rv-pane .hint { padding: 16px; }
+.rv-bars { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.rv-bars[hidden] { display: none; }
+.rv-bars span { flex: 1; text-align: center; font-size: 0.9rem; color: var(--muted); }
+.rv-bars button { min-height: 40px; }
 .rv-bottom { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px max(10px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 .rv-bottom input { flex: 1 1 200px; min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-height: 44px; }
 .rv-bottom button { min-height: 44px; }
