@@ -92,6 +92,16 @@ def test_success_writes_output_and_reports_parts_from_homr(fake_homr, tmp_path):
     assert not list(tmp_path.glob("*.part"))
 
 
+def test_page_image_is_given_to_homr_as_an_image(fake_homr, tmp_path):
+    config, calls = fake_homr(SCORE.format(NOTE))
+    photo = tmp_path / "01.JPG"
+    photo.write_bytes(b"\xff\xd8 stand-in")
+    item = convert_single_pdf(item_for(photo), config, READY)
+    assert item.status == "converted", item.error_message
+    assert calls[0][-1].endswith("score.jpg")
+    assert item.output_musicxml_path == tmp_path / "01.musicxml"
+
+
 @pytest.mark.parametrize(
     ("xml", "returncode", "stderr", "expected"),
     [
