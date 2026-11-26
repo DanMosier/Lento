@@ -328,6 +328,12 @@
               <option value="all">All conversions</option>
             </select>
           </div>
+          <details id="cv-split-box" class="cv-split" open hidden>
+            <summary id="cv-split-title">To split</summary>
+            <p class="hint">PDFs holding more than one piece. On your PC, right-click the PDF and choose Send to &gt; Split sheet music PDF (or run <code>python -m lento_convertpdf.split_tool</code>), then mark it Done.</p>
+            <ul id="cv-split-list" class="cv-list cv-split-list"></ul>
+            <p id="cv-split-note" class="hint"></p>
+          </details>
           <ul id="cv-rv-list" class="cv-list cv-rv-list"></ul>
         </div>
         <div id="cv-queue" role="tabpanel" aria-labelledby="cv-tab-queue" hidden>
@@ -406,6 +412,7 @@
       <footer class="rv-bottom">
         <input id="rv-note" type="text" placeholder="What's wrong? (optional, saved with a rejection)" aria-label="Note" />
         <button id="rv-edit" type="button" title="Open the MusicXML in the app your device uses for it">Edit</button>
+        <button id="rv-split" type="button" aria-pressed="false" title="This PDF holds several pieces: add it to the To split list in the Review tab">Flag for splitting</button>
         <button id="rv-reject" type="button">Reject</button>
         <button id="rv-approve" type="button" class="primary">Approve</button>
         <p id="rv-status" class="status" role="status" aria-live="polite"></p>

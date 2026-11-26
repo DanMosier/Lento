@@ -1,6 +1,7 @@
 /**
  * Home always gets you home: opens every screen (and the Convert PDF review window, whose embedded PDF viewer adds
- * history entries of its own) and checks that the Home button returns to the home screen each time.
+ * history entries of its own) and checks that the Home button returns to the home screen each time. On the way it
+ * flags the reviewed PDF for splitting and checks it reaches the To split list and can be marked done.
  * Runs the dev server with the Drive library replaced by a stand-in. Exits 1 on a failure.  npm run e2e
  */
 import { createServer } from "vite";
@@ -26,6 +27,8 @@ try {
     const P = DriveLibrary.prototype;
     P.cachedIndex = P.loadIndex = async () => index;
     P.pcStatus = async () => null;
+    P.readRootJson = async () => null;
+    P.writeRootJson = async () => {};
     P.open = async (piece, file) => (file.kind === "pdf" ? { link: "https://drive.example/file/d/1/view", offline: false } : { data: new TextEncoder().encode(xml).buffer, offline: false });
   }, xml);
 
@@ -49,7 +52,19 @@ try {
   await page.waitForSelector("#rv-xml svg", { timeout: 15000 });
   await page.waitForTimeout(500); // let the PDF frame load and add its history entry
   await page.click("#rv-next").catch(() => {});
+  await page.click("#rv-split");
+  if ((await page.getAttribute("#rv-split", "aria-pressed")) !== "true") failures.push("Flag for splitting didn't flag the PDF");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/review-flagged.png` });
   await page.click("#rv-close");
+  try {
+    await page.waitForSelector("#cv-split-box:not([hidden]) #cv-split-list li:has-text('Test Piece')", { timeout: 2000 });
+    if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/split-list.png` });
+    await page.click('#cv-split-list button:has-text("Done")');
+    await page.waitForSelector("#cv-split-list li.done", { timeout: 2000 });
+    if ((await page.textContent("#cv-split-title"))?.includes("(")) failures.push("A PDF marked done still counts as to split");
+  } catch {
+    failures.push("The flagged PDF didn't show in the To split list, or couldn't be marked done");
+  }
   await home("the review window");
 } finally {
   await browser.close();
@@ -59,4 +74,4 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("Home works from every screen and after a review.");
+console.log("Home works from every screen and after a review; Flag for splitting reaches the To split list.");

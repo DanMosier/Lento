@@ -9,6 +9,8 @@ import type { LibraryFile, LibraryIndex, Piece } from "../core/library/model";
 import { fold, musicxmlOf, pcOnline, requestName, requestNameOf, type PcStatus } from "../core/library/model";
 import { buildQueue, duration, item, namesOf, type Names, type QueueItem } from "./queue";
 import type { ReviewItem } from "./review";
+import { flagged, isFlagged, recentlyDone, setSplit, type SplitEntry } from "./split-list";
+import { changeSplit, currentSplit, onSplitChanged, splitSyncNote, syncSplit } from "./split-store";
 
 const SHOWN = 200;
 
@@ -29,6 +31,10 @@ const ui = {
   reviews: $("cv-reviews"),
   rvFilter: $<HTMLSelectElement>("cv-rv-filter"),
   rvList: $<HTMLUListElement>("cv-rv-list"),
+  splitBox: $<HTMLDetailsElement>("cv-split-box"),
+  splitTitle: $("cv-split-title"),
+  splitList: $<HTMLUListElement>("cv-split-list"),
+  splitNote: $("cv-split-note"),
   pick: $("cv-pick"),
   queue: $("cv-queue"),
   qBatch: $("cv-q-batch"),
@@ -207,6 +213,8 @@ function renderReviews(): void {
     const row = li(it.piece.title, [it.piece.composer, it.xml.edition || it.xml.variant].filter(Boolean).join(" · "));
     const v = verdict(it, mine);
     const badge = v || (it.xml.quality === "UNRELIABLE" ? "unreliable" : it.xml.quality === "REVIEW" ? "review" : "");
+    if (it.pdf && isFlagged(currentSplit(), it.piece.id, it.pdf.name))
+      row.firstElementChild?.append(Object.assign(document.createElement("span"), { className: "rv-badge split", textContent: "To split" }));
     if (badge) {
       const b = Object.assign(document.createElement("span"), { className: `rv-badge ${badge}`, textContent: { approved: "Approved", rejected: "Rejected", unreliable: "Likely wrong", review: "Check" }[badge] ?? badge });
       row.firstElementChild?.append(b);
@@ -217,10 +225,67 @@ function renderReviews(): void {
     row.append(open);
     return row;
   });
+  renderSplit();
   ui.rvList.replaceChildren(...rows);
   if (list.length > SHOWN) ui.rvList.append(li(`…and ${list.length - SHOWN} more. Search to narrow the list.`));
   if (!list.length) ui.rvList.append(li(want === "todo" ? (all.length ? "Nothing left to review." : "No conversions yet.") : "None."));
 }
+
+// ---- the To split list (in the Review tab) ----
+
+function splitRow(e: SplitEntry): HTMLLIElement {
+  const done = e.state === "done";
+  const when = new Date(done ? e.at : e.flagged).toLocaleDateString();
+  const row = li(e.title, `${e.pdf} · ${done ? "split" : "flagged"} ${when}`);
+  if (done) row.className = "done";
+  const acts = Object.assign(document.createElement("span"), { className: "cv-split-acts" });
+  const btn = (text: string, aria: string, fn: () => void) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", textContent: text });
+    b.setAttribute("aria-label", `${aria} ${e.title}`);
+    b.addEventListener("click", fn);
+    acts.append(b);
+  };
+  const piece = index?.pieces.find((p) => p.id === e.piece);
+  const file = piece?.files.find((f) => f.name === e.pdf);
+  if (!done && piece && file) btn("PDF", "Open the PDF of", () => void openPdf(piece, file));
+  if (done) btn("Undo", "Put back on the list:", () => changeSplit((l) => setSplit(l, e.piece, e.pdf, e.title, "flagged")));
+  else {
+    btn("Done", "Mark as split:", () => changeSplit((l) => setSplit(l, e.piece, e.pdf, e.title, "done")));
+    btn("Unflag", "Take off the list:", () => changeSplit((l) => setSplit(l, e.piece, e.pdf, e.title, "off")));
+  }
+  row.append(acts);
+  return row;
+}
+
+async function openPdf(piece: Piece, file: LibraryFile): Promise<void> {
+  const lib = library();
+  if (!lib) return;
+  const w = window.open("", "_blank"); // opened during the tap, so the browser doesn't block it
+  try {
+    const { link } = await lib.open(piece, file, false);
+    if (!link) throw new Error("no link");
+    if (w) w.location.href = link;
+    else window.open(link, "_blank");
+  } catch {
+    w?.close();
+    status("Couldn't open the PDF (offline?).", "error");
+  }
+}
+
+function renderSplit(): void {
+  const l = currentSplit();
+  const todo = flagged(l);
+  const done = recentlyDone(l);
+  ui.splitBox.hidden = !todo.length && !done.length;
+  if (ui.splitBox.hidden) return;
+  ui.splitTitle.textContent = todo.length ? `To split (${todo.length})` : "To split";
+  ui.splitList.replaceChildren(...todo.map(splitRow), ...done.map(splitRow));
+  if (!todo.length) ui.splitList.prepend(li("Nothing left to split."));
+  ui.splitNote.textContent = splitSyncNote();
+}
+onSplitChanged(() => {
+  if (!ui.reviews.hidden) renderReviews();
+});
 
 async function openAt(list: ReviewItem[], i: number): Promise<void> {
   try {
@@ -307,6 +372,7 @@ async function load(fromDrive: boolean): Promise<void> {
       status(index.generated ? `Library index from ${new Date(index.generated).toLocaleString()}.` : "");
       render();
       if (fromDrive) {
+        void syncSplit(true);
         libraryChanged();
         void loadPc();
       }
@@ -557,6 +623,7 @@ let stale = true;
 export function enterConvert(): void {
   updateTimers();
   if (queueVisible() && !stale) void loadPc();
+  window.setTimeout(() => void syncSplit(false), 300); // picks up flags made on another device, if signed in
   if (!stale) return;
   stale = false;
   void load(false);
