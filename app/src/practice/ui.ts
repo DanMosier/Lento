@@ -22,6 +22,7 @@ import { library } from "../core/library/connection";
 import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
 import { pageLayout, parseScoreSize, phoneScreen, SCORE_SIZES } from "./layout";
 import { setUpFocus } from "./focus";
+import { guardRenderer, takeSkippedSlurs } from "./osmd-safety";
 import { applyView, CLEF_LABELS, cleanView, isPlain, MAX_TRANSPOSE, PLAIN_VIEW, transposeLabel, type ClefChoice, type ScoreView } from "./view";
 
 const ui = {
@@ -85,10 +86,10 @@ let showingColors = false;
 let osmd: OpenSheetMusicDisplay | null = null;
 let osmdLoading: Promise<OpenSheetMusicDisplay> | null = null;
 function sheetRenderer(): Promise<OpenSheetMusicDisplay> {
-  osmdLoading ??= import("opensheetmusicdisplay").then(
-    ({ OpenSheetMusicDisplay }) =>
-      (osmd = new OpenSheetMusicDisplay(ui.sheet, { autoResize: false, backend: "svg", drawTitle: true, drawPartNames: true, followCursor: true })),
-  );
+  osmdLoading ??= import("opensheetmusicdisplay").then((m) => {
+    guardRenderer(m as unknown as Record<string, unknown>);
+    return (osmd = new m.OpenSheetMusicDisplay(ui.sheet, { autoResize: false, backend: "svg", drawTitle: true, drawPartNames: true, followCursor: true }));
+  });
   return osmdLoading;
 }
 
@@ -372,7 +373,9 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   showBest();
   void loadMarks();
   const shown = isPlain(v) ? "" : ` Shown ${[v.transpose ? transposeLabel(v.transpose).toLowerCase() : "", v.clef !== "written" ? `in ${CLEF_LABELS[v.clef].toLowerCase()} clef` : ""].filter(Boolean).join(", ")}.`;
-  status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.${shown}` : "This part has no notes.");
+  const slurs = takeSkippedSlurs();
+  const skippedNote = slurs ? ` ${slurs} slur${slurs > 1 ? "s" : ""} that couldn't be placed ${slurs > 1 ? "were" : "was"} left out.` : "";
+  status(s.notes.length ? `${s.partName}: ${s.notes.length} notes in ${s.measures.length} measures.${shown}${skippedNote}` : "This part has no notes.");
   if (s.parts.length > 1) store.set(`parts:${name}`, choice);
 }
 
