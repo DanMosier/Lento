@@ -10,6 +10,8 @@ import { $ } from "../core/app";
 import { library, reviewedHere } from "../core/library/connection";
 import type { LibraryFile, Piece } from "../core/library/model";
 import { scoreText } from "../core/score";
+import { isFlagged, setSplit } from "./split-list";
+import { changeSplit, currentSplit, onSplitChanged } from "./split-store";
 import { CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, serialize, setClef, setInstrument, setKey, setTime, staves, warnings, type Clef } from "./fixes";
 
 export interface ReviewItem {
@@ -45,6 +47,7 @@ const ui = {
   changes: $<HTMLUListElement>("rv-changes"),
   note: $<HTMLInputElement>("rv-note"),
   edit: $<HTMLButtonElement>("rv-edit"),
+  split: $<HTMLButtonElement>("rv-split"),
   reject: $<HTMLButtonElement>("rv-reject"),
   approve: $<HTMLButtonElement>("rv-approve"),
   status: $("rv-status"),
@@ -194,6 +197,27 @@ ui.undo.addEventListener("click", () => {
   void draw();
 });
 
+/** Shows whether the score on screen is flagged for splitting (only a PDF can be split). */
+function showSplit(): void {
+  const it = items[at];
+  const on = !!it?.pdf && isFlagged(currentSplit(), it.piece.id, it.pdf.name);
+  ui.split.disabled = !it?.pdf;
+  ui.split.setAttribute("aria-pressed", String(on));
+  ui.split.textContent = on ? "To split ✓" : "Flag for splitting";
+}
+
+function toggleSplit(): void {
+  const it = items[at];
+  if (!it?.pdf) return;
+  const pdf = it.pdf;
+  const on = isFlagged(currentSplit(), it.piece.id, pdf.name);
+  changeSplit((l) => setSplit(l, it.piece.id, pdf.name, it.piece.title, on ? "off" : "flagged"));
+  status(on ? "Taken off the To split list." : "Added to the To split list in the Review tab, as a reminder to split this PDF on your PC.");
+}
+onSplitChanged(() => {
+  if (ui.dialog.open) showSplit();
+});
+
 const stem = (name: string) => name.replace(/\.(musicxml|mxl|xml)$/i, "");
 const canFix = (it: ReviewItem) => !/\.mxl$/i.test(it.xml.name); // the PC replaces the score with plain MusicXML
 
@@ -211,6 +235,7 @@ async function load(i: number): Promise<void> {
   ui.sub.textContent = [it.piece.composer, it.xml.edition || it.xml.variant, `${i + 1} of ${items.length}`].filter(Boolean).join(" · ");
   ui.note.value = "";
   ui.fix.hidden = !canFix(it);
+  showSplit();
   status("Loading…");
   osmd?.clear();
   fillStaffs();
@@ -334,6 +359,7 @@ for (const b of ui.dialog.querySelectorAll<HTMLButtonElement>(".rv-switch button
 ui.approve.addEventListener("click", () => void decide("approved"));
 ui.reject.addEventListener("click", () => void decide("rejected"));
 ui.edit.addEventListener("click", () => void edit());
+ui.split.addEventListener("click", toggleSplit);
 
 /** Opens the window on items[start]; Previous and Next go through the rest. */
 export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {
