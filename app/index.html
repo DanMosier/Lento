@@ -334,9 +334,13 @@
           </div>
           <details id="cv-split-box" class="cv-split" open hidden>
             <summary id="cv-split-title">To split</summary>
-            <p class="hint">PDFs holding more than one piece. On your PC, right-click the PDF and choose Send to &gt; Split sheet music PDF (or run <code>python -m lento_convertpdf.split_tool</code>), then mark it Done.</p>
+            <p class="hint">PDFs holding more than one piece. Press Split, tap the page where each piece starts, and save: the pieces go to your library's inbox in Drive, ready to file. (On your PC, Send to &gt; Split sheet music PDF does the same.)</p>
             <ul id="cv-split-list" class="cv-list cv-split-list"></ul>
             <p id="cv-split-note" class="hint"></p>
+            <div class="tools">
+              <label class="button" for="cv-split-file">Split a PDF from this device</label>
+              <input id="cv-split-file" type="file" accept="application/pdf,.pdf" hidden />
+            </div>
           </details>
           <ul id="cv-rv-list" class="cv-list cv-rv-list"></ul>
         </div>

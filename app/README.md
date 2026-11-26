@@ -30,6 +30,12 @@ stay put at any size, and they're saved on the device and, for library scores, b
 queue PDFs (one or a batch) for MusicXML conversion on your PC.
 Scores you've opened work offline. Setup: [docs/library.md](../docs/library.md).
 
+**Split a PDF** (in Convert PDF > Review > To split): a PDF holding several pieces opens as a grid of its pages; tap
+the page where each piece starts (the PDF's own bookmarks are suggested first), name the pieces, and save them to the
+library's `inbox/` in Drive, named the way the PC's splitter names them. It runs on the phone too: pdf.js reads and
+copies the pages in the browser, loaded only when the splitter opens. A PDF from the device can be split and
+downloaded the same way.
+
 **Tuner:** live note and cents from the microphone, with reference tones for the open strings.
 
 It installs as an app (PWA), works offline, and keeps everything on the device.
@@ -51,6 +57,7 @@ flowchart TD
     Main["main.ts: Home screen and switching screens"] -- "loads on first open" --> Practice["practice/"]
     Main -- "loads on first open" --> Library["library/"]
     Main -- "loads on first open" --> Convert["convert/"]
+    Convert -- "loads when a splitter opens" --> Split["split/ (and pdf.js)"]
     Main -- "loads on first open" --> Tuner["tuner/"]
     Main -- "loads on first open" --> Settings["settings/"]
     Practice --> Core["core/: score reading, sounds, mic pitch, settings, Drive library"]
@@ -77,6 +84,8 @@ screen. Features never import each other.
   `parts.ts` (the part picker), `wait.ts` (wait mode's judging), `trainer.ts` (the speed trainer's rules), `marks.ts` and `marks-view.ts` (score marks), `layout.ts` (score size for the screen), `view.ts` (transpose and clef), `focus.ts` (the Hide controls mode), `recorder.ts`, `latency.ts` (headphone delay), `ui.ts`.
 - `src/library/` Library: browse and open scores. It hands a score to Practice with `requestOpenScore` from core.
 - `src/convert/` Convert PDF: queue PDFs for the PC's watcher and show its status.
+- `src/split/` the PDF splitter: `plan.ts` (pages and file names, like `lento_convertpdf/pdf_splitter.py`), `pdf.ts`
+  (pdf.js: page pictures, bookmarks, copying pages), `ui.ts` (the window).
 - `src/tuner/` Tuner. `src/settings/` Settings (library connection, tuning, headphone delay, judging windows, sounds).
 - `src/main.ts` the shell. Each feature's code loads the first time its screen opens (or, for Practice, when the
   Library sends it a score), so the app starts with about 2 KB of script however many features there are. To add a

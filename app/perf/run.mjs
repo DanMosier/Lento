@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { preview } from "vite";
 import { chromium } from "playwright";
-import { scoreXml, takeWav } from "./fixtures.mjs";
+import { scoreXml, takeWav, sheetPdf } from "./fixtures.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -24,6 +24,7 @@ const BIG_MEASURES = 400;
 writeFileSync(join(tmp, "take-score.musicxml"), scoreXml(TAKE_MEASURES, 120, "Three minute piece"));
 writeFileSync(join(tmp, "big-score.musicxml"), scoreXml(BIG_MEASURES, 120, "Long piece"));
 writeFileSync(join(tmp, "take.wav"), takeWav(TAKE_MEASURES));
+writeFileSync(join(tmp, "book.pdf"), sheetPdf(80, [1, 9, 17, 30, 44, 61])); // an 80-page book of six pieces, for the splitter
 writeFileSync(join(tmp, "mic.wav"), takeWav(12, 120, 48000)); // what the fake microphone "plays" in wait mode
 
 // ---- bundle size: what the phone downloads before the app can start ----
@@ -223,6 +224,33 @@ try {
   await page.click("#lib-tab-all");
   await waitFor("library-render", 6);
   results["library-lists-longest-block-ms"] = await longestTask(t);
+
+  // 7. The PDF splitter: open an 80-page book (its code and pdf.js load the first time), draw the first pages, mark
+  // a piece, and make the PDFs. The page must stay responsive while pages draw.
+  await page.click("#home-btn");
+  await page.click('.home-card[data-go="convert"]');
+  await page.click("#cv-tab-review");
+  t = await now();
+  await page.setInputFiles("#cv-split-file", join(tmp, "book.pdf"));
+  await waitFor("split-open");
+  results["split-open-ms"] = (await measure("split-open"))[0];
+  await page.waitForFunction(() => document.querySelectorAll(".sp-page").length === 80);
+  await page.waitForTimeout(1500); // pages drawing
+  await page.click('.sp-page[data-page="5"]');
+  await page.evaluate(async () => {
+    const el = document.getElementById("sp-grid");
+    for (let i = 1; i <= 40; i++) {
+      el.scrollTop = i * 150;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  });
+  await page.waitForTimeout(1000);
+  results["split-longest-block-ms"] = await longestTask(t);
+  if ((await page.$$(".sp-parts li")).length !== 7) errors.push("the splitter didn't find six bookmarked pieces plus the one marked");
+  const download = page.waitForEvent("download");
+  await page.click("#sp-download");
+  if (!(await download).suggestedFilename().endsWith("(split).zip")) errors.push("the splitter's download isn't the zip of pieces");
+  await page.click("#sp-close");
 } finally {
   await browser.close();
   await new Promise((r) => server.httpServer.close(r));

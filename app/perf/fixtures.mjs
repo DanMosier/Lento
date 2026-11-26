@@ -65,3 +65,58 @@ export function takeWav(measures, bpm = 120, rate = 22050) {
   Buffer.from(pcm.buffer).copy(buf, 44);
   return buf;
 }
+
+/**
+ * A PDF of `pages` pages that look a little like sheet music (a title on some, then staves of lines and note heads),
+ * drawn as vectors, for the PDF splitter. Built by hand so the tests need no PDF library or checked-in score.
+ * `titled` lists the pages that start a piece; each gets a bookmark, as an anthology's table of contents would.
+ */
+export function sheetPdf(pages, titled = []) {
+  const objs = []; // object number - 1 -> body
+  const add = (body) => objs.push(body) && objs.length;
+  const catalog = add(""); // filled in below
+  const pagesObj = add("");
+  const font = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const kids = [];
+  for (let p = 1; p <= pages; p++) {
+    let s = "";
+    let top = 760;
+    const start = titled.indexOf(p);
+    if (start >= 0) {
+      s += `BT /F1 22 Tf 180 740 Td (Piece ${start + 1}) Tj ET\n`;
+      top = 680;
+    }
+    for (let staff = 0; staff < 9 && top - staff * 72 > 60; staff++) {
+      const y0 = top - staff * 72;
+      for (let l = 0; l < 5; l++) s += `40 ${y0 - l * 6} m 572 ${y0 - l * 6} l S\n`;
+      for (let n = 0; n < 16; n++) s += `${60 + n * 32} ${y0 - 12 + ((n * 7 + p) % 9) * 3} 5 4 re f\n`;
+    }
+    s += `BT /F1 9 Tf 300 30 Td (${p}) Tj ET\n`;
+    const content = add(`<< /Length ${s.length} >>\nstream\n${s}endstream`);
+    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R >>`));
+  }
+  let outlines = "";
+  if (titled.length) {
+    const outlineObj = add("");
+    const first = objs.length + 1;
+    titled.forEach((page, i) => {
+      const prev = i ? ` /Prev ${first + i - 1} 0 R` : "";
+      const next = i < titled.length - 1 ? ` /Next ${first + i + 1} 0 R` : "";
+      add(`<< /Title (Piece ${i + 1}) /Parent ${outlineObj} 0 R /Dest [${kids[page - 1]} 0 R /Fit]${prev}${next} >>`);
+    });
+    objs[outlineObj - 1] = `<< /Type /Outlines /First ${first} 0 R /Last ${first + titled.length - 1} 0 R /Count ${titled.length} >>`;
+    outlines = ` /Outlines ${outlineObj} 0 R`;
+  }
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R${outlines} >>`;
+  objs[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${pages} >>`;
+  let out = "%PDF-1.4\n";
+  const offsets = [];
+  objs.forEach((body, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}

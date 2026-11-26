@@ -35,6 +35,7 @@ const ui = {
   splitTitle: $("cv-split-title"),
   splitList: $<HTMLUListElement>("cv-split-list"),
   splitNote: $("cv-split-note"),
+  splitFile: $<HTMLInputElement>("cv-split-file"),
   pick: $("cv-pick"),
   queue: $("cv-queue"),
   qBatch: $("cv-q-batch"),
@@ -247,7 +248,10 @@ function splitRow(e: SplitEntry): HTMLLIElement {
   };
   const piece = index?.pieces.find((p) => p.id === e.piece);
   const file = piece?.files.find((f) => f.name === e.pdf);
-  if (!done && piece && file) btn("PDF", "Open the PDF of", () => void openPdf(piece, file));
+  if (!done && piece && file) {
+    btn("Split", "Split", () => void openSplit(piece, file, e));
+    btn("PDF", "Open the PDF of", () => void openPdf(piece, file));
+  }
   if (done) btn("Undo", "Put back on the list:", () => changeSplit((l) => setSplit(l, e.piece, e.pdf, e.title, "flagged")));
   else {
     btn("Done", "Mark as split:", () => changeSplit((l) => setSplit(l, e.piece, e.pdf, e.title, "done")));
@@ -255,6 +259,25 @@ function splitRow(e: SplitEntry): HTMLLIElement {
   }
   row.append(acts);
   return row;
+}
+
+/** Opens the splitter (its own module, loaded now) on a flagged PDF; saving marks it done. */
+async function openSplit(piece: Piece, file: LibraryFile, e: SplitEntry): Promise<void> {
+  const lib = library();
+  if (!lib) return;
+  try {
+    const { openSplitter } = await import("../split/ui");
+    await openSplitter({
+      pdfName: file.name,
+      title: piece.title || e.title,
+      composer: piece.composer,
+      load: () => lib.downloadPdf(piece, file),
+      save: (folder, files, progress) => lib.saveSplit(folder, files, progress),
+      saved: () => changeSplit((l) => setSplit(l, e.piece, e.pdf, e.title, "done")),
+    });
+  } catch (err) {
+    status(`Couldn't open the splitter: ${(err as Error).message}`, "error");
+  }
 }
 
 async function openPdf(piece: Piece, file: LibraryFile): Promise<void> {
@@ -276,11 +299,10 @@ function renderSplit(): void {
   const l = currentSplit();
   const todo = flagged(l);
   const done = recentlyDone(l);
-  ui.splitBox.hidden = !todo.length && !done.length;
-  if (ui.splitBox.hidden) return;
+  ui.splitBox.hidden = false; // always there, for splitting a PDF from this device
   ui.splitTitle.textContent = todo.length ? `To split (${todo.length})` : "To split";
   ui.splitList.replaceChildren(...todo.map(splitRow), ...done.map(splitRow));
-  if (!todo.length) ui.splitList.prepend(li("Nothing left to split."));
+  if (!todo.length) ui.splitList.prepend(li(done.length ? "Nothing left to split." : "Nothing flagged. Flag a PDF from its review window."));
   ui.splitNote.textContent = splitSyncNote();
 }
 onSplitChanged(() => {
@@ -589,6 +611,17 @@ ui.tabPick.addEventListener("click", () => showTab("pick"));
 ui.tabQueue.addEventListener("click", () => showTab("queue"));
 ui.tabReview.addEventListener("click", () => showTab("review"));
 ui.rvFilter.addEventListener("change", renderReviews);
+ui.splitFile.addEventListener("change", async () => {
+  const f = ui.splitFile.files?.[0];
+  ui.splitFile.value = ""; // the same file can be picked again
+  if (!f) return;
+  try {
+    const { splitLocalFile } = await import("../split/ui");
+    await splitLocalFile(f);
+  } catch (err) {
+    status(`Couldn't open the splitter: ${(err as Error).message}`, "error");
+  }
+});
 document.addEventListener("visibilitychange", () => {
   updateTimers();
   if (queueVisible()) void loadPc();
