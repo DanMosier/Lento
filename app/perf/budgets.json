@@ -10,6 +10,7 @@
   "fit-big-score-ms": 8000,
   "fit-relayouts": 1,
   "start-playback-ms": 250,
+  "tap-note-ms": 250,
   "transpose-score-ms": 2500,
   "change-clef-ms": 2500,
   "check-3min-ms": 10000,

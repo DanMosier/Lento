@@ -23,6 +23,7 @@ import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./
 import { pageLayout, parseScoreSize, phoneScreen, SCORE_SIZES } from "./layout";
 import { setUpFocus } from "./focus";
 import { guardRenderer, takeSkippedSlurs } from "./osmd-safety";
+import { beatAt, beatPlaces, measureAt, tapPlay, type BeatPlace, type TapPlay } from "./tap";
 import { applyView, CLEF_LABELS, cleanView, isPlain, MAX_TRANSPOSE, PLAIN_VIEW, transposeLabel, type ClefChoice, type ScoreView } from "./view";
 
 const ui = {
@@ -39,6 +40,7 @@ const ui = {
   countIn: $<HTMLInputElement>("count-in"),
   click: $<HTMLSelectElement>("click"),
   accomp: $<HTMLInputElement>("accomp"),
+  tapPlay: $<HTMLInputElement>("tap-play"),
   accompLabel: $("accomp-label"),
   play: $<HTMLButtonElement>("play"),
   record: $<HTMLButtonElement>("record"),
@@ -454,29 +456,31 @@ function accompaniment(): Score[] {
   return accompParts;
 }
 
-async function startPlayback(mute = false): Promise<void> {
-  return timed("start-playback", () => startPlaybackNow(mute));
+async function startPlayback(mute = false, tap?: TapPlay): Promise<void> {
+  return timed("start-playback", () => startPlaybackNow(mute, tap));
 }
 
-async function startPlaybackNow(mute = false): Promise<void> {
+/** Plays the chosen measures, or what a tapped note plays (see tapPlay). */
+async function startPlaybackNow(mute = false, tap?: TapPlay): Promise<void> {
   if (!score) return;
   audio();
   roomOut(ctx!); // picks up the Room sound setting
   const parts = [score, ...accompaniment()];
   await player!.play({
     parts,
-    fromMeasure: +ui.from.value,
-    toMeasure: +ui.to.value,
+    fromMeasure: tap?.fromMeasure ?? +ui.from.value,
+    toMeasure: tap?.toMeasure ?? +ui.to.value,
+    fromBeat: tap?.fromBeat,
     tempoFactor: +ui.tempo.value / 100,
     countIn: ui.countIn.checked,
-    loop: ui.loop.checked && !recorder!.recording,
+    loop: (tap ? tap.loop : ui.loop.checked) && !recorder!.recording,
     click: +ui.click.value,
     mute,
   });
   osmd?.cursor.show();
   osmd?.cursor.reset();
   lastBeat = -1;
-  moveCursorTo(score.measureStarts[+ui.from.value] ?? 0);
+  moveCursorTo(tap?.fromBeat ?? score.measureStarts[+ui.from.value] ?? 0);
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(follow);
   ui.play.textContent = "Stop";
@@ -494,6 +498,90 @@ ui.play.addEventListener("click", () => {
   if (player?.playing) stopPlayback();
   else startPlayback().catch((e) => status((e as Error).message, "error"));
 });
+
+// ---- tap a note to play from it; hold a note to set where a loop starts, and another where it ends ----
+
+let tapPlaces: BeatPlace[] | null = null; // found on the first tap after a render, cleared by the next render
+let loopStartAt: number | null = null; // measure picked by the first hold, waiting for the second
+let hold: { x: number; y: number; timer: number; fired: boolean } | null = null;
+const HOLD_MS = 550;
+
+/** The beat under a tap on the score, or null (no score, or not near a staff). */
+function beatUnder(clientX: number, clientY: number): number | null {
+  if (!osmd || !score || ui.sheet.hidden) return null;
+  if (!tapPlaces) {
+    const t0 = performance.now();
+    tapPlaces = beatPlaces(osmd, ui.sheet);
+    try {
+      performance.measure("lento:find-tapped-note", { start: t0, end: performance.now() });
+    } catch {
+      /* timing is optional */
+    }
+  }
+  const c = ui.sheet.getBoundingClientRect();
+  return beatAt(tapPlaces, clientX - c.left + ui.sheet.scrollLeft, clientY - c.top + ui.sheet.scrollTop);
+}
+
+/** Taps play only when nothing else is using the score. Playing doesn't count: a tap jumps there. */
+const tapsAllowed = (): boolean => ui.tapPlay.checked && !!score && !marking && !recorder?.recording && !waiting() && !training();
+
+function holdNote(x: number, y: number): void {
+  const beat = beatUnder(x, y);
+  if (beat === null || !score) return;
+  navigator.vibrate?.(15);
+  const m = measureAt(score.measureStarts, beat);
+  if (loopStartAt === null) {
+    loopStartAt = m;
+    status(`Loop starts at measure ${score.measures[m]}. Now hold the last note of the loop.`);
+    return;
+  }
+  const [from, to] = loopStartAt <= m ? [loopStartAt, m] : [m, loopStartAt];
+  loopStartAt = null;
+  ui.from.value = String(from);
+  ui.to.value = String(to);
+  ui.loop.checked = true;
+  updateTempoLabel();
+  showBest();
+  status(`Looping measures ${score.measures[from]} to ${score.measures[to]}. Tap a note in it, or press Play.`);
+}
+
+ui.sheet.addEventListener("pointerdown", (e) => {
+  if (!tapsAllowed() || e.button > 0 || (e.target as Element).closest?.("button, a, input, select, label")) return;
+  clearTimeout(hold?.timer);
+  const h = { x: e.clientX, y: e.clientY, fired: false, timer: 0 };
+  h.timer = window.setTimeout(() => {
+    h.fired = true;
+    holdNote(h.x, h.y);
+  }, HOLD_MS);
+  hold = h;
+});
+ui.sheet.addEventListener("pointermove", (e) => {
+  if (hold && !hold.fired && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 10) {
+    clearTimeout(hold.timer); // scrolling, not holding
+    hold = null;
+  }
+});
+for (const ev of ["pointerup", "pointercancel", "pointerleave"])
+  ui.sheet.addEventListener(ev, () => {
+    if (hold && !hold.fired) clearTimeout(hold.timer);
+  });
+ui.sheet.addEventListener("contextmenu", (e) => {
+  if (hold?.fired || tapsAllowed()) e.preventDefault(); // a hold sets the loop; no menu over the score
+});
+ui.sheet.addEventListener("click", (e) => {
+  if (hold?.fired) {
+    hold = null; // the end of a hold, not a tap
+    return;
+  }
+  hold = null;
+  if (!tapsAllowed() || !score || (e.target as Element).closest?.("button, a, input, select, label")) return;
+  const beat = beatUnder(e.clientX, e.clientY);
+  if (beat === null) return;
+  const tap = tapPlay(score.measureStarts, +ui.from.value, +ui.to.value, beat, ui.loop.checked);
+  startPlayback(false, tap).catch((err) => status((err as Error).message, "error"));
+});
+ui.tapPlay.addEventListener("change", () => store.set("tapPlay", ui.tapPlay.checked));
+ui.tapPlay.checked = store.get<boolean>("tapPlay") ?? true;
 
 // ---- headphone delay: hold the cursor back by however late the sound arrives ----
 
@@ -1125,6 +1213,7 @@ function pushMarks(delay: number): void {
 
 /** Redraws the marks over the score; call after every render. */
 function drawScoreMarks(): void {
+  tapPlaces = null; // the score was drawn again, so notes may have moved
   if (!osmd || !score || !choice || ui.sheet.hidden) return;
   if (!marking && !marks?.marks.length) {
     // nothing to draw: skip finding every note on the page (it takes a moment on a big score)
@@ -1254,6 +1343,8 @@ export function closeScore(): void {
   choice = null;
   accompParts = null;
   analysis = null;
+  loopStartAt = null;
+  tapPlaces = null;
   take = null;
   track = null;
   showingColors = false;

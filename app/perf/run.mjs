@@ -120,12 +120,28 @@ try {
   await page.click("#fit-btn");
   await waitFor("relayout-score", 2);
 
+  // 3c. Tap a note of the long score to play from it: finding the note and starting must feel instant
+  await page.waitForTimeout(800);
+  const head = await page.evaluate(() => {
+    const h = [...document.querySelectorAll("#sheet svg g.vf-notehead")][40];
+    h.scrollIntoView({ block: "center" });
+    const r = h.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  t = await now();
+  await page.mouse.click(head.x, head.y);
+  await waitFor("start-playback", 2);
+  results["tap-note-ms"] = (await measure("find-tapped-note"))[0] + (await measure("start-playback"))[1];
+  results["tap-note-longest-block-ms"] = await longestTask(t);
+  await page.waitForTimeout(500);
+  await page.click("#play");
+
   // 4. Start and stop playback on the 3-minute score
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
   await waitFor("open-score", 3);
   await page.click("#play");
-  await waitFor("start-playback", 2);
-  results["start-playback-ms"] = (await measure("start-playback"))[1];
+  await waitFor("start-playback", 3);
+  results["start-playback-ms"] = (await measure("start-playback"))[2];
   await page.waitForTimeout(500);
   await page.click("#play");
 
