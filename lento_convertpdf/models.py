@@ -8,7 +8,7 @@ from typing import Any
 
 from .quality import QualityReport
 
-VALID_ENGINES = ("homr",)
+VALID_ENGINES = ("homr", "audiveris")
 
 
 @dataclass

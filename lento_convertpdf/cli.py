@@ -7,10 +7,10 @@ import sys
 from pathlib import Path
 
 from .audio_player import synthesize_score_to_wav
-from .homr_runner import GPU_MODES, OMRConfig, check_homr
-from .models import PdfConversionItem
+from .homr_runner import GPU_MODES, OMRConfig
+from .models import VALID_ENGINES, PdfConversionItem
 from .musicxml_parser import parse_musicxml
-from .omr_engines import batch_convert_pdfs, scan_folder_for_pdfs
+from .omr_engines import batch_convert_pdfs, check_engine, scan_folder_for_pdfs
 from .pdf_splitter import analyze_multi_piece_pdf, execute_pdf_split
 from .quality import REVIEW_BELOW
 from .vst_catalog import (
@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="Lento_ConvertPDF",
         description=(
-            "Batch convert sheet music PDFs into MusicXML using homr, "
+            "Batch convert sheet music PDFs into MusicXML using homr or Audiveris, "
             "and preview/render MusicXML scores with recommended open-source VST instrument profiles."
         ),
     )
@@ -47,10 +47,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Launch the full desktop GUI.",
     )
     parser.add_argument(
+        "--engine",
+        choices=VALID_ENGINES,
+        default="homr",
+        help="OMR engine: homr (default, GPU) or audiveris (CPU, installed separately).",
+    )
+    parser.add_argument(
+        "--audiveris",
+        default="",
+        help="Path to Audiveris.exe (default: AUDIVERIS, then the usual install folders and PATH).",
+    )
+    parser.add_argument(
         "--gpu",
         choices=GPU_MODES,
         default="force",
-        help="force = fail unless CUDA is in use (default), auto = use CUDA if available, no = CPU.",
+        help="homr only. force = fail unless CUDA is in use (default), auto = use CUDA if available, no = CPU.",
     )
     parser.add_argument(
         "--review-below",
@@ -205,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     config = OMRConfig(
+        engine=args.engine,
+        audiveris_path=args.audiveris,
         output_dir=args.output_dir,
         recursive=not args.no_recursive,
         gpu=args.gpu,
@@ -215,8 +228,8 @@ def main(argv: list[str] | None = None) -> int:
         on_page=lambda pdf, page, pages: print(f"      page {page}/{pages}: {pdf.name}", flush=True),
     )
 
-    avail = check_homr(config)
-    print(f"=== Lento_ConvertPDF: PDF to MusicXML (homr) ===")
+    avail = check_engine(config)
+    print(f"=== Lento_ConvertPDF: PDF to MusicXML ({args.engine}) ===")
     print(f"Engine status: {avail.details}")
 
     items = scan_folder_for_pdfs(args.directory, recursive=config.recursive, output_dir=config.output_dir)

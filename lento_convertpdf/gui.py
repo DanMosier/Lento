@@ -12,10 +12,10 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from .audio_player import MusicXMLAudioPlayer, synthesize_score_to_wav
-from .homr_runner import GPU_MODES, EngineAvailability, OMRConfig, check_homr
+from .homr_runner import GPU_MODES, EngineAvailability, OMRConfig
 from .models import InstrumentPart, ParsedScore, PdfConversionItem
 from .musicxml_parser import parse_musicxml
-from .omr_engines import batch_convert_pdfs, scan_folder_for_pdfs
+from .omr_engines import batch_convert_pdfs, check_engine, scan_folder_for_pdfs
 from .quality import REVIEW_BELOW
 from .split_window import build_split_window, render_pdf_page_image
 from .vst_catalog import (
@@ -81,8 +81,10 @@ class LentoConvertPDFApp:
         self.out_dir_var = tk.StringVar(value="")
         self.recursive_var = tk.BooleanVar(value=True)
         self.overwrite_var = tk.BooleanVar(value=True)
+        self.engine_var = tk.StringVar(value="homr")
         self.gpu_var = tk.StringVar(value="force")
         self.homr_python_var = tk.StringVar(value="")
+        self.audiveris_path_var = tk.StringVar(value="")
         self.review_below_var = tk.StringVar(value=f"{REVIEW_BELOW:.0%}".rstrip("%"))
 
         self.engine_status_var = tk.StringVar(value="")
@@ -167,7 +169,12 @@ class LentoConvertPDFApp:
 
         engine_row = ttk.Frame(top_frame)
         engine_row.pack(fill=tk.X)
-        ttk.Label(engine_row, text="homr runs on:", style="SubHeader.TLabel").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Label(engine_row, text="Engine:", style="SubHeader.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        for engine, label in (("homr", "homr"), ("audiveris", "Audiveris")):
+            ttk.Radiobutton(
+                engine_row, text=label, value=engine, variable=self.engine_var, command=self._refresh_engine_status
+            ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(engine_row, text="homr runs on:", style="SubHeader.TLabel").pack(side=tk.LEFT, padx=(10, 10))
         for mode, label in zip(GPU_MODES, ("GPU (CUDA required)", "GPU if available", "CPU"), strict=True):
             ttk.Radiobutton(
                 engine_row, text=label, value=mode, variable=self.gpu_var, command=self._refresh_engine_status
@@ -177,7 +184,7 @@ class LentoConvertPDFApp:
         ttk.Spinbox(engine_row, from_=0, to=100, increment=1, width=5, textvariable=self.review_below_var).pack(
             side=tk.LEFT
         )
-        ttk.Button(engine_row, text="Configure homr...", command=self._open_engine_settings_dialog).pack(
+        ttk.Button(engine_row, text="Configure engines...", command=self._open_engine_settings_dialog).pack(
             side=tk.RIGHT
         )
 
@@ -675,6 +682,8 @@ class LentoConvertPDFApp:
         out_raw = self.out_dir_var.get().strip()
         out_dir = Path(out_raw) if out_raw else None
         return OMRConfig(
+            engine=self.engine_var.get(),
+            audiveris_path=self.audiveris_path_var.get().strip(),
             output_dir=out_dir,
             recursive=self.recursive_var.get(),
             overwrite_existing=self.overwrite_var.get(),
@@ -691,22 +700,23 @@ class LentoConvertPDFApp:
         return min(1.0, max(0.0, value))
 
     def _refresh_engine_status(self) -> None:
-        """Check homr in the background: it opens a real GPU session, which takes a few seconds."""
+        """Check the engine in the background: homr opens a real GPU session and Audiveris starts Java, which take a few seconds."""
         cfg = self._build_omr_config()
         self._status_request = getattr(self, "_status_request", 0) + 1
         request = self._status_request
-        self.engine_status_var.set("Checking homr...")
+        self.engine_status_var.set(f"Checking {cfg.engine}...")
 
         def _worker() -> None:
-            self._event_queue.put(("engine_status", (request, check_homr(cfg))))
+            self._event_queue.put(("engine_status", (request, check_engine(cfg))))
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _show_engine_status(self, request: int, info: EngineAvailability) -> None:
         if request != self._status_request:
             return  # settings changed since this check started
-        ok = info.installed and (info.cuda or self.gpu_var.get() != "force")
-        text = f"{'✔' if ok else '⚠'} homr: {info.details}"
+        needs_cuda = info.engine == "homr" and self.gpu_var.get() == "force"
+        ok = info.installed and (info.cuda or not needs_cuda)
+        text = f"{'✔' if ok else '⚠'} {'homr' if info.engine == 'homr' else 'Audiveris'}: {info.details}"
         if info.installed and not ok:
             text += " — conversions will fail while CUDA is required"
         self.engine_status_var.set(text)
@@ -1485,8 +1495,8 @@ class LentoConvertPDFApp:
     # -------------------------------------------------------------------------
     def _open_engine_settings_dialog(self) -> None:
         dlg = tk.Toplevel(self.root)
-        dlg.title("homr Configuration")
-        dlg.geometry("680x220")
+        dlg.title("OMR Engine Configuration")
+        dlg.geometry("680x270")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -1511,6 +1521,23 @@ class LentoConvertPDFApp:
                 self._refresh_engine_status()
 
         ttk.Button(row, text="Browse...", command=_browse).pack(side=tk.LEFT)
+
+        arow = ttk.Frame(frame)
+        arow.pack(fill=tk.X, pady=4)
+        ttk.Label(arow, text="Audiveris.exe (blank = find it):").pack(side=tk.LEFT)
+        ttk.Entry(arow, textvariable=self.audiveris_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+
+        def _browse_audiveris() -> None:
+            p = filedialog.askopenfilename(
+                parent=dlg,
+                title="Locate Audiveris.exe (usually in Program Files\\Audiveris)",
+                filetypes=[("Audiveris", "Audiveris.exe"), ("All Files", "*.*")],
+            )
+            if p:
+                self.audiveris_path_var.set(p)
+                self._refresh_engine_status()
+
+        ttk.Button(arow, text="Browse...", command=_browse_audiveris).pack(side=tk.LEFT)
 
         def _save_and_close() -> None:
             self._refresh_engine_status()

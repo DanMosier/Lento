@@ -54,6 +54,8 @@ def build() -> int:
         "--hidden-import",
         "lento_convertpdf.homr_runner",
         "--hidden-import",
+        "lento_convertpdf.audiveris_runner",
+        "--hidden-import",
         "lento_convertpdf.staff_detection",
         "--hidden-import",
         "lento_convertpdf.pdf_splitter",

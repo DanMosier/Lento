@@ -37,6 +37,7 @@ flowchart LR
 | `gui.py` | The desktop window (Tkinter): pick PDFs, convert, view and play the result |
 | `omr_engines.py` | Finds the PDFs in a folder and converts them one by one |
 | `homr_runner.py` | Finds homr, checks the GPU, and runs homr as a separate program |
+| `audiveris_runner.py` | Finds and runs Audiveris, the second engine (CPU, installed separately) |
 | `homr_bridge.py` | Runs inside homr's environment, starts homr and records its confidence for the quality check |
 | `system_reader.py`, `system_merge.py`, `instruments.py` | Reading orchestral scores one system at a time, using the instrument labels beside the staves |
 | `quality.py` | Rates each converted score OK, REVIEW or UNRELIABLE |
@@ -100,6 +101,34 @@ No CUDA toolkit is needed: the `cuda` extra installs the CUDA and cuDNN librarie
 ```
 
 `--gpu force` (default) fails unless CUDA is really in use. `--gpu auto` and `--gpu no` allow the CPU.
+
+## Audiveris, the second engine
+
+[Audiveris](https://github.com/Audiveris/audiveris) is an older, actively maintained open-source OMR program. It runs
+on the CPU, so it needs no graphics card and can work while homr has the GPU. Install it from its
+[releases](https://github.com/Audiveris/audiveris/releases): on Windows the `windowsConsole` .msi is the better pick,
+because it shows Audiveris's log (Java is included). Then choose **Audiveris** under *Engine* in the window, or:
+
+```powershell
+.\.venv\Scripts\Lento_ConvertPDF.exe "C:\path\to\pdfs" --engine audiveris               # finds it in Program Files
+.\.venv\Scripts\Lento_ConvertPDF.exe "C:\path\to\pdfs" --engine audiveris --audiveris "D:\Apps\Audiveris\Audiveris.exe"
+```
+
+Its exports get the same OK / REVIEW / UNRELIABLE rating, but only from the musical consistency checks: Audiveris
+reports no per-note confidence. Where it splits a PDF into movements, the first movement is kept and the export is
+flagged. The PC watcher still uses homr.
+
+## Comparing engines (and homr on GPU vs CPU)
+
+```powershell
+.\.venv\Scripts\python.exe tests\convertpdf\compare_engines.py --keep out\engines
+.\.venv\Scripts\python.exe tests\convertpdf\compare_engines.py --scores "G:\My Drive\Sheet Music\Cello\pieces" --limit 20 --keep out\engines
+```
+
+Runs every PDF that has a reference MusicXML beside it (the test fixtures by default, or any folder, such as
+MuseScore files the library exported to both PDF and MusicXML) through homr on the GPU, homr on the CPU and
+Audiveris, and writes `engine-comparison.md` and `.csv`: pitch and strict F1 against the reference, time taken, and
+how closely homr's CPU reading matches its GPU reading. `--variants homr-gpu audiveris` runs only some.
 
 ## Splitting a PDF of several pieces
 

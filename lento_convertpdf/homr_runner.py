@@ -62,11 +62,12 @@ print("PROBE" + json.dumps(out))
 class OMRConfig:
     """Configuration for batch PDF -> MusicXML conversion."""
 
-    engine: str = "homr"
+    engine: str = "homr"  # "homr" | "audiveris"
     output_dir: Path | None = None  # None = same folder as PDF
     recursive: bool = True
     overwrite_existing: bool = True
     homr_python: str = ""  # python.exe of homr's environment; blank = find it
+    audiveris_path: str = ""  # Audiveris.exe; blank = find it
     gpu: str = "force"  # "force" (fail without CUDA) | "auto" | "no"
     review_below: float = REVIEW_BELOW  # flag exports whose quality estimate is lower
     instrument: str = "Cello"  # what single-staff parts are called when homr can't tell ("" keeps homr's "Voice")
@@ -78,7 +79,7 @@ class OMRConfig:
 
 @dataclass
 class EngineAvailability:
-    """Status of homr on this system."""
+    """Status of an OMR engine on this system."""
 
     engine: str
     installed: bool
@@ -198,11 +199,11 @@ def _homr_error(log: str, returncode: int) -> str:
     return f"homr failed (exit {returncode}): {lines[-1] if lines else 'no output'}"
 
 
-def _check_output(xml_path: Path) -> list[str]:
-    """Return the part names homr wrote; raise if the file holds no music."""
+def check_output(xml_path: Path, engine: str = "homr") -> list[str]:
+    """Return the part names the engine wrote; raise if the file holds no music."""
     root = ET.parse(xml_path).getroot()
     if root.find("part/measure/note/pitch") is None and root.find("part/measure/note/unpitched") is None:
-        raise RuntimeError("homr produced a score without any notes.")
+        raise RuntimeError(f"{engine} produced a score without any notes.")
     names = [(p.findtext("part-name") or "").strip() for p in root.findall("part-list/score-part")]
     return [name or f"Part {i}" for i, name in enumerate(names, start=1)]
 
@@ -215,17 +216,23 @@ SOUNDS: dict[str, tuple[int, str]] = {
 }
 
 
-def name_parts(xml_path: Path, instrument: str) -> int:
-    """Rename the parts homr called "Voice" (its name for every one-staff part) to instrument. Returns how many."""
+def name_parts(xml_path: Path, instrument: str, also_unnamed: bool = False) -> int:
+    """Rename the parts homr called "Voice" (its name for every one-staff part) to instrument. Returns how many.
+    With also_unnamed (Audiveris), a one-staff part without a name is renamed too."""
     if not instrument:
         return 0
     tree = ET.parse(xml_path)
     program, sound = SOUNDS.get(instrument.lower(), (0, ""))
+    root = tree.getroot()
     renamed = 0
-    for part in tree.getroot().findall("part-list/score-part"):
+    for part in root.findall("part-list/score-part"):
         name = part.find("part-name")
-        if name is None or (name.text or "").strip() != "Voice":
+        current = (name.text or "").strip() if name is not None else ""
+        if current != "Voice" and not (also_unnamed and not current and _one_staff(root, part.get("id", ""))):
             continue
+        if name is None:
+            name = ET.Element("part-name")
+            part.insert(0, name)
         name.text = instrument
         for el in part.findall("score-instrument/instrument-name"):
             el.text = instrument
@@ -241,6 +248,11 @@ def name_parts(xml_path: Path, instrument: str) -> int:
     return renamed
 
 
+def _one_staff(root: ET.Element, part_id: str) -> bool:
+    part = next((p for p in root.findall("part") if p.get("id") == part_id), None)
+    return part is not None and all((s.text or "1").strip() == "1" for s in part.iter("staves"))
+
+
 def _read_trace(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -248,7 +260,7 @@ def _read_trace(path: Path) -> dict | None:
         return None
 
 
-def _write_report(target_musicxml: Path, report: QualityReport) -> None:
+def write_report(target_musicxml: Path, report: QualityReport) -> None:
     """Leave name.quality.json beside a flagged export; clear an outdated one beside a good export."""
     path = target_musicxml.with_suffix(".quality.json")
     if report.level == "good":
@@ -295,7 +307,7 @@ def run_homr(
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_homr_error(log, returncode))
         name_parts(produced, config.instrument)
-        parts = _check_output(produced)
+        parts = check_output(produced)
         report = assess(produced, _read_trace(trace_path), config.review_below)
 
         target_musicxml.parent.mkdir(parents=True, exist_ok=True)
@@ -305,5 +317,5 @@ def run_homr(
             os.replace(partial, target_musicxml)
         finally:
             partial.unlink(missing_ok=True)
-        _write_report(target_musicxml, report)
+        write_report(target_musicxml, report)
         return parts, report
