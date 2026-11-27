@@ -76,7 +76,7 @@ def test_converts_and_unpacks_the_mxl(fake_audiveris, tmp_path):
     out = tmp_path / "piece.musicxml"
     assert item.output_musicxml_path == out and out.is_file()
     assert calls[-1][:4] == ["-batch", "-transcribe", "-export", "-output"]
-    assert item.detected_instruments == ["Cello"]  # one unnamed staff takes the default instrument
+    assert item.detected_instruments == ["Part 1"]  # no instrument printed or in the file name: none assumed
     assert item.quality is not None and item.quality.symbol_confidence is None
 
 

@@ -26,7 +26,7 @@ from .homr_runner import (
     source_suffix,
     write_report,
 )
-from .quality import QualityReport, assess
+from .quality import QualityReport, check_score
 from .rests import expand_multirests
 
 BRIDGE = Path(__file__).with_name("legato_bridge.py")
@@ -160,7 +160,7 @@ def run_legato(
             raise RuntimeError(f"Legato did not finish within {timeout} seconds.") from exc
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_error(log, returncode))
-        name_parts(produced, config.instrument, also_unnamed=True)
+        name_parts(produced, config.instrument, also_unnamed=True, source_name=pdf_path.stem)
         expand_multirests(produced)
         try:
             parts = check_output(produced, "Legato")
@@ -168,7 +168,7 @@ def run_legato(
             if abc.is_file():
                 shutil.copyfile(abc, target_musicxml.with_suffix(".legato.abc"))
             raise
-        report = assess(produced, None, config.review_below)
+        report = check_score(produced, None, config.review_below)
 
         target_musicxml.parent.mkdir(parents=True, exist_ok=True)
         partial = target_musicxml.with_name(target_musicxml.name + ".part")

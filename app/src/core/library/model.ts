@@ -11,6 +11,8 @@ export interface LibraryFile {
   musicxml?: string;
   /** Lento_ConvertPDF's rating of that MusicXML. */
   quality?: "OK" | "REVIEW" | "UNRELIABLE" | string;
+  /** What the converter found or repaired in it, in a sentence or two (only when it was flagged). */
+  quality_note?: string;
   /** "musescore": the MusicXML and PDF were exported from a MuseScore file, so the notes are exact. */
   from?: "musescore" | string;
   /** Checked against the PDF in Convert PDF's Review window (saved as <score>.review.json). */
@@ -26,7 +28,9 @@ export interface LibraryFile {
 /** requests/_status.json, written by `lento-library watch` on the PC. */
 export interface PcStatus {
   pc: string;
-  state: "idle" | "converting" | "exporting" | "stopped" | string;
+  state: "idle" | "converting" | "exporting" | "checking" | "stopped" | string;
+  /** While checking earlier conversions: [scores checked so far, scores in all]. */
+  checked?: [number, number];
   heartbeat: string;
   interval_s: number;
   /** PDF names still to come in this batch, in the order they will convert. */
@@ -143,7 +147,7 @@ export function folderIdFromLink(text: string): string | null {
 export function musicxmlOf(f: LibraryFile): LibraryFile | null {
   if (f.kind === "musicxml") return f;
   return f.musicxml
-    ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality, from: f.from, ...(f.review ? { review: f.review } : {}) }
+    ? { name: f.musicxml, kind: "musicxml", variant: f.variant, quality: f.quality, ...(f.quality_note ? { quality_note: f.quality_note } : {}), from: f.from, ...(f.review ? { review: f.review } : {}) }
     : null;
 }
 

@@ -103,3 +103,14 @@ test("the PDF splitter splits a PDF from this device into pieces", async ({ page
   await page.click("#sp-close");
   await expect(page.locator("#sp")).toBeHidden();
 });
+
+test("a conversion the converter flagged shows a Check badge and what it found", async ({ page }) => {
+  await page.click("#cv-tab-review");
+  const swan = page.locator("#cv-rv-list li", { hasText: "Saint-Saens Swan" });
+  await expect(swan).toContainText("Check");
+  await swan.locator(".cv-rv-open").click();
+  await expect(page.locator("#rv-xml svg")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("#rv-found")).toBeVisible();
+  await expect(page.locator("#rv-found")).toContainText("116 slurs");
+  await page.click("#rv-close");
+});

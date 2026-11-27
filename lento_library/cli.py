@@ -24,6 +24,12 @@
       unless --no-tray; --uninstall removes that. --auto-update (on when installed, unless --no-auto-update) pulls
       changes merged on GitHub while idle and restarts with them, so a PR merged from the phone reaches the PC.
 
+  lento-library recheck [--root FOLDER] [--force]
+      Puts MusicXML converted earlier through the converter's latest checks: slurs, ties, octave lines and other
+      marks that start and never end (or end and never start) are left out, and notes the instrument can't play
+      are noted. Findings go into each score's quality report, so it shows in Review. The watcher does this by
+      itself once for each new version of the checks; --force does it again.
+
   lento-library organize plan | status | apply BATCH | undo BATCH [--root FOLDER]
       Files an existing, unorganized score folder into pieces/, one batch (top folder) at a time. "plan" writes
       organize-plan.csv (nothing moves; edit ids there, or set action to skip); "status" lists the batches;
@@ -56,7 +62,7 @@ from lento_library.library import Library
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="lento-library", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("build", "check", "add", "convert", "watch", "organize", "details"):
+    for name in ("build", "check", "add", "convert", "watch", "organize", "details", "recheck"):
         p = sub.add_parser(name)
         p.add_argument("--root", default=".", help="library folder (default: current folder)")
         if name == "check":
@@ -88,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("sheet", help="a spreadsheet saved as CSV, with Composer and Title columns")
             p.add_argument("--apply", action="store_true", help="write catalog.csv (without it, only the report is made)")
             p.add_argument("--overwrite", action="store_true", help="replace details already in catalog.csv")
+        if name == "recheck":
+            p.add_argument("--force", action="store_true", help="check again even if this version of the checks already ran")
         if name == "add":
             p.add_argument("file")
             p.add_argument("piece_id")
@@ -102,6 +110,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "convert":
             return convert(lib, args)
+        if args.cmd == "recheck":
+            found = lib.recheck_scores(force=args.force, on_file=lambda i, n, p: print(f"\r{i}/{n}", end="", flush=True))
+            print()
+            for name, notes in found.items():
+                print(f"{name}: {'; '.join(notes)}")
+            path, n = lib.write_index()
+            print(f"{len(found)} score(s) with findings; wrote {path} ({n} pieces)")
+            return 0
         if args.cmd == "watch":
             from lento_library import watch
 

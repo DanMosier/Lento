@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .instruments import instrument_in_title
 from .pages import keep_pages, pages_with_staves
 from .rests import expand_multirests
-from .quality import REVIEW_BELOW, QualityReport, assess
+from .quality import REVIEW_BELOW, QualityReport, check_score
 
 BRIDGE = Path(__file__).with_name("homr_bridge.py")
 GPU_MODES = ("force", "auto", "no")
@@ -60,6 +61,10 @@ print("PROBE" + json.dumps(out))
 """
 
 
+AUTO_INSTRUMENT = "auto"
+UNNAMED_PART = "Part"  # "Part 2": a one-staff part whose instrument is not known
+
+
 @dataclass
 class OMRConfig:
     """Configuration for batch PDF -> MusicXML conversion."""
@@ -74,7 +79,9 @@ class OMRConfig:
     legato_model: str = "guangyangmusic/legato-2"  # Hugging Face model Legato reads with
     gpu: str = "force"  # homr and Legato: "force" (fail without CUDA) | "auto" | "no"
     review_below: float = REVIEW_BELOW  # flag exports whose quality estimate is lower
-    instrument: str = "Cello"  # what single-staff parts are called when homr can't tell ("" keeps homr's "Voice")
+    # what one-staff parts are called when no instrument is printed beside them: "auto" takes the instrument the
+    # file name names, else "Part 1", "Part 2"... for the Review window to ask about; "" keeps homr's "Voice"
+    instrument: str = AUTO_INSTRUMENT
     timeout_base_sec: int = 180
     timeout_per_page_sec: int = 90
     # called with (pdf, page, pages) as homr starts each page of a PDF
@@ -226,19 +233,28 @@ SOUNDS: dict[str, tuple[int, str]] = {
     "cello": (43, "strings.cello"), "violoncello": (43, "strings.cello"), "viola": (42, "strings.viola"),
     "violin": (41, "strings.violin"), "double bass": (44, "strings.contrabass"), "contrabass": (44, "strings.contrabass"),
     "piano": (1, "keyboard.piano"), "voice": (54, "voice"),
+    "flute": (74, "wind.flutes.flute"), "piccolo": (73, "wind.flutes.flute.piccolo"), "oboe": (69, "wind.reed.oboe"),
+    "clarinet": (72, "wind.reed.clarinet"), "bassoon": (71, "wind.reed.bassoon"), "horn": (61, "brass.french-horn"),
+    "trumpet": (57, "brass.trumpet"), "trombone": (58, "brass.trombone"), "tuba": (59, "brass.tuba"),
+    "guitar": (25, "pluck.guitar"), "harp": (47, "pluck.harp"),
 }
 
 
-def name_parts(xml_path: Path, instrument: str, also_unnamed: bool = False) -> int:
-    """Rename the parts homr called "Voice" (its name for every one-staff part) to instrument. Returns how many.
-    With also_unnamed (Audiveris), a one-staff part without a name is renamed too."""
+def name_parts(xml_path: Path, instrument: str, also_unnamed: bool = False, source_name: str = "") -> int:
+    """Name the parts homr called "Voice" (its name for every one-staff part). Returns how many were renamed.
+
+    instrument "auto" takes the instrument that source_name (the PDF's file name) names, such as "Violin"; if it
+    names none, the part becomes "Part <n>", which the Review window asks about. No instrument is assumed.
+    Any other value is used as it is; "" keeps "Voice". With also_unnamed (Audiveris, Legato), a one-staff part
+    without a name is renamed too."""
     if not instrument:
         return 0
+    if instrument.lower() == AUTO_INSTRUMENT:
+        instrument = instrument_in_title(source_name) or ""
     tree = ET.parse(xml_path)
-    program, sound = SOUNDS.get(instrument.lower(), (0, ""))
     root = tree.getroot()
     renamed = 0
-    for part in root.findall("part-list/score-part"):
+    for position, part in enumerate(root.findall("part-list/score-part"), start=1):
         name = part.find("part-name")
         current = (name.text or "").strip() if name is not None else ""
         if current != "Voice" and not (also_unnamed and not current and _one_staff(root, part.get("id", ""))):
@@ -246,9 +262,12 @@ def name_parts(xml_path: Path, instrument: str, also_unnamed: bool = False) -> i
         if name is None:
             name = ET.Element("part-name")
             part.insert(0, name)
-        name.text = instrument
+        new = instrument or f"{UNNAMED_PART} {position}"
+        # an unknown instrument plays as a piano, not as homr's sung "Voice"
+        program, sound = SOUNDS.get(new.lower(), (0, "")) if instrument else (1, "keyboard.piano")
+        name.text = new
         for el in part.findall("score-instrument/instrument-name"):
-            el.text = instrument
+            el.text = new
         for el in part.findall("score-instrument/instrument-sound"):
             if sound:
                 el.text = sound
@@ -332,10 +351,10 @@ def run_homr(
                 returncode, log = attempt()
         if returncode != 0 or not produced.is_file():
             raise RuntimeError(_homr_error(log, returncode))
-        name_parts(produced, config.instrument)
+        name_parts(produced, config.instrument, source_name=pdf_path.stem)
         expand_multirests(produced)
         parts = check_output(produced)
-        report = assess(produced, _read_trace(trace_path), config.review_below)
+        report = check_score(produced, _read_trace(trace_path), config.review_below)
         if skipped:
             report.problems.append(f"page {', '.join(map(str, skipped))} had no staves and was left out")
 

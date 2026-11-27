@@ -58,7 +58,7 @@ export const LIBRARY = {
     { id: "bach_suite", title: "Bach Suite", composer: "Bach", genre: "Baroque", level: "Intermediate", tags: ["chords"], musicxml: true, files: [{ name: "bach_suite__x.pdf", kind: "pdf", variant: "x", musicxml: "bach_suite__x.musicxml" }] },
     { id: "elgar_salut", title: "Elgar Salut", composer: "Elgar", genre: "Romantic", level: "Beginner", files: [{ name: "elgar_salut__x.pdf", kind: "pdf", variant: "x" }] },
     { id: "faure_elegie", title: "Faure Elegie", composer: "Faure", files: [{ name: "faure_elegie__x.pdf", kind: "pdf", variant: "x", convert_failed: true, convert_error: "too faint" }] },
-    { id: "saint_swan", title: "Saint-Saens Swan", composer: "Saint-Saens", musicxml: true, files: [{ name: "saint_swan__x.pdf", kind: "pdf", variant: "x", musicxml: "saint_swan__x.musicxml", quality: "REVIEW" }] },
+    { id: "saint_swan", title: "Saint-Saens Swan", composer: "Saint-Saens", musicxml: true, files: [{ name: "saint_swan__x.pdf", kind: "pdf", variant: "x", musicxml: "saint_swan__x.musicxml", quality: "REVIEW", quality_note: "left out 116 slurs and 2 octave lines (8va) that did not start or end properly" }] },
   ],
 };
 

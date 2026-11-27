@@ -49,7 +49,7 @@ PowerShell refuses to run the script, use
 | `home.spec.ts` | The Home button works from every screen, and so does the phone's Back button. Going home with a score open asks first. A score opened from the Library leaves Practice usable (the PR #47 bug). |
 | `practice.spec.ts` | Opening a score, choosing parts, Play and Stop, tapping a note to play from it, the tempo slider, transpose and clef, Marks, Hide controls with the mini bar, Wait mode and the speed trainer. |
 | `library.spec.ts` | Search, filters, a piece's window, Favorites, and making, filling, reordering and deleting setlists. |
-| `convert.spec.ts` | Queuing PDFs, the Review window (Play, PDF / Both / MusicXML, a fix and Undo, Approve), tapping a note to play from it, Flag for splitting with the To split list, and the PDF splitter. |
+| `convert.spec.ts` | Queuing PDFs, the Review window (what the converter found, Play, PDF / Both / MusicXML, a fix and Undo, Approve), tapping a note to play from it, Flag for splitting with the To split list, and the PDF splitter. |
 | `tuner.spec.ts` | Listening starts and stops (the test browser has a pretend microphone that plays a beep), the reference tones, and that the tuner stops listening when you leave it. |
 | `settings.spec.ts` | Settings are kept after a reload and reach the features that use them. The About section works. |
 | `checker.spec.ts` | Tests for the sweep itself. It breaks the page on purpose (an invisible layer, a hidden window left open, a stuck loading screen) and checks the sweep notices each one. |

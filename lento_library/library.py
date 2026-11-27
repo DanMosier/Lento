@@ -21,8 +21,10 @@ import json
 import os
 import re
 import shutil
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(_[a-z0-9]+(-[a-z0-9]+)*){1,2}$")
 VARIANT_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -38,6 +40,7 @@ MUSESCORE = (".mscz", ".mscx")
 INDEX_NAME = "library.json"
 REVIEW_SUFFIX = ".review.json"  # <score>.review.json: approved or rejected in the app's Review window
 REQUESTS = "requests"
+CHECKS_FILE = "_checks.json"  # in requests/: which version of the converter's checks the library's scores went through
 FORMAT = "lento-library"
 VERSION = 1
 
@@ -213,11 +216,13 @@ class Library:
                 if xml:
                     paired.add(xml.name)
                     entry["musicxml"] = xml.name
-                    level = quality_level(folder / f"{p.stem}.quality.json")
+                    level, note = quality_info(folder / f"{p.stem}.quality.json")
                     if p.stem in from_musescore:
                         entry["from"] = "musescore"  # exported by MuseScore: exact, nothing to check
                     elif level:
                         entry["quality"] = level
+                        if note:
+                            entry["quality_note"] = note
                     review = review_status(folder / f"{p.stem}{REVIEW_SUFFIX}")
                     if review:
                         entry["review"] = review
@@ -232,11 +237,13 @@ class Library:
             for x in xml_by_stem.values():  # MusicXML with no PDF beside it
                 if x.name not in paired:
                     entry = file_entry(x, None)
-                    level = quality_level(folder / f"{x.stem}.quality.json")
+                    level, note = quality_info(folder / f"{x.stem}.quality.json")
                     if x.stem in from_musescore:
                         entry["from"] = "musescore"
                     elif level:
                         entry["quality"] = level
+                        if note:
+                            entry["quality_note"] = note
                     review = review_status(folder / f"{x.stem}{REVIEW_SUFFIX}")
                     if review:
                         entry["review"] = review
@@ -382,6 +389,45 @@ class Library:
                     continue  # in use or still syncing: tried again next look
         return applied
 
+    def converted_scores(self) -> list[Path]:
+        """MusicXML made by the converter: every MusicXML in the piece folders except MuseScore's exact exports."""
+        out = []
+        for folder in self.folders():
+            files = [p for p in sorted(folder.iterdir()) if p.is_file()]
+            from_musescore = {p.stem for p in files if p.suffix.lower() in MUSESCORE}
+            out += [p for p in files if KINDS.get(p.suffix.lower()) == "musicxml" and p.stem not in from_musescore]
+        return out
+
+    def recheck_scores(self, force: bool = False, on_file: Callable[[int, int, Path], None] | None = None,
+                       stop: Callable[[], bool] | None = None) -> dict[str, list[str]]:
+        """Put scores converted before the converter's latest checks through them (see lento_convertpdf.quality
+        .recheck): broken slurs, ties and lines are repaired in place and the findings go into each quality report.
+        Done once per version of the checks, which is remembered in requests/_checks.json; force does it again.
+        Returns the findings by file, for the files that had any. Stops early (and tries again next time) if `stop`
+        returns True."""
+        from lento_convertpdf.quality import CHECKS_VERSION, recheck
+
+        marker = self.root / REQUESTS / CHECKS_FILE
+        if not force and checks_version(marker) >= CHECKS_VERSION:
+            return {}
+        scores = self.converted_scores()
+        found: dict[str, list[str]] = {}
+        for i, path in enumerate(scores, start=1):
+            if stop and stop():
+                return found
+            if on_file:
+                on_file(i, len(scores), path)
+            try:
+                notes = recheck(path)
+            except (OSError, ET.ParseError) as e:
+                notes = [f"could not be checked: {e}"]
+            if notes:
+                found[f"{path.parent.name}/{path.name}"] = notes
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({"version": CHECKS_VERSION, "scores": len(scores), "with_findings": len(found)}),
+                          encoding="utf-8")
+        return found
+
     def fingerprint(self) -> tuple:
         """What library.json is built from (score files, catalog.csv, tags.md) with their sizes and modified times.
         The watcher compares it between looks, so files added, moved or renamed by hand are picked up."""
@@ -436,10 +482,27 @@ def review_status(path: Path) -> str:
 
 def quality_level(path: Path) -> str:
     """OK / REVIEW / UNRELIABLE from Lento_ConvertPDF's quality report, or blank."""
+    return quality_info(path)[0]
+
+
+QUALITY_NOTE_MAX = 400  # characters of the converter's findings carried into library.json
+
+
+def quality_info(path: Path) -> tuple[str, str]:
+    """The level from Lento_ConvertPDF's quality report and what it found, in a sentence or two ('' if none)."""
     try:
-        return str(json.loads(path.read_text(encoding="utf-8")).get("level") or "")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        level = str(data.get("level") or "")
     except (OSError, ValueError, AttributeError):
-        return ""
+        return "", ""
+    # the converter writes good / review / unreliable; the app compares with OK / REVIEW / UNRELIABLE
+    level = {"good": "OK", "review": "REVIEW", "unreliable": "UNRELIABLE"}.get(level.lower(), level.upper())
+    parts = [str(data.get("summary") or "; ".join(map(str, data.get("problems") or [])))]
+    parts += [str(n) for n in data.get("recheck_notes") or [] if str(n) not in parts[0]]
+    note = "; ".join(p for p in parts if p)
+    if len(note) > QUALITY_NOTE_MAX:
+        note = note[: QUALITY_NOTE_MAX - 1].rsplit(" ", 1)[0] + "…"
+    return level, note
 
 
 def split_tags(text: str) -> list[str]:
@@ -464,3 +527,10 @@ def count_pages(path: Path) -> str:
         return ""
     n = len(re.findall(rb"/Type\s*/Page(?![s\w])", data))
     return str(n) if n else ""
+
+
+def checks_version(marker: Path) -> int:
+    try:
+        return int(json.loads(marker.read_text(encoding="utf-8")).get("version") or 0)
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0
