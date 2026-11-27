@@ -22,7 +22,7 @@ from typing import Callable
 from .instruments import instrument_in_title
 from .pages import keep_pages, pages_with_staves
 from .rests import expand_multirests
-from .quality import REVIEW_BELOW, QualityReport, assess
+from .quality import REVIEW_BELOW, QualityReport, check_score
 
 BRIDGE = Path(__file__).with_name("homr_bridge.py")
 GPU_MODES = ("force", "auto", "no")
@@ -354,7 +354,7 @@ def run_homr(
         name_parts(produced, config.instrument, source_name=pdf_path.stem)
         expand_multirests(produced)
         parts = check_output(produced)
-        report = assess(produced, _read_trace(trace_path), config.review_below)
+        report = check_score(produced, _read_trace(trace_path), config.review_below)
         if skipped:
             report.problems.append(f"page {', '.join(map(str, skipped))} had no staves and was left out")
 

@@ -27,7 +27,8 @@ from .pdf_splitter import (
     find_midpage_cutoff_y_ratio,
     resolve_overlapping_page_cutoffs,
 )
-from .quality import QualityReport, assess
+from .quality import QualityReport, assess, check_score
+from .repair import RepairReport, repair_spanners
 from .vst_catalog import (
     OPEN_SOURCE_VST_CATALOG,
     VST_BY_ID,
@@ -63,6 +64,9 @@ __all__ = [
     "VST_BY_ID",
     "analyze_multi_piece_pdf",
     "assess",
+    "check_score",
+    "repair_spanners",
+    "RepairReport",
     "assign_recommended_vsts_to_parts",
     "batch_convert_pdfs",
     "check_homr",

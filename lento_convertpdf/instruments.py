@@ -77,6 +77,25 @@ _CLEFS: dict[str, set[str]] = {
     "viola": {"C3", "G2"},
 }
 TWO_STAFF_FAMILIES = {"piano", "harp", "celesta", "harpsichord", "organ"}
+# Written range as MIDI note numbers, a little wider than the usual range so that only misreadings fall outside:
+# a note below a cello's open C is almost always a wrong clef, a missed octave line or a misread ledger line.
+_RANGES: dict[str, tuple[int, int]] = {
+    "violin": (55, 105),  # G3 to A7
+    "viola": (48, 93),  # C3 to A6
+    "cello": (36, 88),  # C2 to E6
+    "double bass": (28, 79),  # E1 to G5, written
+    "piano": (21, 108),
+    "harp": (23, 104),
+    "guitar": (40, 88),  # written
+    "flute": (59, 98),
+    "oboe": (58, 93),
+    "clarinet": (50, 96),  # written
+    "bassoon": (34, 79),
+    "horn": (34, 82),  # written
+    "trumpet": (52, 86),  # written
+    "trombone": (34, 77),
+    "tuba": (26, 67),
+}
 
 _NAMES: dict[str, str] = {}
 for _family, _spec in _FAMILIES:
@@ -493,3 +512,9 @@ def instrument_in_title(title: str) -> str | None:
     one_staff = {f for f in found if f not in TWO_STAFF_FAMILIES and f not in _TITLE_SKIP}
     return next(iter(one_staff)).title() if len(one_staff) == 1 else None
 
+
+
+def written_range(title: str) -> tuple[int, int] | None:
+    """The lowest and highest written note (MIDI numbers) an instrument plausibly has, or None if not known here."""
+    name = parse_name(title)
+    return _RANGES.get(name.family or "") if name else None
