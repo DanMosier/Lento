@@ -189,7 +189,7 @@ def run_audiveris(
         else:
             shutil.copyfile(exported[0], produced)
 
-        name_parts(produced, config.instrument, also_unnamed=True)
+        name_parts(produced, config.instrument, also_unnamed=True, source_name=pdf_path.stem)
         expand_multirests(produced)
         parts = check_output(produced, "Audiveris")
         report = assess(produced, None, config.review_below)

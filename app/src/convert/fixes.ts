@@ -19,13 +19,42 @@ export const CLEFS: { id: Clef; name: string }[] = [
 
 /** MIDI program (1-based) and MusicXML instrument-sound for the instruments a part can be set to. */
 export const INSTRUMENTS: { name: string; program: number; sound: string }[] = [
-  { name: "Cello", program: 43, sound: "strings.cello" },
-  { name: "Viola", program: 42, sound: "strings.viola" },
   { name: "Violin", program: 41, sound: "strings.violin" },
+  { name: "Viola", program: 42, sound: "strings.viola" },
+  { name: "Cello", program: 43, sound: "strings.cello" },
   { name: "Double Bass", program: 44, sound: "strings.contrabass" },
   { name: "Piano", program: 1, sound: "keyboard.piano" },
+  { name: "Flute", program: 74, sound: "wind.flutes.flute" },
+  { name: "Oboe", program: 69, sound: "wind.reed.oboe" },
+  { name: "Clarinet", program: 72, sound: "wind.reed.clarinet" },
+  { name: "Bassoon", program: 71, sound: "wind.reed.bassoon" },
+  { name: "Horn", program: 61, sound: "brass.french-horn" },
+  { name: "Trumpet", program: 57, sound: "brass.trumpet" },
+  { name: "Trombone", program: 58, sound: "brass.trombone" },
+  { name: "Tuba", program: 59, sound: "brass.tuba" },
+  { name: "Guitar", program: 25, sound: "pluck.guitar" },
+  { name: "Harp", program: 47, sound: "pluck.harp" },
   { name: "Voice", program: 54, sound: "voice" },
 ];
+
+/** The clefs an instrument's part usually starts in. A part starting in another clef may have been misread. */
+const USUAL_CLEFS: Record<string, string[]> = {
+  violin: ["G2"], flute: ["G2"], oboe: ["G2"], clarinet: ["G2"], trumpet: ["G2"],
+  viola: ["C3", "G2"],
+  cello: ["F4", "C4"], "double bass": ["F4", "G2-8", "C4"],
+  bassoon: ["F4", "C4"], trombone: ["F4", "C4"], tuba: ["F4"], horn: ["G2", "F4"], guitar: ["G2-8", "G2"],
+};
+
+/** Whether a part name says nothing about the instrument: homr's "Voice" for any one-staff part, or the
+ * converter's "Part 2" when no instrument was printed beside the staff or named in the file name. */
+export function unnamed(name: string): boolean {
+  return name === "Voice" || /^Part \d+$/.test(name) || /^P\d+$/.test(name) || name === ""; // "P1": no name at all
+}
+
+/** The parts whose instrument the converter didn't know, for the Review window to ask about. */
+export function unknownParts(doc: Document): Staff[] {
+  return staves(doc).filter((s) => s.staff === 1 && unnamed(s.name));
+}
 
 const STEPS = ["C", "D", "E", "F", "G", "A", "B"];
 const SHARPS = ["F", "C", "G", "D", "A", "E", "B"]; // the order sharps are added to a key; flats go the other way
@@ -91,13 +120,13 @@ export function measureNumber(doc: Document, at: number): string {
   return m?.getAttribute("number") || String(at);
 }
 
-/** Things worth a look before approving, such as a cello part that starts in treble clef. */
+/** Things worth a look before approving, such as a violin part that starts in bass clef. */
 export function warnings(doc: Document): string[] {
   const out: string[] = [];
   for (const s of staves(doc)) {
-    if (s.name === "Voice") out.push(`"${s.name}" is what the converter calls a one-staff part it can't name. Set the instrument if it's your cello part.`);
-    if (/cello|voice/i.test(s.name) && s.staves === 1 && s.clef.startsWith("G"))
-      out.push(`${s.name} starts in treble clef. If the PDF shows bass or tenor clef, change the clef below (the notes move with it).`);
+    const usual = USUAL_CLEFS[s.name.toLowerCase().replace(/^violoncello$/, "cello")];
+    if (usual && s.staves === 1 && !usual.includes(s.clef) && !usual.includes(s.clef.replace(/-8$/, "")))
+      out.push(`${s.name} starts in ${CLEFS.find((c) => c.id === s.clef)?.name.toLowerCase() ?? s.clef} clef, which is unusual for it. If the PDF shows another clef, change the clef below (the notes move with it).`);
   }
   return out;
 }

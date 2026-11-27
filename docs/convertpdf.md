@@ -28,6 +28,9 @@ flowchart LR
   so `multirests.py` reads the number above each lone bar of rest with homr's text reader; and where homr writes
   a multi-bar rest as one measure, `rests.py` adds the missing bars back in every part. Both keep bar numbers in
   line with the printed score.
+- No instrument is assumed. A part with no instrument name printed beside it takes the instrument the file name
+  names ("... - Violin.pdf"); otherwise it is called "Part 1", "Part 2"..., and the Review window asks which
+  instrument it is. `--instrument NAME` names such parts NAME instead.
 - A "system" is one line of music across the page (all the staves played at the same time).
 - The quality rating combines homr's own confidence with musical checks (measures that don't add up, empty measures,
   key changes that undo themselves). It catches garbled pages, not every wrong note: always check a converted score.

@@ -288,6 +288,53 @@ def test_parts_homr_calls_voice_are_renamed_to_the_default_instrument(tmp_path):
     assert name_parts(xml, "") == 0
 
 
+def _voice_score(path):
+    path.write_text(
+        '<score-partwise><part-list>'
+        '<score-part id="P1"><part-name>Piano</part-name></score-part>'
+        '<score-part id="P2"><part-name>Voice</part-name><score-instrument id="P2-I1"><instrument-name>Voice</instrument-name>'
+        '<instrument-sound>voice</instrument-sound></score-instrument><midi-instrument id="P2-I1"><midi-program>54</midi-program></midi-instrument></score-part>'
+        '</part-list><part id="P1"/><part id="P2"/></score-partwise>',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_auto_takes_the_instrument_from_the_file_name(tmp_path):
+    import xml.etree.ElementTree as ET
+    from lento_convertpdf.homr_runner import name_parts
+
+    xml = _voice_score(tmp_path / "s.musicxml")
+    assert name_parts(xml, "auto", source_name="Bach - Partita No.2 (Violin)") == 1
+    root = ET.parse(xml).getroot()
+    assert [p.findtext("part-name") for p in root.iter("score-part")] == ["Piano", "Violin"]
+    assert root.findtext(".//midi-program") == "41"
+
+
+def test_auto_assumes_no_instrument_when_the_file_name_names_none(tmp_path):
+    import xml.etree.ElementTree as ET
+    from lento_convertpdf.homr_runner import name_parts
+
+    xml = _voice_score(tmp_path / "s.musicxml")
+    assert name_parts(xml, "auto", source_name="Sonata Op.5 No.1") == 1
+    root = ET.parse(xml).getroot()
+    assert [p.findtext("part-name") for p in root.iter("score-part")] == ["Piano", "Part 2"]
+    assert root.findtext(".//midi-program") == "1"  # plays as a piano, not a sung "Voice"
+
+
+def test_instrument_in_file_names():
+    from lento_convertpdf.instruments import instrument_in_title
+
+    assert instrument_in_title("Beethoven Cello Sonata No.1 (Cello part)") == "Cello"
+    assert instrument_in_title("Sonata for Violin and Piano") == "Violin"
+    assert instrument_in_title("Handel - Sonata in F, flute and basso continuo") == "Flute"
+    assert instrument_in_title("Double Bass method") == "Double Bass"
+    assert instrument_in_title("Brahms Double Concerto, Violin and Cello") is None  # two: can't tell
+    assert instrument_in_title("Ave Maria") is None
+    assert instrument_in_title("Tenor aria") is None
+    assert instrument_in_title("Sailor's Hornpipe") is None
+
+
 def test_title_page_is_left_out_on_a_second_try(monkeypatch, tmp_path):
     exe = tmp_path / "homr_python.exe"
     exe.write_bytes(b"")
