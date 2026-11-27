@@ -140,3 +140,86 @@ def test_apply_all(tmp_path: Path) -> None:
     assert all(todo == 0 for todo, _ in org.batches(lib).values())
     assert len(json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["pieces"]) == 3
     assert not (tmp_path / "Siklós, Albert").exists()  # emptied folders are removed
+
+
+def test_names_of_downloads_without_last_first() -> None:
+    def name(stem: str) -> tuple[str, str, str]:
+        n = org.parse(("New downloads (to file)", stem + ".pdf"), stem)
+        return n.surname, org.title_slug(n.title), n.variant
+
+    assert name("Can Can Cello") == ("unknown", "can-can", "cello")  # not composer "Can"
+    assert name("Rhapsody in Blue-Violoncello") == ("gershwin", "rhapsody-in-blue", "cello")  # a famous work
+    assert name("Alto Clef Major Scales")[:2] == ("exercises", "alto-clef-major-scales")  # scale sheets have no composer
+    assert name("Scales, Major - 2 Octave")[0] == "exercises"
+    assert name("Ani), New - lhe")[0] == "unknown"  # text read from a scan is not a composer
+    assert name("Symphony_No._5_Op._64_Movt_1_Pyotr_Ilyich_Tchaikovsky")[:2] == ("tchaikovsky", "symphony-no-5-op-64-movt-1")
+    assert name("holst-the-planets-op-32")[:2] == ("holst", "the-planets-op-32")  # "op-32" is not excerpt 32
+    assert name("Purcell Suite in G - Purcell")[:2] == ("purcell", "suite-in-g")
+    assert name("Squire.(Triste.), W. H - At Twilight")[:2] == ("squire", "at-twilight")
+    assert name("IMSLP01299-BWV1008")[0] == "bach"
+    assert name("Fiddl'osophy Viola") == ("unknown", "fiddlosophy", "viola")
+    assert name("345745446-More-Time-Pieces-2-piano") == ("unknown", "more-time-pieces-2", "piano")
+    assert name("chopin-nocturne-no20-for-violin-solo-original")[2] == "violin"
+
+
+def test_plan_flags_copies_and_pieces_already_filed(tmp_path: Path) -> None:
+    (tmp_path / "pieces" / "lalo_cello-concerto-in-d-minor").mkdir(parents=True)
+    (tmp_path / "pieces" / "goltermann-g_concerto-no-4").mkdir(parents=True)
+    new = tmp_path / "New downloads"
+    new.mkdir()
+    for f in ("Lalo-Concerto-in-D-minor.pdf", "Mr Crowley.pdf", "Mr Crowley (1).pdf", "img601.pdf",
+              "Goltermann Etude Op 1.pdf", "Can Can Cello.pdf"):
+        (new / f).write_bytes(b"%PDF")
+    path, _ = org.plan(Library(tmp_path))
+    rows = {r["source"].split("/")[-1]: r for r in org.read_csv(path)}
+    assert rows["Lalo-Concerto-in-D-minor.pdf"]["action"] == "check"
+    assert "lalo_cello-concerto-in-d-minor" in rows["Lalo-Concerto-in-D-minor.pdf"]["note"]
+    assert rows["Mr Crowley (1).pdf"]["action"] == "check" and rows["Mr Crowley.pdf"]["action"] == "move"
+    assert rows["img601.pdf"]["action"] == "check"
+    assert rows["Goltermann Etude Op 1.pdf"]["piece_id"] == "goltermann-g_etude-op-1"  # the library's own prefix
+    assert rows["Can Can Cello.pdf"]["note"].startswith("no composer")
+    moved, problems = org.apply(Library(tmp_path), "New downloads", rebuild=False)
+    assert not problems and len(moved) == 3  # the rows to check stay where they are
+    assert (new / "img601.pdf").exists()
+
+
+def test_composer_from_inside_the_file(tmp_path: Path) -> None:
+    import io
+    import zipfile
+
+    new = tmp_path / "New downloads"
+    new.mkdir()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("META-INF/container.xml", "<container><rootfiles><rootfile full-path='s.xml'/></rootfiles></container>")
+        zf.writestr("s.xml", "<score-partwise><identification><creator type='composer'>Dmitri Shostakovich</creator>"
+                    "</identification></score-partwise>")
+    (new / "Symphony_No._5_1st_Movement.mxl").write_bytes(buf.getvalue())
+    (new / "Halo_Theme_for_Cello.musicxml").write_text(
+        "<score-partwise><credit><credit-words>Halo Theme</credit-words></credit>"
+        "<identification><creator type='composer'>Martin O'Donnell</creator></identification></score-partwise>")
+    (new / "Can Can Cello.pdf").write_bytes(b"not really a pdf")
+    path, _ = org.plan(Library(tmp_path))
+    rows = {r["source"].split("/")[-1]: r for r in org.read_csv(path)}
+    assert rows["Symphony_No._5_1st_Movement.mxl"]["piece_id"] == "shostakovich_symphony-no-5-1st-movement"
+    assert "inside the file" in rows["Symphony_No._5_1st_Movement.mxl"]["note"]
+    assert rows["Halo_Theme_for_Cello.musicxml"]["piece_id"].startswith("odonnell_")
+    assert rows["Can Can Cello.pdf"]["piece_id"] == "unknown_can-can"  # unreadable: no harm done
+
+
+def test_composer_part_of_a_credit() -> None:
+    assert org._composer_part("Chopin arr. Austin Harning") == "Chopin"
+    assert org._composer_part("Ludwig van Beethoven (1770-1827)") == "Ludwig van Beethoven"
+    assert org._composer_part("W.H. Squire, arr. Daniel E.") == "W.H. Squire"
+    assert org._composer_part("Composer / arranger") == ""
+    assert org._composer_part("Transcribed by Anavin Stearn") == ""
+    assert org._surname_of("Ludwig van Beethoven (1770-1827)") == "beethoven"
+
+
+def test_variants_of_duos_and_orchestra_versions() -> None:
+    def variant(stem: str) -> str:
+        return org.parse(("New", stem + ".mxl"), stem).variant
+
+    assert variant("marche-funebre-funeral-march-by-frederic-chopin-for-orchestra-woodwinds-strings-choir-piano") == "score"
+    assert variant("nocturne-in-c-op-posthume-f-chopin-violin-cello") == "score"
+    assert variant("Can Can Cello") == "cello"
