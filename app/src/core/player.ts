@@ -4,7 +4,7 @@
  * bowed-string-like synth until then. Either way, slowing down never changes pitch.
  */
 import type { Score, ScoreNote } from "./score";
-import { instrumentFor, type NoteShape, type SoundBank } from "./sounds";
+import { gmProgram, instrumentFor, type NoteShape, type SoundBank } from "./sounds";
 
 /** The sound pack for a part: from its name, the instrument named in the file, or its MIDI program. */
 export function partInstrument(s: Score): string | null {
@@ -77,6 +77,7 @@ export class Player {
   onEnd: (() => void) | null = null;
   private instruments = new Map<Score, string | null>();
   private shapes = new Map<Score, Map<ScoreNote, NoteShape>>();
+  private midiParts = new Map<Score, { key: string; program: number }>();
 
   constructor(
     readonly ctx: AudioContext,
@@ -130,11 +131,13 @@ export class Player {
     this.stop();
     if (this.ctx.state !== "running") await this.ctx.resume();
     this.opts = opts;
+    this.sounds?.recheck();
     const s = opts.parts[0];
     this.startBeat = s.measureStarts[opts.fromMeasure] ?? 0;
     this.endBeat = s.measureStarts[opts.toMeasure + 1] ?? s.totalBeats;
     const firstBeat = opts.fromBeat !== undefined && opts.fromBeat > this.startBeat && opts.fromBeat < this.endBeat ? opts.fromBeat : this.startBeat;
-    const now = this.ctx.currentTime + 0.1;
+    // (after a stop, your own SoundFont or MIDI output may still be cutting off notes it was sent: start after that)
+    const now = Math.max(this.ctx.currentTime + 0.1, this.quietAt + 0.02);
     const [beatsPerBar, beatType] = s.timeSignature;
     const clickBeat = 4 / beatType; // quarter notes per click
     const tempo = s.tempos.findLast?.((t) => t[0] <= firstBeat)?.[1] ?? s.tempos[0][1];
@@ -154,9 +157,12 @@ export class Player {
     this.schedule();
   }
 
+  private quietAt = 0;
+
   stop(): void {
     if (this.timer !== null) window.clearInterval(this.timer);
     this.timer = null;
+    this.quietAt = this.sounds?.stopOutside() ?? 0;
     for (const n of this.nodes) {
       try {
         n.stop();
@@ -239,7 +245,12 @@ export class Player {
       this.nodes.add(node);
       node.onended = () => this.nodes.delete(node);
     };
-    if (this.sounds?.play(this.instruments.get(part)!, n.midi, t0, dur, level * (n.inChord ? 0.8 : 1), this.out, track, shape)) return;
+    let mp = this.midiParts.get(part);
+    if (!mp) {
+      const p = part.parts.find((x) => x.id === part.partId);
+      this.midiParts.set(part, (mp = { key: part.partId, program: gmProgram(this.instruments.get(part)!, p?.program) }));
+    }
+    if (this.sounds?.play(this.instruments.get(part)!, n.midi, t0, dur, level * (n.inChord ? 0.8 : 1), this.out, track, shape, mp)) return;
     const freq = 440 * 2 ** ((n.midi - 69) / 12);
     const ctx = this.ctx;
     const osc = ctx.createOscillator();
