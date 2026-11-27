@@ -82,8 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--instrument",
-        default="Cello",
-        help='Name for one-staff parts homr can\'t identify (it calls them "Voice"). Default: Cello. "" keeps "Voice".',
+        default="auto",
+        help='Name for one-staff parts without a printed instrument name. Default "auto": the instrument the file '
+        'name names, else "Part 1", "Part 2"... to be set in Review. "" keeps homr\'s "Voice".',
     )
     parser.add_argument(
         "--homr-python",

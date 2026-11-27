@@ -10,14 +10,18 @@ wrong notes in a measure that adds up are invisible to it.
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .instruments import unusual_clef
+from .instruments import unusual_clef, written_range
+from .repair import RepairReport, repair_spanners
+from .rests import even_out_parts
 
+CHECKS_VERSION = 1  # raise when a check is added that scores converted earlier should go through (see recheck)
 REVIEW_BELOW = 0.95  # recommended baseline: below this, flag the export for review
 UNRELIABLE_BELOW = 0.80  # below this, or when the layout was lost, do not rely on the export
 
@@ -38,6 +42,7 @@ class QualityReport:
     review_below: float = REVIEW_BELOW
     by_system: bool = False  # a full score, read system by system
     instruments: dict[str, float] = field(default_factory=dict)  # the same estimate per instrument, full scores only
+    repairs: dict[str, Any] = field(default_factory=dict)  # broken marks left out before saving (repair.py)
 
     @property
     def summary(self) -> str:
@@ -65,6 +70,8 @@ class QualityReport:
             "read_by_system": self.by_system,
             "instruments": {name: round(share, 4) for name, share in self.instruments.items()},
             "suspicious_measures": {str(k): v for k, v in sorted(self.suspicious.items())},
+            "repairs": self.repairs,
+            "summary": self.summary,
         }
 
 
@@ -136,6 +143,37 @@ def _check_part(part: ET.Element, suspicious: dict[int, list[str]]) -> None:
                 suspicious.setdefault(at, []).append("key signature disappears at the end")
 
 
+def check_score(
+    xml_path: Path, trace: dict[str, Any] | None = None, review_below: float = REVIEW_BELOW
+) -> QualityReport:
+    """Repair broken slurs, ties and lines in a fresh transcription (in place), then assess it. Every engine's
+    output goes through this before it is saved."""
+    repairs = repair_spanners(xml_path)
+    report = with_repairs(assess(xml_path, trace, review_below), repairs)
+    padded = even_out_parts(xml_path)  # after assess, which reports the parts' lengths
+    if padded:
+        report.problems.append(_padded(padded))
+    return report
+
+
+def _padded(added: dict[str, int]) -> str:
+    return "filled the end of " + ", ".join(f"{name or 'a part'} with {n} empty measures" for name, n in added.items()) + (
+        " so the whole score shows"
+    )
+
+
+def with_repairs(report: QualityReport, repairs: RepairReport) -> QualityReport:
+    """Add what repair_spanners left out to a report. Ties and octave lines change what is played or where the notes
+    are drawn, so they (or many broken slurs) put an otherwise good score up for review."""
+    if not repairs.fixed:
+        return report
+    report.repairs = repairs.to_dict()
+    report.problems.append(repairs.summary)
+    if repairs.worth_review and report.level == "good":
+        report.level = "review"
+    return report
+
+
 def assess(
     xml_path: Path, trace: dict[str, Any] | None = None, review_below: float = REVIEW_BELOW
 ) -> QualityReport:
@@ -153,6 +191,7 @@ def assess(
     for k, part in enumerate(parts):
         own: dict[int, list[str]] = {}
         _check_part(part, own)
+        _check_range(part, names[k] if k < len(names) else "", own)
         if by_system:
             name = names[k] if k < len(names) else part.get("id", "")
             _check_reading(by_system, name, own)
@@ -226,6 +265,37 @@ def assess(
     )
 
 
+_STEPS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def _midi(pitch: ET.Element) -> int | None:
+    try:
+        alter = round(float(pitch.findtext("alter") or 0))
+        return 12 * (int(pitch.findtext("octave") or "") + 1) + _STEPS[(pitch.findtext("step") or "").strip()] + alter
+    except (KeyError, ValueError):
+        return None
+
+
+def _check_range(part: ET.Element, name: str, own: dict[int, list[str]]) -> None:
+    """Notes the instrument can't play: usually a misread clef, a missed octave line or a misread ledger line."""
+    limits = written_range(name)
+    if not limits:
+        return
+    low, high = limits
+    instrument = name.strip().lower() or "this instrument"
+    for at, measure in enumerate(part.findall("measure"), start=1):
+        found = set()
+        for pitch in measure.iter("pitch"):
+            midi = _midi(pitch)
+            if midi is not None and midi < low:
+                found.add(f"notes too low for {instrument}")
+            elif midi is not None and midi > high:
+                found.add(f"notes too high for {instrument}")
+        for reason in sorted(found):
+            if reason not in own.setdefault(at, []):
+                own[at].append(reason)
+
+
 def _check_clefs(part: ET.Element, name: str, own: dict[int, list[str]]) -> None:
     unusual: dict[str, str] = {}
     for at, measure in enumerate(part.findall("measure"), start=1):
@@ -259,3 +329,50 @@ def _unsure_share(pages: list[dict[str, Any]]) -> float:
     """Share of all symbols homr was unsure about."""
     values = [c for p in pages for read in p.get("reads", []) for c in read]
     return sum(c < LOW_SYMBOL for c in values) / len(values) if values else 0.0
+
+
+def recheck(xml_path: Path) -> list[str]:
+    """Put a score converted before today's checks through them: repair broken slurs, ties and lines in place, and
+    look for notes the instrument can't play. Its quality report (name.quality.json) gets the findings as
+    "recheck_notes", and a score that was fine but now needs a look goes up for review. Returns the findings."""
+    repairs = repair_spanners(xml_path)
+    root = ET.parse(xml_path).getroot()
+    names = [p.findtext("part-name") or "" for p in root.findall("part-list/score-part")]
+    found: dict[str, list[int]] = {}
+    for k, part in enumerate(root.findall("part")):
+        own: dict[int, list[str]] = {}
+        _check_range(part, names[k] if k < len(names) else "", own)
+        for at, reasons in own.items():
+            for reason in reasons:
+                found.setdefault(reason, []).append(at)
+    path = xml_path.with_suffix(".quality.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data = data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        data = {}
+    earlier = (data.get("repairs") or {}).get("summary", "")
+    if repairs.fixed:
+        notes = [repairs.summary]
+    else:  # repaired by an earlier recheck (or at conversion, which already says so in "problems")
+        notes = [earlier] if earlier and earlier not in data.get("problems", []) else []
+    notes += [f"{reason} in m. {_ranges(sorted(set(at)))}" for reason, at in sorted(found.items())]
+    padded = even_out_parts(xml_path)
+    if padded:
+        notes.append(_padded(padded))
+    elif data.get("padded"):
+        notes.append(data["padded"])
+    level = data.get("level") or "good"
+    if (repairs.worth_review or found or padded) and level == "good":
+        level = "review"
+    if not data and level == "good":
+        return notes  # nothing worth a report: a good score has none
+    data.update(level=level, recheck_notes=notes, checks_version=CHECKS_VERSION)
+    if repairs.fixed:
+        data["repairs"] = repairs.to_dict()
+    if padded:
+        data["padded"] = _padded(padded)
+    partial = path.with_name(path.name + ".part")
+    partial.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    partial.replace(path)
+    return notes

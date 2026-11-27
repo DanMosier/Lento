@@ -12,10 +12,11 @@ import { library, reviewedHere } from "../core/library/connection";
 import type { LibraryFile, Piece } from "../core/library/model";
 import { guardRenderer, skippedNote, takeSkipped } from "../core/osmd-safety";
 import { timed } from "../core/perf";
+import { beatAt, beatPlaces, type BeatPlace } from "../core/tap";
 import { scoreText } from "../core/score";
 import { isFlagged, setSplit } from "./split-list";
 import { changeSplit, currentSplit, onSplitChanged } from "./split-store";
-import { barPage, CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, warnings, type Clef } from "./fixes";
+import { barPage, CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, unknownParts, warnings, type Clef } from "./fixes";
 
 export interface ReviewItem {
   piece: Piece;
@@ -30,6 +31,7 @@ const ui = {
   close: $<HTMLButtonElement>("rv-close"),
   name: $("rv-name"),
   sub: $("rv-sub"),
+  found: $("rv-found"), // what the converter found or repaired, from its quality report
   panes: $("rv-panes"),
   pdf: $<HTMLIFrameElement>("rv-pdf"), // replaced by a fresh frame for each PDF: see pdfFrame()
   pdfMsg: $("rv-pdf-msg"),
@@ -42,6 +44,7 @@ const ui = {
   fix: $<HTMLDetailsElement>("rv-fix"),
   fixCount: $("rv-fix-count"),
   warn: $<HTMLUListElement>("rv-warn"),
+  ask: $("rv-ask"),
   staff: $<HTMLSelectElement>("rv-staff"),
   from: $<HTMLInputElement>("rv-from"),
   inst: $<HTMLSelectElement>("rv-inst"),
@@ -74,6 +77,8 @@ let onDone: (name: string, status: string) => void = () => {};
 let osmd: OpenSheetMusicDisplay | null = null;
 let shown = 0; // which score is on screen, so a slow load of an earlier one can't replace it
 let page = 0; // which group of bars is drawn
+let pageFirst = 0; // index of the first bar drawn
+let tapPlaces: BeatPlace[] | null = null; // where the drawn notes are, found on the first tap after a draw
 let drawing = 0; // bumped by each draw, so a slower earlier one can't replace a newer one
 
 /**
@@ -140,6 +145,8 @@ async function draw(): Promise<void> {
       return true;
     });
     if (!drew) return;
+    pageFirst = p.pages === 1 ? 0 : p.first;
+    tapPlaces = null; // drawn again: notes have moved
     ui.xml.parentElement?.scrollTo({ top: 0 });
     const left = skippedNote();
     ui.xmlMsg.hidden = !left;
@@ -163,6 +170,7 @@ function fillStaffs(): void {
   if (list.some((s) => `${s.part}:${s.staff}` === before)) ui.staff.value = before;
   ui.from.max = String(measureCount(doc));
   ui.warn.replaceChildren(...warnings(doc).map((w) => Object.assign(document.createElement("li"), { textContent: w })));
+  ui.ask.replaceChildren(...unknownParts(doc).map((s) => askInstrument(s.part, s.name)));
   ui.changes.replaceChildren(...changes.map((c) => Object.assign(document.createElement("li"), { textContent: c })));
   ui.fixCount.textContent = changes.length ? ` (${changes.length} unsaved)` : "";
   ui.undo.disabled = !history.length;
@@ -185,6 +193,35 @@ function fix(what: (d: Document, from: number) => string): void {
     doc = new DOMParser().parseFromString(saved, "application/xml");
     status((e as Error).message, "error");
   }
+}
+
+const QUICK = ["Violin", "Viola", "Cello", "Double Bass"]; // offered as buttons; the rest in a list
+
+/** "Which instrument is Part 2?": the converter found no instrument name for this part, so it asks, not guesses. */
+function askInstrument(part: string, name: string): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "rv-q";
+  const q = document.createElement("p");
+  q.append("Which instrument is ", Object.assign(document.createElement("b"), { textContent: name }), "? No name was printed beside it.");
+  const set = (to: string) =>
+    fix((d) => {
+      setInstrument(d, part, to);
+      return `${name} is now ${to}`;
+    });
+  const buttons = QUICK.map((i) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", textContent: i });
+    b.addEventListener("click", () => set(i));
+    return b;
+  });
+  const other = document.createElement("select");
+  other.setAttribute("aria-label", `Other instrument for ${name}`);
+  other.append(new Option("Other…", ""), ...INSTRUMENTS.filter((i) => !QUICK.includes(i.name)).map((i) => new Option(i.name, i.name)));
+  other.addEventListener("change", () => other.value && set(other.value));
+  const row = document.createElement("div");
+  row.className = "rv-q-row";
+  row.append(...buttons, other);
+  box.append(q, row);
+  return box;
 }
 
 function staffChoice(): [string, number] {
@@ -252,7 +289,7 @@ function toggleSplit(): void {
   const pdf = it.pdf;
   const on = isFlagged(currentSplit(), it.piece.id, pdf.name);
   changeSplit((l) => setSplit(l, it.piece.id, pdf.name, it.piece.title, on ? "off" : "flagged"));
-  status(on ? "Taken off the To split list." : "Added to the To split list (its button is in the Review tab), as a reminder to split this PDF on your PC.");
+  status(on ? "Taken off the To split list." : "Added to the To split list (its button is in the Review tab). Split it from there, or on your PC.");
 }
 onSplitChanged(() => {
   if (ui.dialog.open) showSplit();
@@ -278,6 +315,8 @@ async function load(i: number): Promise<void> {
   ui.name.textContent = it.piece.title;
   ui.sub.textContent = [it.piece.composer, it.xml.edition || it.xml.variant, `${i + 1} of ${items.length}`].filter(Boolean).join(" · ");
   ui.note.value = "";
+  ui.found.textContent = it.xml.quality_note ? `The converter says: ${it.xml.quality_note}` : "";
+  ui.found.hidden = !it.xml.quality_note;
   ui.fix.hidden = !canFix(it);
   showSplit();
   status("Loading…");
@@ -346,9 +385,9 @@ function stopPlay(): void {
   setPlaying(false);
 }
 
-/** Plays the score as fixed so far, from the chosen measure, or stops it. */
-async function togglePlay(): Promise<void> {
-  if (playback?.isPlaying()) return stopPlay();
+/** Plays the score as fixed so far, from the chosen measure, or stops it. A tapped note plays from that note. */
+async function togglePlay(tapped?: { pageFirst: number; beat: number }): Promise<void> {
+  if (playback?.isPlaying() && !tapped) return stopPlay();
   if (!doc) return;
   const mine = shown;
   const xml = serialize(doc);
@@ -356,7 +395,7 @@ async function togglePlay(): Promise<void> {
   try {
     playback ??= await import("./review-play");
     if (mine !== shown) return;
-    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false));
+    const measures = await playback.play(xml, Number(ui.playFrom.value) || 1, Number(ui.speed.value) / 100, () => setPlaying(false), tapped);
     if (mine !== shown) return playback.stop();
     ui.playFrom.max = String(measures);
     setPlaying(true);
@@ -458,6 +497,16 @@ ui.reject.addEventListener("click", () => void decide("rejected"));
 ui.edit.addEventListener("click", () => void edit());
 ui.split.addEventListener("click", toggleSplit);
 ui.play.addEventListener("click", () => void togglePlay());
+
+// Tap a note in the drawn MusicXML to listen from there (tapping again while it plays jumps)
+ui.xml.addEventListener("click", (e) => {
+  if (!osmd || !doc || drawing === 0) return;
+  tapPlaces ??= beatPlaces(osmd, ui.xml);
+  const c = ui.xml.getBoundingClientRect();
+  const beat = beatAt(tapPlaces, e.clientX - c.left + ui.xml.scrollLeft, e.clientY - c.top + ui.xml.scrollTop);
+  if (beat === null) return;
+  void togglePlay({ pageFirst, beat });
+});
 
 /** Opens the window on items[start]; Previous and Next go through the rest. */
 export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {

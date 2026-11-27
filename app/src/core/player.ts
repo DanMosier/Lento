@@ -41,6 +41,7 @@ export function noteShapes(s: Score): Map<ScoreNote, NoteShape> {
 export interface PlayOptions {
   parts: Score[]; // the parts to sound; the first one sets the timeline
   fromMeasure: number; // measure index, inclusive
+  fromBeat?: number; // start the first pass here instead (a tapped note inside the measures); later passes start at fromMeasure
   toMeasure: number; // measure index, inclusive
   tempoFactor: number; // 0.5 = half speed
   countIn: boolean;
@@ -65,7 +66,8 @@ function stringWave(ctx: BaseAudioContext): PeriodicWave {
 export class Player {
   private timer: number | null = null;
   private nodes = new Set<AudioScheduledSourceNode>();
-  private startTime = 0;
+  private startTime = 0; // audio time at which the first pass's first beat sounds, or would have (started mid-pass)
+  private firstSound = 0; // audio time at which playing really starts, after any count-in
   private opts: PlayOptions | null = null;
   private passStart = 0; // audio time at which the current pass's first beat sounds
   private passIndex = 0;
@@ -103,6 +105,7 @@ export class Player {
    */
   currentBeat(delay = 0): number | null {
     if (!this.opts || !this.playing) return null;
+    if (this.ctx.currentTime - delay < this.firstSound) return null;
     const t = this.ctx.currentTime - delay - this.passStart;
     if (t < 0) return null;
     const len = this.passLength;
@@ -121,7 +124,7 @@ export class Player {
 
   /** Audio-clock time at which the first beat sounds (after any count-in). */
   get firstBeatTime(): number {
-    return this.startTime;
+    return this.firstSound;
   }
 
   async play(opts: PlayOptions): Promise<void> {
@@ -132,21 +135,24 @@ export class Player {
     const s = opts.parts[0];
     this.startBeat = s.measureStarts[opts.fromMeasure] ?? 0;
     this.endBeat = s.measureStarts[opts.toMeasure + 1] ?? s.totalBeats;
+    const firstBeat = opts.fromBeat !== undefined && opts.fromBeat > this.startBeat && opts.fromBeat < this.endBeat ? opts.fromBeat : this.startBeat;
     // (after a stop, your own SoundFont or MIDI output may still be cutting off notes it was sent: start after that)
     const now = Math.max(this.ctx.currentTime + 0.1, this.quietAt + 0.02);
     const [beatsPerBar, beatType] = s.timeSignature;
     const clickBeat = 4 / beatType; // quarter notes per click
-    const tempo = s.tempos.findLast?.((t) => t[0] <= this.startBeat)?.[1] ?? s.tempos[0][1];
+    const tempo = s.tempos.findLast?.((t) => t[0] <= firstBeat)?.[1] ?? s.tempos[0][1];
     const clickSec = (60 / (tempo * opts.tempoFactor)) * clickBeat;
     if (opts.countIn) {
       for (let i = 0; i < beatsPerBar; i++) this.click(now + i * clickSec, i === 0 ? 2 : 1);
-      this.startTime = now + beatsPerBar * clickSec;
+      this.firstSound = now + beatsPerBar * clickSec;
     } else {
-      this.startTime = now;
+      this.firstSound = now;
     }
+    // the first pass is timed as if it had begun at fromMeasure, so later passes and the cursor line up
+    this.startTime = this.firstSound - this.secs(firstBeat);
     this.passStart = this.startTime;
     this.passIndex = 0;
-    this.scheduledUntilBeat = this.startBeat;
+    this.scheduledUntilBeat = firstBeat;
     this.timer = window.setInterval(() => this.schedule(), 50);
     this.schedule();
   }

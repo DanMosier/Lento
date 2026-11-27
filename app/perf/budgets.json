@@ -1,6 +1,6 @@
 {
   "startup-js-kb": 20,
-  "all-js-kb": 400,
+  "all-js-kb": 550,
   "soundfont-js-kb": 350,
   "startup-ms": 600,
   "tab-switch-ms": 100,
@@ -11,6 +11,7 @@
   "fit-big-score-ms": 8000,
   "fit-relayouts": 1,
   "start-playback-ms": 250,
+  "tap-note-ms": 250,
   "transpose-score-ms": 2500,
   "change-clef-ms": 2500,
   "check-3min-ms": 10000,
@@ -23,5 +24,7 @@
   "library-favorites-ms": 150,
   "library-lists-longest-block-ms": 100,
   "review-big-score-ms": 3000,
-  "review-page-ms": 1000
+  "review-page-ms": 1000,
+  "split-open-ms": 1000,
+  "split-longest-block-ms": 200
 }

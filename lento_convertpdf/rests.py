@@ -94,3 +94,37 @@ def expand_multirests(xml_path: Path) -> int:
             shift += extra
     tree.write(xml_path, encoding="UTF-8", xml_declaration=True)
     return sum(inserts.values())
+
+
+def even_out_parts(xml_path: Path) -> dict[str, int]:
+    """Fill parts that came out shorter than the longest with rest measures. Returns {part name: measures added}.
+
+    homr sometimes reads fewer measures for one instrument than another (a missed system, merged staves). The
+    renderer in the app stops at the end of the shortest part, so the rest of every other part would vanish: in a
+    sonata with a 380-measure piano part and a 1,167-measure cello part, only 380 measures showed. Padding keeps
+    everything visible and playable; the measures still don't line up, which the quality report already says.
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    parts = root.findall("part")
+    counts = [len(p.findall("measure")) for p in parts]
+    if len(set(counts)) <= 1:
+        return {}
+    longest = max(counts)
+    names = {sp.get("id"): (sp.findtext("part-name") or "").strip() for sp in root.findall("part-list/score-part")}
+    added: dict[str, int] = {}
+    for part, count in zip(parts, counts):
+        if count == longest:
+            continue
+        meter = _Meter()
+        measures = part.findall("measure")
+        for measure in measures:
+            meter.read(measure)
+        last = measures[-1].get("number", "") if measures else ""
+        number = int(last) if last.isdigit() else count
+        for k in range(1, longest - count + 1):
+            part.append(meter.rest_measure(str(number + k)))
+        name = names.get(part.get("id")) or part.get("id", "")
+        added[name] = added.get(name, 0) + longest - count
+    tree.write(xml_path, encoding="UTF-8", xml_declaration=True)
+    return added

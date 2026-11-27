@@ -20,6 +20,7 @@
   "dependencies": {
     "fflate": "0.8.3",
     "opensheetmusicdisplay": "1.9.9",
+    "pdfjs-dist": "5.4.624",
     "spessasynth_core": "4.4.9",
     "spessasynth_lib": "4.4.7"
   },
