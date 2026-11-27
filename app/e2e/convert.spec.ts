@@ -1,5 +1,5 @@
 /** Convert PDF: choose PDFs and queue them, the Review window (play, fix, flag for splitting), the To split list. */
-import { openScreen, pdfBytes, test, expect } from "./fixtures";
+import { expectOpensDriveFolder, openScreen, pdfBytes, test, expect } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await openScreen(page, "convert");
@@ -112,5 +112,12 @@ test("a conversion the converter flagged shows a Check badge and what it found",
   await expect(page.locator("#rv-xml svg")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator("#rv-found")).toBeVisible();
   await expect(page.locator("#rv-found")).toContainText("116 slurs");
+  await page.click("#rv-close");
+});
+
+test("Open in Drive in the Review window opens that piece's folder", async ({ page }) => {
+  await page.click("#cv-tab-review");
+  await page.locator("#cv-rv-list li", { hasText: "Saint-Saens Swan" }).locator(".cv-rv-open").click();
+  await expectOpensDriveFolder(page, "#rv-drive", "saint_swan");
   await page.click("#rv-close");
 });

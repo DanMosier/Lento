@@ -19,6 +19,7 @@ import { celloWhere, stepName, WaitJudge, waitSteps } from "./wait";
 import { clearNote, emptyMarks, marksIn, newer, parseMarks, toggleMark, type MarkKind, type MarkSet } from "./marks";
 import { drawMarks, nearestNote, notePlaces, type NotePlace } from "./marks-view";
 import { library } from "../core/library/connection";
+import { openPieceFolder } from "../core/library/library";
 import { DEFAULT_TRAINER, judgePass, SpeedTrainer, type TrainerConfig } from "./trainer";
 import { pageLayout, parseScoreSize, phoneScreen, SCORE_SIZES } from "./layout";
 import { setUpFocus } from "./focus";
@@ -60,6 +61,7 @@ const ui = {
   sheet: $("sheet"),
   view: $("view-practice"),
   focusBtn: $<HTMLButtonElement>("focus-btn"),
+  driveBtn: $<HTMLButtonElement>("drive-btn"),
   scoreSize: $<HTMLSelectElement>("score-size"),
   fitBtn: $<HTMLButtonElement>("fit-btn"),
   miniFit: $<HTMLButtonElement>("mini-fit"),
@@ -361,6 +363,7 @@ async function openScoreNow(name: string, text: string, picked?: PartChoice): Pr
   ui.title.textContent = s.title;
   ui.partsBtn.hidden = s.parts.length < 2;
   ui.marksBtn.hidden = false;
+  ui.driveBtn.hidden = !pieceId; // only a score from the library has a folder in Drive
   ui.partsBtn.textContent = choiceLabel(s.parts, choice);
   ui.accompLabel.hidden = choice.shown.length < 2;
   const opts = () => s.measures.map((m, i) => new Option(m, String(i)));
@@ -404,6 +407,13 @@ takeOpenScore(async ({ name, data, pieceId: from }) => {
   } catch (e) {
     status(`Could not open ${name}: ${(e as Error).message}`, "error");
   }
+});
+
+ui.driveBtn.addEventListener("click", async () => {
+  const lib = library();
+  if (!lib || !pieceId) return;
+  if (await openPieceFolder(lib, pieceId)) status("Opened this piece's folder in Google Drive.");
+  else status("Couldn't find this piece's folder in Drive (offline?).", "error");
 });
 
 ui.partsBtn.addEventListener("click", async () => {
@@ -1357,6 +1367,7 @@ export function closeScore(): void {
   ui.focusBtn.hidden = true;
   ui.partsBtn.hidden = true;
   ui.marksBtn.hidden = true;
+  ui.driveBtn.hidden = true;
   setMarking(false);
   marks = null;
   pieceId = null;

@@ -64,6 +64,8 @@ export const LIBRARY = {
 
 /** Replaces the Google Drive library with LIBRARY, keeping anything the app saves in memory for this test. */
 export async function useFakeLibrary(page: Page): Promise<void> {
+  // a piece's folder in Drive (Open in Drive), in this page or a new tab
+  await page.context().route("https://drive.google.com/drive/folders/**", (r) => r.fulfill({ contentType: "text/html", body: "<p>Drive folder</p>" }));
   await page.route("https://drive.example/**", (r) =>
     // like Drive's real PDF viewer, it adds a history entry inside the frame
     r.fulfill({ contentType: "text/html", body: '<p>PDF</p><script>history.pushState({}, "", location.href + "#2")</script>' }),
@@ -79,6 +81,7 @@ export async function useFakeLibrary(page: Page): Promise<void> {
       P.cachedIndex = P.loadIndex = async () => index;
       P.newerIndex = async () => null;
       P.pcStatus = async () => null;
+      P.pieceFolderLink = async (id: string) => `https://drive.google.com/drive/folders/folder-${id}`;
       P.readRootJson = async (name: string) => saved.get(`root/${name}`) ?? null;
       P.writeRootJson = async (name: string, content: unknown) => void saved.set(`root/${name}`, content);
       P.readSidecar = async (id: string, name: string) => saved.get(`${id}/${name}`) ?? null;
@@ -91,6 +94,13 @@ export async function useFakeLibrary(page: Page): Promise<void> {
     },
     [LIBRARY, SOLO_XML] as const,
   );
+}
+
+/** Presses an Open in Drive button and checks a new tab opens on that piece's Drive folder. */
+export async function expectOpensDriveFolder(page: Page, selector: string, pieceId: string): Promise<void> {
+  const [tab] = await Promise.all([page.context().waitForEvent("page", { timeout: 8000 }), page.click(selector)]);
+  await tab.waitForURL(`**/drive/folders/folder-${pieceId}`, { timeout: 8000 });
+  await tab.close();
 }
 
 // ---- moving around ----

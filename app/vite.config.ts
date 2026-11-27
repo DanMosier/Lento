@@ -45,7 +45,20 @@ export default defineConfig({
           { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
-      workbox: { globPatterns: ["**/*.{js,css,html,svg,png}"], maximumFileSizeToCacheInBytes: 6_000_000 },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,png}"],
+        maximumFileSizeToCacheInBytes: 6_000_000,
+        // The SoundFont synthesizer (~300 KB) is only for people who choose "My own SoundFont": it isn't installed
+        // with the app, but kept for offline use once it has loaded.
+        globIgnores: ["**/soundfont-*.js", "**/spessasynth_processor*.js"],
+        runtimeCaching: [
+          {
+            urlPattern: /\/assets\/(soundfont-|spessasynth_processor)[^/]*\.js$/,
+            handler: "CacheFirst",
+            options: { cacheName: "lento-soundfont-code", expiration: { maxEntries: 6 } },
+          },
+        ],
+      },
     }),
   ],
 });

@@ -118,6 +118,11 @@ test("Settings", async ({ page }) => {
   await openScreen(page, "settings");
   await page.click("#view-settings details.advanced summary");
   await expectNothingBlocking(page, "Settings");
+  for (const [sound, box] of [["soundfont", "#set-sf-box"], ["midi", "#set-midi-box"]]) {
+    await page.locator("#set-sound").selectOption(sound);
+    await expect(page.locator(box)).toBeVisible();
+    await expectNothingBlocking(page, `Settings: playback sound "${sound}"`);
+  }
 });
 
 test("Every screen after a trip through all the others", async ({ page }) => {

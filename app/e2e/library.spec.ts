@@ -1,5 +1,5 @@
 /** Library: search, filters, a piece's window, favorites, setlists. */
-import { openScreen, test, expect } from "./fixtures";
+import { expectOpensDriveFolder, openScreen, scoreReady, test, expect } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await openScreen(page, "library");
@@ -73,4 +73,13 @@ test("a piece can be added to a setlist from its window", async ({ page }) => {
   await page.click("#lib-sets-open");
   await expect(page.locator("#lib-sets .sets-item")).toContainText("Warm-ups");
   await page.click("#lib-sets-close");
+});
+
+test("Open in Drive opens the piece's folder, from its window and from Practice", async ({ page }) => {
+  await page.locator(".lib-body .lib-row", { hasText: "Bach Suite" }).click();
+  await expectOpensDriveFolder(page, "#lib-detail .lib-drive-btn", "bach_suite");
+  await page.locator('#lib-detail button:has-text("Practice")').click();
+  await scoreReady(page);
+  await expect(page.locator("#drive-btn")).toBeVisible();
+  await expectOpensDriveFolder(page, "#drive-btn", "bach_suite");
 });

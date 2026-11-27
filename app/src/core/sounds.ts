@@ -8,7 +8,10 @@
  * is kept in the browser's Cache Storage so it works offline. Until it is ready, playback uses the synth.
  */
 import { store } from "./app";
+import { note } from "./diag";
+import type { MidiVoice } from "./midi-voice";
 import { timed } from "./perf";
+import { loadSoundFont, midiOutName, soundFontInfo } from "./user-sounds";
 
 export const SOUND_CACHE = "lento-sounds-v1";
 const BASE = "sounds/";
@@ -49,12 +52,13 @@ export interface NoteShape {
   vary?: number;
 }
 
-export type SoundQuality = "synth" | "light" | "full";
+/** "soundfont": your own SoundFont file; "midi": notes go out to a MIDI device or PC plugin host instead. */
+export type SoundQuality = "synth" | "light" | "full" | "soundfont" | "midi";
 
 /** The sound setting from Settings, with "auto" decided by the device: phones get the light packs. */
 export function soundQuality(): SoundQuality {
   const v = store.get<string>("sound") ?? "auto";
-  if (v === "synth" || v === "light" || v === "full") return v;
+  if (v === "synth" || v === "light" || v === "full" || v === "soundfont" || v === "midi") return v;
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
   const phone = matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 700;
   return phone || mem < 4 ? "light" : "full";
@@ -96,6 +100,13 @@ const BY_PROGRAM: [number, number, string][] = [
   [73, 74, "flute"],
 ];
 
+/** The General MIDI program (1-based) for a part: its instrument's, else the program in the file, else piano. */
+export function gmProgram(instrument: string | null, program?: number | null): number {
+  const hit = instrument ? BY_PROGRAM.find(([, , id]) => id === instrument) : undefined;
+  if (hit) return instrument === "flute" ? 74 : hit[0];
+  return program && program >= 1 && program <= 128 ? program : 1;
+}
+
 /** Which sound pack fits a part, from its name or MIDI program. Unknown instruments use the synth. */
 export function instrumentFor(name: string, program?: number | null): string | null {
   for (const [re, id] of BY_NAME) if (re.test(name)) return id;
@@ -124,11 +135,18 @@ export class SoundBank {
   private packs = new Map<string, Pack>();
   private loading = new Map<string, Promise<Pack | null>>();
   private quality: SoundQuality = "light";
+  /** Your own SoundFont or MIDI output, when one of those is chosen and has loaded. */
+  private outside: (MidiVoice & { route?: (out: AudioNode) => void }) | null = null;
+  private outsideKey = "";
+  private outsideLoading: Promise<void> | null = null;
 
   constructor(private readonly ctx: BaseAudioContext) {}
 
   /** Starts loading these instruments' packs in the background. Resolves once all have loaded or failed. */
   want(instruments: (string | null)[], quality = soundQuality()): Promise<void> {
+    if (quality === "soundfont" || quality === "midi") return this.wantOutside(quality);
+    this.outside = null;
+    this.outsideKey = "";
     if (quality === "synth") return Promise.resolve();
     if (quality !== this.quality) {
       this.quality = quality;
@@ -140,7 +158,54 @@ export class SoundBank {
   }
 
   ready(instrument: string | null): boolean {
-    return !!instrument && this.packs.has(instrument);
+    return !!this.outside || (!!instrument && this.packs.has(instrument));
+  }
+
+  /**
+   * Loads your own SoundFont, or finds the chosen MIDI output, in the background (the code for either loads only
+   * now). Until it's ready, or if it fails (no file saved, no MIDI output), playback uses the synth.
+   */
+  private wantOutside(quality: "soundfont" | "midi"): Promise<void> {
+    const info = soundFontInfo();
+    const key = quality === "soundfont" ? `sf:${info?.stamp ?? 0}` : `midi:${midiOutName()}`;
+    if (key === this.outsideKey && this.outsideLoading) return this.outsideLoading;
+    this.outsideKey = key;
+    this.outside = null;
+    const ctx = this.ctx;
+    type Outside = MidiVoice & { route?: (out: AudioNode) => void };
+    const load: Promise<Outside | null> =
+      quality === "soundfont"
+        ? info
+          ? import("./soundfont").then((m) => m.soundFontVoice(ctx, info.stamp, loadSoundFont))
+          : Promise.resolve(null)
+        : "requestMIDIAccess" in navigator
+          ? import("./midi-out").then((m) => m.midiOutVoice(ctx, midiOutName()))
+          : Promise.resolve(null);
+    this.outsideLoading = timed(`load-${quality}`, () => load).then(
+      (v) => {
+        if (this.outsideKey === key) this.outside = v;
+      },
+      (e) => note("error", `Couldn't load ${quality === "soundfont" ? "your SoundFont" : "the MIDI output"}: ${(e as Error)?.message ?? e}`), // keep the synth
+    );
+    return this.outsideLoading;
+  }
+
+  /** Picks up a change to your own sound made in Settings since the score was opened (cheap when nothing changed). */
+  recheck(): void {
+    const q = soundQuality();
+    if (q === "soundfont" || q === "midi") void this.wantOutside(q);
+    else if (this.outsideKey) {
+      this.outside = null;
+      this.outsideKey = "";
+    }
+  }
+
+  /**
+   * Stops your own SoundFont's or MIDI output's notes (recorded and synth notes are stopped by the player).
+   * Returns the audio time after which it's quiet, so the next start doesn't overlap the end of the last.
+   */
+  stopOutside(): number {
+    return this.outside?.stop() ?? 0;
   }
 
   private load(id: string): Promise<Pack | null> {
@@ -189,7 +254,13 @@ export class SoundBank {
     out: AudioNode,
     track: (n: AudioScheduledSourceNode) => void,
     shape: NoteShape = {},
+    part?: { key: string; program: number },
   ): boolean {
+    if (this.outside) {
+      this.outside.route?.(out);
+      this.outside.note(part?.key ?? instrument ?? "?", part?.program ?? gmProgram(instrument), midi, when, dur, level);
+      return true;
+    }
     const pack = instrument ? this.packs.get(instrument) : undefined;
     if (!pack) return false;
     const vel = 40 + 80 * level;
