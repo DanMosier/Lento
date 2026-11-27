@@ -67,7 +67,7 @@ bobrowicz jacobowsky flesch sevcik feuillard mooney schroeder gershwin offenbach
 # Spellings and mangled names in downloads -> the surname used here
 ALIASES = {"tchaikowsky": "tchaikovsky", "tschaikowsky": "tchaikovsky", "ajkovskij": "tchaikovsky", "cajkovskij": "tchaikovsky",
            "dvok": "dvorak", "dvorak": "dvorak", "faur": "faure", "saint-sans": "saint-saens", "rachmaninov": "rachmaninoff",
-           "schostakowitsch": "shostakovich", "chopins": "chopin"}
+           "schostakowitsch": "shostakovich", "chopins": "chopin", "prokofieff": "prokofiev"}
 # Famous works whose file names often leave out the composer
 WORKS = [(r"nutcracker|swan lake|1812", "tchaikovsky"), (r"danse macabre", "saint-saens"), (r"rhapsody in blue", "gershwin"),
          (r"\bla mer\b", "debussy"), (r"cello suite no|suite no\.? ?1 for solo cello|bwv ?100[7-9]|bwv ?101[0-2]", "bach")]
@@ -159,12 +159,13 @@ def find_composer(text: str, known: set[str]) -> tuple[str, str] | None:
             if not cand:
                 continue
             start, end = i, i + n
-            while start > 0 and slug(words[start - 1]) in GIVEN:
+            while start > 0 and (slug(words[start - 1]) in GIVEN or re.fullmatch(r"([A-Za-z]\.)+[A-Za-z]?\.?", words[start - 1])):
                 start -= 1  # "Pyotr Ilyich Tchaikovsky", "frederic chopin": the given names go too
             while end < len(words) and slug(words[end]) in GIVEN and end + 1 < len(words) and _surname(words[end + 1], known):
                 end += 1
             rest = [w for w in words[:start] + words[end:] if _surname(w, known) != cand]
-            rest = [w for k, w in enumerate(rest) if not (slug(w) in GIVEN and k == len(rest) - 1)]  # "... Gustav"
+            while rest and (slug(rest[-1]) in GIVEN or re.fullmatch(r"([A-Za-z]\.)+[A-Za-z]?\.?", rest[-1])):
+                rest.pop()  # "... Gustav", "... J.S."
             title = re.sub(r"^\s*[-–,.]+\s*|\s*[-–,.(]+\s*$", "", " ".join(rest))
             return cand, re.sub(r"\s+-\s+-\s+", " - ", title).strip() or text
     for word in words:  # "gershwinanamericaninparisfullscore": a name glued to the title
@@ -242,7 +243,9 @@ def _part_and_excerpt(text: str, numbered: bool) -> tuple[str, str]:
     wm = re.match(r"^(.*\S)[\s-]+(" + "|".join(_PARTS) + r")$", text, re.IGNORECASE)
     if pm and pm.group(1):
         text, variant = pm.group(1).rstrip(" .,-"), "cello" if pm.group(2) == "C" else "piano"
-    elif wm and wm.group(1).split()[-1].lower() not in {"for", "and", "solo", "et", "pour", "violoncelle", "&", "para", "per", "fur", "für"}:
+    elif (wm and wm.group(1).split()[-1].lower() not in {"for", "and", "solo", "et", "pour", "violoncelle", "&", "para", "per", "fur", "für"}
+          and wm.group(1).split()[-1].lower() not in _PARTS  # "... violin cello": a duo, so the score
+          and not re.search(r"orchestra|quartet|quintet|trio|ensemble|choir", wm.group(1), re.IGNORECASE)):
         text, variant = wm.group(1).rstrip(" .,-"), _PARTS[wm.group(2).lower()]
     else:
         sm = re.search(r"\bfor (" + "|".join(_PARTS) + r") solo\b", text, re.IGNORECASE)
@@ -298,27 +301,48 @@ def _musicxml_root(path: Path):
     return ET.parse(path).getroot()
 
 
+def _composer_part(text: str) -> str:
+    """The composer in a credit: "Chopin arr. Austin Harning" -> "Chopin", "Ludwig van Beethoven (1770-1827)" ->
+    "Ludwig van Beethoven", "W.H. Squire, arr. Daniel E." -> "W.H. Squire". "" for a placeholder or an arranger alone."""
+    text = re.split(r"\b(arr\b\.?|arranged|arrangement|transcri\w*|orch\w*\b|adapted|edited|ed\.|after)\b|/", text, flags=re.IGNORECASE)[0]
+    text = re.sub(r"\([^)]*\)|\b\d{3,4}\b|[–-]\s*$", " ", text)
+    text = re.sub(r"^\s*(music by|by|composer:?|words and music by)\s+", "", text, flags=re.IGNORECASE)
+    text = " ".join(text.replace(",", " , ").split()).strip(" ,.-–")
+    text = text.replace(" , ", ", ")
+    if not re.search(r"[A-Za-zÀ-ÿ]{3}", text) or text.lower() in _NOT_A_COMPOSER or re.search(r"composer|arranger", text, re.IGNORECASE):
+        return ""
+    return text if len(text.split()) <= 5 else ""
+
+
 def embedded_composer(path: Path, known: set[str]) -> str:
     """The composer a score file names inside itself: MusicXML's <creator type="composer"> (or a composer named
-    in its credits), a PDF's author field, or a known composer printed on a PDF's first page. "" if none."""
+    in its credits), a PDF's author field, or a known composer printed on a PDF's first page. "" if none.
+    Arrangers and transcribers are left out ("Chopin arr. X" gives Chopin)."""
     texts: list[str] = []
     try:
         if path.suffix.lower() in (".mxl", ".musicxml", ".xml"):
             root = _musicxml_root(path)
             if root is None:
                 return ""
+            creator = ""
             for el in root.iter():
                 tag = el.tag.rsplit("}", 1)[-1]
-                if tag == "creator" and el.get("type", "composer") == "composer" and (el.text or "").strip():
-                    name = " ".join(el.text.split())
-                    if name.lower() not in _NOT_A_COMPOSER and re.search(r"[A-Za-zÀ-ÿ]{3}", name):
-                        return name
+                if tag == "creator" and el.get("type", "composer") == "composer" and (el.text or "").strip() and not creator:
+                    creator = _composer_part(" ".join(el.text.split()))
                 if tag == "credit-words" and el.text:
                     texts.append(el.text)
+            if creator:
+                return creator
         elif path.suffix.lower() == ".pdf":
+            import logging
+
             from pypdf import PdfReader
 
+            logging.getLogger("pypdf").setLevel(logging.ERROR)  # damaged downloads warn a lot
+
             reader = PdfReader(str(path))
+            if reader.is_encrypted:
+                reader.decrypt("")  # most "encrypted" sheet music only forbids editing
             author = (reader.metadata or {}).get("/Author") if reader.metadata else None
             if author:
                 texts.append(str(author))
@@ -328,15 +352,16 @@ def embedded_composer(path: Path, known: set[str]) -> str:
         return ""
     for text in texts:  # a known composer named in the credits, the author field or on the title page
         for line in text.splitlines():
-            found = find_composer(" ".join(re.sub(r"[_+]", " ", line).split()), known)
-            if found and slug(line) and len(line) < 80:
-                # keep the name as printed when the line is just the name ("Antonín Dvořák")
+            line = _composer_part(" ".join(re.sub(r"[_+]", " ", line).split()))
+            found = find_composer(line, known) if line else None
+            if found and len(line) < 60:
                 return line.strip() if len(line.split()) <= 4 else found[0].title()
     return ""
 
 
 def _surname_of(name: str) -> str:
     """'Pyotr Ilyich Tchaikovsky' -> 'tchaikovsky', 'Bach, J.S.' -> 'bach', 'Hidetoshi Sato' -> 'sato'."""
+    name = re.sub(r"\([^)]*\)|\d+", " ", name)
     if "," in name:
         return slug(name.split(",")[0])
     words = [w for w in re.split(r"\s+", name.strip()) if w and slug(w) not in GIVEN and not w.endswith(".")]
@@ -389,7 +414,13 @@ def plan(lib: Library, fresh: bool = False) -> tuple[Path, int]:
     old = {} if fresh else {r["source"]: r for r in read_csv(path)}
     files = scan(lib)
     prefixes, titles = _library_prefixes(lib)
-    known = COMPOSERS | {k for k in prefixes if len(k) >= 4 and k not in _NOT_SURNAMES and k not in GIVEN}
+    # composers the library already has, by the composer column of catalog.csv (piece ids alone are not enough:
+    # some begin with a title word, like "can-can_")
+    try:
+        filed = {_surname_of(r.get("composer", "")) for r in lib.catalog() if r.get("composer", "").strip()}
+    except Exception:
+        filed = set()
+    known = COMPOSERS | {k for k in filed if len(k) >= 3 and k not in _NOT_SURNAMES and k not in GIVEN}
     names = {p: parse(p.relative_to(lib.root).parts, p.stem, known) for p in files}
     # a surname shared by composers with different first names (the Bachs, the Rombergs) gets their initials
     firsts: dict[str, set[str]] = {}

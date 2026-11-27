@@ -205,3 +205,21 @@ def test_composer_from_inside_the_file(tmp_path: Path) -> None:
     assert "inside the file" in rows["Symphony_No._5_1st_Movement.mxl"]["note"]
     assert rows["Halo_Theme_for_Cello.musicxml"]["piece_id"].startswith("odonnell_")
     assert rows["Can Can Cello.pdf"]["piece_id"] == "unknown_can-can"  # unreadable: no harm done
+
+
+def test_composer_part_of_a_credit() -> None:
+    assert org._composer_part("Chopin arr. Austin Harning") == "Chopin"
+    assert org._composer_part("Ludwig van Beethoven (1770-1827)") == "Ludwig van Beethoven"
+    assert org._composer_part("W.H. Squire, arr. Daniel E.") == "W.H. Squire"
+    assert org._composer_part("Composer / arranger") == ""
+    assert org._composer_part("Transcribed by Anavin Stearn") == ""
+    assert org._surname_of("Ludwig van Beethoven (1770-1827)") == "beethoven"
+
+
+def test_variants_of_duos_and_orchestra_versions() -> None:
+    def variant(stem: str) -> str:
+        return org.parse(("New", stem + ".mxl"), stem).variant
+
+    assert variant("marche-funebre-funeral-march-by-frederic-chopin-for-orchestra-woodwinds-strings-choir-piano") == "score"
+    assert variant("nocturne-in-c-op-posthume-f-chopin-violin-cello") == "score"
+    assert variant("Can Can Cello") == "cello"
