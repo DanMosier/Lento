@@ -34,19 +34,48 @@ from lento_library.library import (
 
 PLAN = "organize-plan.csv"
 LOG = "organize-log.csv"
-PLAN_COLUMNS = ["batch", "source", "piece_id", "variant", "action", "composer", "title"]
+PLAN_COLUMNS = ["batch", "source", "piece_id", "variant", "action", "composer", "title", "note"]
 LOG_COLUMNS = ["batch", "source", "dest", "moved"]
 SCORE_EXT = set(KINDS) | set(MUSESCORE)
 SKIP_TOP = {"pieces", REQUESTS, "inbox"}
 
 
 def slug(text: str) -> str:
+    text = re.sub(r"['’](?=\w)", "", text)  # "Fiddl'osophy" -> "fiddlosophy"
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
 PARTICLES = {"von", "van", "de", "der", "den", "d", "la", "le", "du", "da", "di", "jr", "sr", "zu"}
 MAX_TITLE = 60  # keeps pieces/<id>/<id>__<variant>.pdf well inside Windows' 260-character path limit
+
+# Surnames (as slugs) recognised anywhere in a file name that gives no "Last, First - Title". Composers already in
+# the library's pieces/ are recognised too.
+COMPOSERS = set("""
+albeniz albinoni arensky arriaga bach barber bartok beethoven bellini berlioz bernstein bizet bloch boccherini
+borodin brahms breval bridge britten bruch casals cassado chopin corelli couperin cui czerny davydov debussy delius
+dotzauer dukas duport dvorak einaudi elgar faure franck gabrielli gershwin glass glazunov glinka gluck goltermann
+gounod granados grieg grutzmacher handel haydn hindemith holst hummel ibert janacek kabalevsky khachaturian klengel
+kodaly kreisler kummer lalo lee liszt mahler marais marcello massenet mendelssohn monteverdi mozart mussorgsky
+offenbach paganini part pergolesi piatti piazzolla popper poulenc prokofiev puccini purcell rachmaninoff rachmaninov
+ravel respighi romberg rossini saint-saens sammartini satie scarlatti schnittke schroeder schubert schumann
+servais shostakovich sibelius smetana squire stamitz strauss stravinsky suzuki tartini telemann tchaikovsky
+trowell vaughan-williams verdi villa-lobos vivaldi wagner weber werner ysaye rimsky-korsakov speer lago
+""".split())
+# Words around a name that are not first names ("Symphony No 5 ... Pyotr Ilyich Tchaikovsky")
+_NOT_NAMES = {"symphony", "sonata", "concerto", "suite", "no", "op", "opus", "movt", "mvt", "movement", "cello",
+              "violin", "viola", "piano", "for", "and", "in", "the", "of", "major", "minor", "part", "score"}
+# Instruments a file name may end with: the part the file is
+_PARTS = {"cello": "cello", "violoncello": "cello", "violoncelle": "cello", "violin": "violin", "viola": "viola",
+          "piano": "piano", "flute": "flute", "clarinet": "clarinet", "oboe": "oboe", "bassoon": "bassoon",
+          "horn": "horn", "trumpet": "trumpet", "guitar": "guitar", "harp": "harp"}
+# Pieces with no composer get the kind of piece as the first half of their id, e.g. exercises_major-scales-2-octave
+_NO_COMPOSER = [("exercises", r"scales?|arpeggios?|double stops|exercises?|etudes?|études?|studies|method|technique"
+                 r"|bow(ing)?|warm[- ]?ups?|level"),
+                ("excerpts", r"excerpts?"), ("traditional", r"folk|traditional|trad\\b|carols?|hymns?")]
+# Catalogue numbers that name their composer
+_CATALOGUES = {"bwv": "bach", "rv": "vivaldi", "hwv": "handel", "hob": "haydn", "kv": "mozart", "twv": "telemann"}
+_NUMBER_WORDS = {"op", "no", "nr", "bwv", "k", "kv", "rv", "hob", "d", "vol", "woo", "opus", "s", "l", "hwv", "twv"}
 
 
 def strip_number(stem: str) -> str:
@@ -73,46 +102,121 @@ class Name:
     variant: str
 
 
-def parse(parts: tuple[str, ...], stem: str) -> Name:
+def _clean(stem: str) -> tuple[str, bool]:
+    """A file name as words: "Dvorak_Cello_Concerto" -> "Dvorak Cello Concerto", download noise taken off.
+    Returns (text, numbered): numbered when it started with a track number ("02 - ...")."""
+    text = re.sub(r"\s*\(\d\)$", "", stem.strip())  # "Aerials (1)": a second download of the same file
+    text = re.sub(r"^(IMSLP\d+|\d{5,})[-_ ]+", "", text, flags=re.IGNORECASE)  # IMSLP and site numbers
+    text = text.replace("_", " ")
+    if " " not in text.strip():
+        text = re.sub(r"(?<=[A-Za-z0-9])-(?=[A-Za-z])|(?<=[A-Za-z])-(?=\d)", " ", text)  # "holst-the-planets-op-32"
+    numbered_text = strip_number(text).strip()
+    return re.sub(r"\s+", " ", numbered_text), numbered_text != text.strip()
+
+
+def _plausible_name(last: str, first: str) -> bool:
+    """Whether "Last, First" from a file name looks like a person, not text read from a scan ("Ani), New")."""
+    ok = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\- ]*$")
+    if not (ok.match(last.strip()) and ok.match(first.strip())):
+        return False
+    words = {w.lower().strip(".") for w in f"{last} {first}".split()}
+    return len(last.strip()) >= 2 and not words & (_NOT_NAMES | {"scales", "volume", "institute", "music", "archives"})
+
+
+def find_composer(text: str, known: set[str]) -> tuple[str, str] | None:
+    """(surname slug, the text without the composer) for a known composer named anywhere in text."""
+    words = text.split(" ")
+    for i in range(len(words)):
+        for n in (2, 1):
+            cand = slug(" ".join(words[i : i + n]).removesuffix("'s"))
+            if n == 2 and len(words[i : i + n]) < 2:
+                continue
+            if cand and cand in known:
+                start, end = i, i + n
+                while start > 0 and words[start - 1][:1].isupper() and words[start - 1].lower().strip(".,") not in _NOT_NAMES and start > i - 2:
+                    start -= 1  # "Pyotr Ilyich Tchaikovsky": the given names go too
+                rest = " ".join(w for w in words[:start] + words[end:] if slug(w.removesuffix("'s")) != cand)
+                rest = re.sub(r"^\s*[-–,.]+\s*|\s*[-–,.(]+\s*$", "", rest)
+                return cand, re.sub(r"\s+-\s+-\s+", " - ", rest).strip() or text
+    cat = re.search(r"\b(" + "|".join(_CATALOGUES) + r")\s*\.?\s*\d", text, re.IGNORECASE)
+    if cat and _CATALOGUES[cat.group(1).lower()] in known:
+        return _CATALOGUES[cat.group(1).lower()], text
+    return None
+
+
+def no_composer(title: str) -> str:
+    """The first half of the id for a piece without a composer: exercises (scales too), excerpts, traditional or unknown."""
+    for kind, pattern in _NO_COMPOSER:
+        if re.search(rf"\b({pattern})\b", title, re.IGNORECASE):
+            return kind
+    return "unknown"
+
+
+def parse(parts: tuple[str, ...], stem: str, known: set[str] | None = None) -> Name:
     """Reads composer, title and part from where a file is and what it is called.
 
     "Bach, Johann Sebastian/Bach, Johann Sebastian - Cello Suite No.1 C.pdf" -> bach / js / Cello Suite No.1 / cello
     "Compilations/.../02 - Bartok Concerto for Orchestra-1.pdf"            -> bartok / Concerto for Orchestra excerpt 1
+    "Major Scales - 2 Octave.pdf" (no composer)                               -> exercises / Major Scales - 2 Octave
     """
+    known = COMPOSERS if known is None else known
     folder = parts[0] if len(parts) > 1 else ""
-    text = strip_number(stem).strip()
-    numbered = text != stem.strip()
+    text, numbered = _clean(stem)
     composer = ""
-    m = re.match(r"^([^,]+,.+?)\s+-\s+(.+)$", text)  # "Last, First - Title": the name as written beats a garbled folder name
-    if m:
-        composer, text = m.group(1).strip(), m.group(2).strip()
-    elif "," in folder:
+    m = re.match(r"^([^,]+),(.+?)\s+-\s+(.+)$", text)  # "Last, First - Title": the name as written beats a garbled folder name
+    if m and _plausible_name(m.group(1), m.group(2)):
+        composer, text = f"{m.group(1).strip()},{m.group(2)}".strip(), m.group(3).strip()
+    elif "," in folder and _plausible_name(*folder.split(",", 1)):
         composer = folder
         pre, sep, rest = text.partition(" - ")  # "di Lasso - I know a Young Maiden" in "Lasso, di"
         if sep and slug(folder.split(",")[0]) in slug(pre).split("-"):
             text = rest.strip()
-    variant = "score"
-    text = re.sub(r"\s+P\s*&\s*C$", "", text)  # "P & C": piano and cello, i.e. the whole score
-    pm = re.match(r"^(.*?)(?:\s+|(?<=[\d.]))([CP])$", text)  # "Op.65P", "Op. 31 C": the piano or cello part
-    wm = re.match(r"^(.*\S)\s+(cello|piano)$", text, re.IGNORECASE)
-    if pm and pm.group(1):
-        text, variant = pm.group(1).rstrip(" .,-"), "cello" if pm.group(2) == "C" else "piano"
-    elif wm and wm.group(1).split()[-1].lower() not in {"for", "and", "solo", "et", "pour", "violoncelle", "&"}:
-        text, variant = wm.group(1).rstrip(" .,-"), wm.group(2).lower()
-    # "Bartok Concerto for Orchestra-5": excerpt 5. After a digit only in numbered files ("34 - ... mvt 4-1"),
-    # since "Op.4 nos. 1-5" is a range
-    em = re.match(r"^(.*[A-Za-z)])-(\d{1,2})$", text) or (numbered and re.match(r"^(.*\S)-(\d{1,2})$", text))
-    if em:
-        text = f"{em.group(1)} excerpt {em.group(2)}"
+    elif m and slug(m.group(1)).split("-")[0] in known:  # "Squire.(Triste.), W. H - At Twilight"
+        composer, text = "", m.group(3).strip()
+        return _finish(Name("", slug(m.group(1)).split("-")[0], "", text, "score"), numbered)
+    elif m:  # a "Last, First" that is not a name: keep the words as the title
+        text = f"{m.group(1)} {m.group(2)} {m.group(3)}"
+        text = re.sub(r"[^\w\s.'&()-]", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+    variant, text = _part_and_excerpt(text, numbered)
     if composer:
         last, _, first = composer.partition(",")
         surname, first = slug(last) or "unknown", initials(first)
-    else:  # no composer given: the first word of the title ("Bartok Concerto for Orchestra")
-        word = text.split(" ")[0]
-        surname, first = slug(word) or "unknown", ""
-        if " " in text and slug(word):
-            text = text.split(" ", 1)[1]
+    else:
+        found = find_composer(text, known)
+        if found:
+            surname, text = found
+            first = ""
+        else:  # scale sheets, exercises and the like have no composer
+            surname, first = no_composer(text), ""
     return Name(composer, surname, first, text, variant)
+
+
+def _finish(name: Name, numbered: bool) -> Name:
+    name.variant, name.title = _part_and_excerpt(name.title, numbered)
+    return name
+
+
+def _part_and_excerpt(text: str, numbered: bool) -> tuple[str, str]:
+    """(variant, title): the part a file is ("... Cello", "Op.65P"), and "excerpt N" for a split file ("...-5")."""
+    variant = "score"
+    text = re.sub(r"\s+P\s*&\s*C$", "", text)  # "P & C": piano and cello, i.e. the whole score
+    pm = re.match(r"^(.*?)(?:\s+|(?<=[\d.]))([CP])$", text)  # "Op.65P", "Op. 31 C": the piano or cello part
+    wm = re.match(r"^(.*\S)[\s-]+(" + "|".join(_PARTS) + r")$", text, re.IGNORECASE)
+    if pm and pm.group(1):
+        text, variant = pm.group(1).rstrip(" .,-"), "cello" if pm.group(2) == "C" else "piano"
+    elif wm and wm.group(1).split()[-1].lower() not in {"for", "and", "solo", "et", "pour", "violoncelle", "&"}:
+        text, variant = wm.group(1).rstrip(" .,-"), _PARTS[wm.group(2).lower()]
+    else:
+        sm = re.search(r"\bfor (" + "|".join(_PARTS) + r") solo\b", text, re.IGNORECASE)
+        if sm and _PARTS[sm.group(1).lower()] != "cello":
+            variant = _PARTS[sm.group(1).lower()]  # a violin piece among the cello downloads
+    # "Bartok Concerto for Orchestra-5": excerpt 5. After a digit only in numbered files ("34 - ... mvt 4-1"),
+    # since "Op.4 nos. 1-5" is a range; never after "Op", "No", "BWV"...
+    em = re.match(r"^(.*[A-Za-z)])-(\d{1,2})$", text) or (numbered and re.match(r"^(.*\S)-(\d{1,2})$", text))
+    if em and re.split(r"[\s.-]+", em.group(1).lower())[-1] not in _NUMBER_WORDS:
+        text = f"{em.group(1)} excerpt {em.group(2)}"
+    return variant, text
 
 
 def title_slug(text: str) -> str:
@@ -133,13 +237,53 @@ def scan(lib: Library) -> list[Path]:
     return out
 
 
+_IGNORED = {"in", "for", "and", "the", "of", "a", "no", "op", "cello", "violoncello", "major", "minor", "score", "part", "excerpt"}
+
+
+def _words(title: str) -> set[str]:
+    return {w for w in slug(title).split("-") if w not in _IGNORED}
+
+
+def _library_prefixes(lib: Library) -> tuple[dict[str, str], dict[str, set[str]]]:
+    """From pieces/: composer prefix by surname ("bach" -> "bach-js", the most used), and title words by piece id."""
+    counts: dict[str, dict[str, int]] = {}
+    titles: dict[str, set[str]] = {}
+    for folder in lib.folders():
+        prefix, _, title = folder.name.partition("_")
+        titles[folder.name] = _words(title)
+        for key in {prefix, prefix.split("-")[0]}:
+            counts.setdefault(key, {}).setdefault(prefix, 0)
+            counts[key][prefix] += 1
+    best = {k: (k if k in v else max(v, key=lambda p: v[p])) for k, v in counts.items()}
+    return best, titles
+
+
+def _similar(pid: str, titles: dict[str, set[str]]) -> str | None:
+    """A piece already in pieces/ by the same composer whose title has nearly the same words."""
+    prefix, _, title = pid.partition("_")
+    mine = _words(title)
+    if not mine or prefix in ("unknown", "exercises", "excerpts", "traditional"):
+        return titles.get(pid) is not None and pid or None
+    for other, words in titles.items():
+        if other.split("_")[0].split("-")[0] != prefix.split("-")[0] or not words:
+            continue
+        if len(mine & words) / len(mine | words) >= 0.6 or other == pid:
+            return other
+    return None
+
+
 def plan(lib: Library, fresh: bool = False) -> tuple[Path, int]:
     """Writes organize-plan.csv, keeping the rows of a plan already there (so edits survive a re-run) unless
-    `fresh`. Files already moved (in organize-log.csv) are never planned again."""
+    `fresh`. Files already moved (in organize-log.csv) are never planned again.
+
+    Rows marked "check" are not moved by apply: a second download of the same file, a file that looks like a piece
+    already in pieces/, or a scan without a name. The note column says which; change action to "move" to file it."""
     path = lib.root / PLAN
     old = {} if fresh else {r["source"]: r for r in read_csv(path)}
     files = scan(lib)
-    names = {p: parse(p.relative_to(lib.root).parts, p.stem) for p in files}
+    prefixes, titles = _library_prefixes(lib)
+    known = COMPOSERS | set(prefixes)
+    names = {p: parse(p.relative_to(lib.root).parts, p.stem, known) for p in files}
     # a surname shared by composers with different first names (the Bachs, the Rombergs) gets their initials
     firsts: dict[str, set[str]] = {}
     for n in names.values():
@@ -150,6 +294,7 @@ def plan(lib: Library, fresh: bool = False) -> tuple[Path, int]:
     taken: set[tuple[str, str, str]] = set()  # (piece_id, variant, ext) already planned
     for r in old.values():
         taken.add((r["piece_id"], r["variant"], Path(r["source"]).suffix.lower()))
+    stems = {(p.parent, p.stem.lower(), p.suffix.lower()) for p in files}
     for p in files:
         rel = p.relative_to(lib.root).as_posix()
         if rel in old:
@@ -158,16 +303,31 @@ def plan(lib: Library, fresh: bool = False) -> tuple[Path, int]:
         parts = p.relative_to(lib.root).parts
         batch = parts[0] if len(parts) > 1 else "(top folder)"
         nm = names[p]
-        comp = f"{nm.surname}-{nm.first}" if nm.surname in families and nm.first else nm.surname
+        if nm.first and f"{nm.surname}-{nm.first}" in prefixes:
+            comp = f"{nm.surname}-{nm.first}"  # the library already has this composer with initials
+        elif nm.surname in families and nm.first:
+            comp = f"{nm.surname}-{nm.first}"
+        else:
+            comp = prefixes.get(nm.surname, nm.surname) if nm.surname not in ("unknown", "exercises", "excerpts", "traditional") else nm.surname
         pid = f"{comp}_{title_slug(nm.title)}"
         variant = nm.variant
         ext = p.suffix.lower()
+        action, note = "move", ""
+        copy = re.match(r"^(.*?)\s*\(\d\)$", p.stem)
+        if copy and (p.parent, copy.group(1).lower(), ext) in stems:
+            action, note = "check", f"second download of {copy.group(1)}{p.suffix}"
+        elif (same := _similar(pid, titles)):
+            action, note = "check", f"may already be in the library as {same}"
+        elif re.fullmatch(r"(img|scan|image|doc)[\s_-]*\d+", p.stem, re.IGNORECASE):
+            action, note = "check", "a scan without a name: open it and give it one"
+        elif comp == "unknown":
+            note = "no composer found: add one to piece_id and composer if it has one"
         n, base = 2, variant
         while (pid, variant, ext) in taken:  # two files would get the same name: number the later one
             variant, n = f"{base}-{n}", n + 1
         taken.add((pid, variant, ext))
-        rows.append({"batch": batch, "source": rel, "piece_id": pid, "variant": variant, "action": "move",
-                     "composer": nm.composer, "title": nm.title})
+        rows.append({"batch": batch, "source": rel, "piece_id": pid, "variant": variant, "action": action,
+                     "composer": nm.composer, "title": nm.title, "note": note})
     rows.sort(key=lambda r: (r["batch"], r["source"]))
     write_csv(path, PLAN_COLUMNS, rows)
     return path, len(rows)

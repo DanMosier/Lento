@@ -140,3 +140,44 @@ def test_apply_all(tmp_path: Path) -> None:
     assert all(todo == 0 for todo, _ in org.batches(lib).values())
     assert len(json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["pieces"]) == 3
     assert not (tmp_path / "Siklós, Albert").exists()  # emptied folders are removed
+
+
+def test_names_of_downloads_without_last_first() -> None:
+    def name(stem: str) -> tuple[str, str, str]:
+        n = org.parse(("New downloads (to file)", stem + ".pdf"), stem)
+        return n.surname, org.title_slug(n.title), n.variant
+
+    assert name("Can Can Cello") == ("unknown", "can-can", "cello")  # not composer "Can"
+    assert name("Rhapsody in Blue-Violoncello") == ("unknown", "rhapsody-in-blue", "cello")
+    assert name("Alto Clef Major Scales")[:2] == ("exercises", "alto-clef-major-scales")  # scale sheets have no composer
+    assert name("Scales, Major - 2 Octave")[0] == "exercises"
+    assert name("Ani), New - lhe")[0] == "unknown"  # text read from a scan is not a composer
+    assert name("Symphony_No._5_Op._64_Movt_1_Pyotr_Ilyich_Tchaikovsky")[:2] == ("tchaikovsky", "symphony-no-5-op-64-movt-1")
+    assert name("holst-the-planets-op-32")[:2] == ("holst", "the-planets-op-32")  # "op-32" is not excerpt 32
+    assert name("Purcell Suite in G - Purcell")[:2] == ("purcell", "suite-in-g")
+    assert name("Squire.(Triste.), W. H - At Twilight")[:2] == ("squire", "at-twilight")
+    assert name("IMSLP01299-BWV1008")[0] == "bach"
+    assert name("Fiddl'osophy Viola") == ("unknown", "fiddlosophy", "viola")
+    assert name("345745446-More-Time-Pieces-2-piano") == ("unknown", "more-time-pieces-2", "piano")
+    assert name("chopin-nocturne-no20-for-violin-solo-original")[2] == "violin"
+
+
+def test_plan_flags_copies_and_pieces_already_filed(tmp_path: Path) -> None:
+    (tmp_path / "pieces" / "lalo_cello-concerto-in-d-minor").mkdir(parents=True)
+    (tmp_path / "pieces" / "goltermann-g_concerto-no-4").mkdir(parents=True)
+    new = tmp_path / "New downloads"
+    new.mkdir()
+    for f in ("Lalo-Concerto-in-D-minor.pdf", "Mr Crowley.pdf", "Mr Crowley (1).pdf", "img601.pdf",
+              "Goltermann Etude Op 1.pdf", "Can Can Cello.pdf"):
+        (new / f).write_bytes(b"%PDF")
+    path, _ = org.plan(Library(tmp_path))
+    rows = {r["source"].split("/")[-1]: r for r in org.read_csv(path)}
+    assert rows["Lalo-Concerto-in-D-minor.pdf"]["action"] == "check"
+    assert "lalo_cello-concerto-in-d-minor" in rows["Lalo-Concerto-in-D-minor.pdf"]["note"]
+    assert rows["Mr Crowley (1).pdf"]["action"] == "check" and rows["Mr Crowley.pdf"]["action"] == "move"
+    assert rows["img601.pdf"]["action"] == "check"
+    assert rows["Goltermann Etude Op 1.pdf"]["piece_id"] == "goltermann-g_etude-op-1"  # the library's own prefix
+    assert rows["Can Can Cello.pdf"]["note"].startswith("no composer")
+    moved, problems = org.apply(Library(tmp_path), "New downloads", rebuild=False)
+    assert not problems and len(moved) == 3  # the rows to check stay where they are
+    assert (new / "img601.pdf").exists()
