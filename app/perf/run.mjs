@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { preview } from "vite";
 import { chromium } from "playwright";
-import { scoreXml, takeWav } from "./fixtures.mjs";
+import { scoreXml, takeWav, sheetPdf } from "./fixtures.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -25,6 +25,7 @@ const REVIEW_MEASURES = 1500; // about the length of a converted sonata with its
 writeFileSync(join(tmp, "take-score.musicxml"), scoreXml(TAKE_MEASURES, 120, "Three minute piece"));
 writeFileSync(join(tmp, "big-score.musicxml"), scoreXml(BIG_MEASURES, 120, "Long piece"));
 writeFileSync(join(tmp, "take.wav"), takeWav(TAKE_MEASURES));
+writeFileSync(join(tmp, "book.pdf"), sheetPdf(80, [1, 9, 17, 30, 44, 61])); // an 80-page book of six pieces, for the splitter
 writeFileSync(join(tmp, "mic.wav"), takeWav(12, 120, 48000)); // what the fake microphone "plays" in wait mode
 
 // ---- bundle size: what the phone downloads before the app can start ----
@@ -121,12 +122,28 @@ try {
   await page.click("#fit-btn");
   await waitFor("relayout-score", 2);
 
+  // 3c. Tap a note of the long score to play from it: finding the note and starting must feel instant
+  await page.waitForTimeout(800);
+  const head = await page.evaluate(() => {
+    const h = [...document.querySelectorAll("#sheet svg g.vf-notehead")][40];
+    h.scrollIntoView({ block: "center" });
+    const r = h.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  t = await now();
+  await page.mouse.click(head.x, head.y);
+  await waitFor("start-playback", 2);
+  results["tap-note-ms"] = (await measure("find-tapped-note"))[0] + (await measure("start-playback"))[1];
+  results["tap-note-longest-block-ms"] = await longestTask(t);
+  await page.waitForTimeout(500);
+  await page.click("#play");
+
   // 4. Start and stop playback on the 3-minute score
   await page.setInputFiles("#score-file", join(tmp, "take-score.musicxml"));
   await waitFor("open-score", 3);
   await page.click("#play");
-  await waitFor("start-playback", 2);
-  results["start-playback-ms"] = (await measure("start-playback"))[1];
+  await waitFor("start-playback", 3);
+  results["start-playback-ms"] = (await measure("start-playback"))[2];
   await page.waitForTimeout(500);
   await page.click("#play");
 
@@ -259,6 +276,32 @@ try {
   results["review-page-ms"] = (await measure("review-draw"))[1];
   results["review-page-longest-block-ms"] = await longestTask(t);
   if (await page.isVisible("#rv-xml-msg")) errors.push(`Review: ${await page.textContent("#rv-xml-msg")}`);
+
+  // 8. The PDF splitter: open an 80-page book (its code and pdf.js load the first time), draw the first pages, mark
+  // a piece, and make the PDFs. The page must stay responsive while pages draw.
+  await page.click("#rv-close");
+  await page.click("#cv-split-open");
+  t = await now();
+  await page.setInputFiles("#cv-split-file", join(tmp, "book.pdf"));
+  await waitFor("split-open");
+  results["split-open-ms"] = (await measure("split-open"))[0];
+  await page.waitForFunction(() => document.querySelectorAll(".sp-page").length === 80);
+  await page.waitForTimeout(1500); // pages drawing
+  await page.click('.sp-page[data-page="5"]');
+  await page.evaluate(async () => {
+    const el = document.getElementById("sp-grid");
+    for (let i = 1; i <= 40; i++) {
+      el.scrollTop = i * 150;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  });
+  await page.waitForTimeout(1000);
+  results["split-longest-block-ms"] = await longestTask(t);
+  if ((await page.$$(".sp-parts li")).length !== 7) errors.push("the splitter didn't find six bookmarked pieces plus the one marked");
+  const download = page.waitForEvent("download");
+  await page.click("#sp-download");
+  if (!(await download).suggestedFilename().endsWith("(split).zip")) errors.push("the splitter's download isn't the zip of pieces");
+  await page.click("#sp-close");
 } finally {
   await browser.close();
   await new Promise((r) => server.httpServer.close(r));

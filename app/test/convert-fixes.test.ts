@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barPage, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, warnings } from "../src/convert/fixes";
+import { barPage, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, unknownParts, warnings } from "../src/convert/fixes";
 
 const note = (step: string, octave: number, extra = "", accidental = "") =>
   `<note><pitch><step>${step}</step>${extra}<octave>${octave}</octave></pitch><duration>1</duration>${accidental ? `<accidental>${accidental}</accidental>` : ""}</note>`;
@@ -24,10 +24,19 @@ const pitches = (doc: Document, m: number) =>
   );
 
 describe("quick fixes", () => {
-  it("finds the staves and warns about a cello line read as Voice in treble clef", () => {
+  it("finds the staves and asks which instrument an unnamed part is, assuming none", () => {
     const doc = score();
     expect(staves(doc)).toEqual([{ part: "P1", name: "Voice", staff: 1, staves: 1, clef: "G2" }]);
-    expect(warnings(doc).length).toBe(2);
+    expect(unknownParts(doc).map((s) => s.part)).toEqual(["P1"]);
+    expect(warnings(doc)).toEqual([]); // no instrument known, so no clef counts as unusual
+    setInstrument(doc, "P1", "Violin");
+    expect(unknownParts(doc)).toEqual([]);
+    expect(warnings(doc)).toEqual([]); // treble is right for a violin
+  });
+
+  it("asks about the converter's Part 2 too", () => {
+    const doc = new DOMParser().parseFromString(serialize(score()).replace(/>Voice</g, ">Part 2<"), "application/xml");
+    expect(unknownParts(doc).map((s) => s.name)).toEqual(["Part 2"]);
   });
 
   it("renames the part and its sound", () => {
@@ -36,7 +45,7 @@ describe("quick fixes", () => {
     expect(doc.querySelector("part-name")!.textContent).toBe("Cello");
     expect(doc.querySelector("instrument-sound")!.textContent).toBe("strings.cello");
     expect(doc.querySelector("midi-program")!.textContent).toBe("43");
-    expect(warnings(doc)).toEqual(["Cello starts in treble clef. If the PDF shows bass or tenor clef, change the clef below (the notes move with it)."]);
+    expect(warnings(doc)).toEqual(["Cello starts in treble clef, which is unusual for it. If the PDF shows another clef, change the clef below (the notes move with it)."]);
   });
 
   it("changes a misread treble clef to bass up to the next real clef change, moving the notes with it", () => {

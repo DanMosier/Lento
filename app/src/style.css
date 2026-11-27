@@ -375,6 +375,7 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 .cv-split-list .cv-split-acts { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .cv-split-list .cv-split-acts button { min-height: 40px; }
 .cv-split-list li.done { opacity: 0.7; }
+@media (max-width: 520px) { .cv-split-list .cv-split-acts { grid-column: 1 / -1; grid-row: auto; justify-content: flex-start; margin-top: 6px; } }
 .rv-badge { font-size: 0.8rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; margin-left: 6px; }
 .rv-badge.approved { color: var(--in_tune); }
 .rv-badge.rejected, .rv-badge.unreliable { color: var(--out_of_tune); }
@@ -432,8 +433,40 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 .rv-warn { margin: 0 0 8px; padding-left: 18px; color: var(--slightly_off); }
 .rv-warn:empty { display: none; }
 .rv-found { margin: 0 0 6px; font-size: 0.85rem; color: var(--slightly_off); overflow-wrap: anywhere; }
+.rv-ask:empty { display: none; }
+.rv-ask { margin: 0 0 8px; }
+.rv-q { border: 1px solid var(--line, #8884); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.rv-q p { margin: 0 0 6px; }
+.rv-q-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .rv-changes { margin: 0; padding-left: 18px; font-size: 0.9rem; flex-basis: 100%; }
 .rv-changes:empty { display: none; }
+/* ---- the PDF splitter (split/ui.ts) ---- */
+.sp .rv-top #sp-size { font-size: 0.9rem; min-width: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; }
+.sp .rv-top #sp-size[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.sp-hint { flex: none; margin: 0; padding: 6px max(10px, env(safe-area-inset-left)); color: var(--muted); font-size: 0.9rem; }
+.sp-grid { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; grid-auto-rows: max-content; align-content: start; padding: 4px max(10px, env(safe-area-inset-left)) 12px; -webkit-overflow-scrolling: touch; }
+.sp-grid.big { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.sp-page { position: relative; display: block; padding: 4px; border: 2px solid transparent; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
+.sp-thumb { display: block; position: relative; padding-bottom: 129.4%; background: #fff; box-shadow: 0 0 0 1px var(--line); border-radius: 2px; }
+.sp-thumb canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.sp-page.odd .sp-thumb { box-shadow: 0 0 0 1px var(--line), 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent); }
+.sp-page.start { border-color: var(--accent); }
+.sp-page.off .sp-thumb { opacity: 0.35; }
+.sp-page.sp-broken .sp-thumb { background: repeating-linear-gradient(45deg, #fff, #fff 6px, #eee 6px, #eee 12px); }
+.sp-num { display: block; margin-top: 2px; font-size: 0.8rem; color: var(--muted); text-align: center; }
+.sp-mark { position: absolute; bottom: 30px; left: 8px; z-index: 1; font-size: 0.75rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); pointer-events: none; }
+.sp-mark:empty { display: none; }
+.sp-parts-box { flex: none; max-height: 30dvh; overflow: auto; border-top: 1px solid var(--line); padding: 0 max(10px, env(safe-area-inset-left)); }
+.sp-parts-box summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.sp-parts { margin: 0 0 8px; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.sp-parts li.off { opacity: 0.6; }
+.sp-row { display: flex; gap: 8px; align-items: center; }
+.sp-row input[type="checkbox"] { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+.sp-row input[type="text"] { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; min-height: 40px; }
+.sp-range { flex: none; min-height: 40px; white-space: nowrap; }
+.sp-file { display: block; margin: 2px 0 0 30px; color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+.sp.busy .sp-grid, .sp.busy .sp-parts { pointer-events: none; opacity: 0.7; }
+.sp-bottom .status a { color: var(--accent); }
 @media (max-width: 760px) { .rv-bottom input { flex-basis: 100%; } .rv-bottom button { flex: 1; } }
 
 /* Library: All / Favorites tabs, the star in each row, and the Setlists window */

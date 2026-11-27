@@ -36,6 +36,9 @@ flowchart LR
   the app's renderer stops at the end of the shortest part. Notes an instrument can't play (below a cello's
   open C, say) mark their measures as suspicious. `lento-library recheck` puts earlier conversions through the
   same checks; the PC watcher does that by itself once for each new version of the checks.
+- No instrument is assumed. A part with no instrument name printed beside it takes the instrument the file name
+  names ("... - Violin.pdf"); otherwise it is called "Part 1", "Part 2"..., and the Review window asks which
+  instrument it is. `--instrument NAME` names such parts NAME instead.
 - A "system" is one line of music across the page (all the staves played at the same time).
 - The quality rating combines homr's own confidence with musical checks (measures that don't add up, empty measures,
   key changes that undo themselves). It catches garbled pages, not every wrong note: always check a converted score.
@@ -194,6 +197,10 @@ written until you press Split, and the original is never changed. Check the prop
 ```
 
 The pieces go to a new folder beside the PDF, or to `inbox/` for a PDF in a Lento library's `pieces/`.
+
+The app can split a PDF too, on a phone as well as the PC: in Convert PDF > Review > To split, press Split on a
+flagged PDF. It names the pieces and folder the same way and saves them to the library's `inbox/` in Drive. It
+splits only between pages; for a piece that starts halfway down a page, use this tool, which can cut a page in two.
 
 ## Tests
 

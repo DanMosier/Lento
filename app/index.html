@@ -67,6 +67,7 @@
       <div class="group checks">
         <label><input id="loop" type="checkbox" /> Loop</label>
         <label><input id="count-in" type="checkbox" checked /> Count-in</label>
+        <label title="Tap a note in the score to play from it. Hold a note to set where a loop starts, then hold another to set where it ends."><input id="tap-play" type="checkbox" checked /> Tap a note to play</label>
         <label id="accomp-label" hidden><input id="accomp" type="checkbox" /> Play other shown parts</label>
       </div>
       <div class="group">
@@ -393,6 +394,7 @@
         <label><span class="rv-wide">Speed</span> <select id="rv-speed" aria-label="Speed"><option value="50">50%</option><option value="75">75%</option><option value="100" selected>100%</option><option value="125">125%</option></select></label>
         <span id="rv-play-at" class="rv-play-at" aria-live="off"></span>
       </div>
+      <div id="rv-ask" class="rv-ask" aria-live="polite"></div>
       <details id="rv-fix" class="rv-fix">
         <summary>Fix clef, key, time or instrument<span id="rv-fix-count"></span></summary>
         <ul id="rv-warn" class="rv-warn"></ul>
@@ -418,7 +420,7 @@
       <footer class="rv-bottom">
         <input id="rv-note" type="text" placeholder="What's wrong? (optional, saved with a rejection)" aria-label="Note" />
         <button id="rv-edit" type="button" title="Open the MusicXML in the app your device uses for it">Edit</button>
-        <button id="rv-split" type="button" aria-pressed="false" title="This PDF holds several pieces: add it to the To split list (its button is in the Review tab)">Flag for splitting</button>
+        <button id="rv-split" type="button" aria-pressed="false" title="This PDF holds several pieces: add it to the To split list (its button is in the Review tab), to split it there">Flag for splitting</button>
         <button id="rv-reject" type="button">Reject</button>
         <button id="rv-approve" type="button" class="primary">Approve</button>
         <p id="rv-status" class="status" role="status" aria-live="polite"></p>
@@ -431,9 +433,13 @@
         <button id="cv-split-close" type="button" aria-label="Close">✕</button>
       </div>
       <div class="cv-split-body">
-        <p class="hint">PDFs holding more than one piece. On your PC, right-click the PDF and choose Send to &gt; Split sheet music PDF (or run <code>python -m lento_convertpdf.split_tool</code>), then mark it Done.</p>
+        <p class="hint">PDFs holding more than one piece. Press Split, tap the page where each piece starts, and save: the pieces go to your library's inbox in Drive, ready to file. (On your PC, Send to &gt; Split sheet music PDF does the same.)</p>
         <ul id="cv-split-list" class="cv-list cv-split-list"></ul>
         <p id="cv-split-note" class="hint"></p>
+        <div class="tools">
+          <label class="button" for="cv-split-file">Split a PDF from this device</label>
+          <input id="cv-split-file" type="file" accept="application/pdf,.pdf" hidden />
+        </div>
       </div>
     </dialog>
 

@@ -74,7 +74,7 @@ def test_converts_on_the_gpu(legato_env, tmp_path):
     config.on_page = lambda _pdf, page, total: pages.append((page, total))
     item = convert_single_pdf(PdfConversionItem(pdf_path=pdf(tmp_path), relative_path="piece.pdf"), config)
     assert item.status == "converted", item.error_message
-    assert item.engine_used == "legato" and item.detected_instruments == ["Cello"]
+    assert item.engine_used == "legato" and item.detected_instruments == ["Part 1"]
     args = calls[-1]
     assert args[args.index("--device") + 1] == "cuda"
     assert args[args.index("--model") + 1] == "guangyangmusic/legato-2"

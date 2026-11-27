@@ -487,6 +487,33 @@ def unusual_clef(title: str, clef: str) -> bool:
     return bool(usual) and clef not in usual
 
 
+# Words that name an instrument in a file name. Abbreviations ("vc", "b", "bar") and words that are also clefs,
+# voices or continuo ("alto", "tenor", "basso") are left out: in a title they too often mean something else.
+_TITLE_SKIP = {"soprano", "alto", "tenor", "baritone", "voice", "percussion"}
+_TITLE_SKIP_WORDS = {"basso", "bassi", "basses", "bass", "alto", "altos", "tenor", "tenore", "voix", "canto"}
+_SHORT_NAMES = {"oboe", "horn", "tuba", "harp"}
+
+
+def instrument_in_title(title: str) -> str | None:
+    """The one-staff instrument a file name names, such as "Violin" for "Bach Partita 2 - Violin.pdf". None if it
+    names none, or several (a part for two-staff instruments such as piano is not counted)."""
+    plain = unicodedata.normalize("NFKD", title.replace("ß", "ss"))
+    plain = " ".join(re.findall(r"[a-z]+", "".join(c for c in plain if not unicodedata.combining(c)).lower()))
+    found: set[str] = set()
+    for family, spec in _FAMILIES:
+        for phrase in spec.split("|")[1:]:
+            if len(phrase) >= 8 and re.search(rf"\b{phrase}\b", plain):
+                found.add(family)
+                plain = re.sub(rf"\b{phrase}\b", " ", plain)
+    for word in plain.split():
+        family = _NAMES.get(word)
+        if family and (len(word) >= 5 or word in _SHORT_NAMES) and word not in _TITLE_SKIP_WORDS:
+            found.add(family)
+    one_staff = {f for f in found if f not in TWO_STAFF_FAMILIES and f not in _TITLE_SKIP}
+    return next(iter(one_staff)).title() if len(one_staff) == 1 else None
+
+
+
 def written_range(title: str) -> tuple[int, int] | None:
     """The lowest and highest written note (MIDI numbers) an instrument plausibly has, or None if not known here."""
     name = parse_name(title)
