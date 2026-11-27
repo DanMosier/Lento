@@ -9,6 +9,7 @@
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { $ } from "../core/app";
 import { library, reviewedHere } from "../core/library/connection";
+import { openPieceFolder } from "../core/library/library";
 import type { LibraryFile, Piece } from "../core/library/model";
 import { guardRenderer, skippedNote, takeSkipped } from "../core/osmd-safety";
 import { timed } from "../core/perf";
@@ -57,6 +58,7 @@ const ui = {
   changes: $<HTMLUListElement>("rv-changes"),
   note: $<HTMLInputElement>("rv-note"),
   edit: $<HTMLButtonElement>("rv-edit"),
+  drive: $<HTMLButtonElement>("rv-drive"),
   split: $<HTMLButtonElement>("rv-split"),
   reject: $<HTMLButtonElement>("rv-reject"),
   approve: $<HTMLButtonElement>("rv-approve"),
@@ -495,6 +497,7 @@ for (const b of ui.dialog.querySelectorAll<HTMLButtonElement>(".rv-switch button
 ui.approve.addEventListener("click", () => void decide("approved"));
 ui.reject.addEventListener("click", () => void decide("rejected"));
 ui.edit.addEventListener("click", () => void edit());
+ui.drive.addEventListener("click", () => void openDrive());
 ui.split.addEventListener("click", toggleSplit);
 ui.play.addEventListener("click", () => void togglePlay());
 
@@ -507,6 +510,15 @@ ui.xml.addEventListener("click", (e) => {
   if (beat === null) return;
   void togglePlay({ pageFirst, beat });
 });
+
+/** Opens this piece's folder in Google Drive, where its PDF and MusicXML can be changed. */
+async function openDrive(): Promise<void> {
+  const it = items[at];
+  const lib = library();
+  if (!it || !lib) return status("Your library isn't connected.", "error");
+  if (await openPieceFolder(lib, it.piece.id)) status(`Opened the folder for ${it.piece.title} in Google Drive.`);
+  else status("Couldn't find this piece's folder in Drive (offline?).", "error");
+}
 
 /** Opens the window on items[start]; Previous and Next go through the rest. */
 export function openReview(list: ReviewItem[], start: number, done: (name: string, status: string) => void): void {

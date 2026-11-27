@@ -8,6 +8,35 @@ export function fileKey(piece: Piece, file: LibraryFile): string {
   return `pieces/${piece.id}/${file.name}`;
 }
 
+export const folderLink = (id: string): string => `https://drive.google.com/drive/folders/${encodeURIComponent(id)}`;
+
+/**
+ * Opens a piece's Drive folder in a new tab (or the Drive app). Call it from a click: when the folder isn't known yet
+ * the tab opens first, while the click still counts, so it isn't blocked as a popup, and is pointed at the folder
+ * once Drive answers. Returns false (closing that tab) if the folder couldn't be found.
+ */
+export async function openPieceFolder(lib: DriveLibrary, pieceId: string, opener: typeof window.open = (...a) => window.open(...a)): Promise<boolean> {
+  const known = lib.knownPieceFolderLink(pieceId);
+  if (known) {
+    opener(known, "_blank", "noopener");
+    return true;
+  }
+  const win = opener("", "_blank");
+  try {
+    const link = await lib.pieceFolderLink(pieceId);
+    if (!win) {
+      opener(link, "_blank", "noopener"); // the blank tab was blocked: one more try now Drive has answered
+      return true;
+    }
+    win.opener = null;
+    win.location.href = link;
+    return true;
+  } catch {
+    win?.close();
+    return false;
+  }
+}
+
 export class DriveLibrary {
   private ids = new Map<string, string>(); // path -> Drive folder id, for this session
 
@@ -187,6 +216,20 @@ export class DriveLibrary {
       progress(names.length);
     }
     return { names, link: dir.webViewLink };
+  }
+
+  /**
+   * The link to a piece's folder in Drive (drive.google.com/drive/folders/<id>), where its PDF and MusicXML can be
+   * changed. Usually costs nothing: opening one of the piece's files already looked the folder up.
+   */
+  async pieceFolderLink(pieceId: string): Promise<string> {
+    return folderLink(await this.folder(["pieces", pieceId]));
+  }
+
+  /** That link right away if this session has already looked the folder up, else null. */
+  knownPieceFolderLink(pieceId: string): string | null {
+    const id = this.ids.get(`pieces/${pieceId}`);
+    return id ? folderLink(id) : null;
   }
 
   private async folder(path: string[]): Promise<string> {

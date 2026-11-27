@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Drive, MemoryCache, type DriveFile } from "../src/core/library/drive";
-import { DriveLibrary } from "../src/core/library/library";
+import { DriveLibrary, openPieceFolder } from "../src/core/library/library";
 import { folderIdFromLink, musicxmlOf, parseIndex, requestName, search, type Piece } from "../src/core/library/model";
 
 const INDEX = {
@@ -227,5 +227,63 @@ describe("finding the library by itself", () => {
     expect(libraryFolder()).toBe("https://drive.google.com/drive/folders/LIB");
     const none = (async () => new Response(JSON.stringify({ files: [] }), { status: 200 })) as typeof fetch;
     expect(await findLibrary(new Drive(async () => "token", none))).toBeNull();
+  });
+});
+
+describe("Open in Drive: a piece's folder", () => {
+  const files = {
+    pieces: { id: "P" },
+    "pieces/saint-saens_the-swan": { id: "SWAN-folder_1" },
+    "pieces/saint-saens_the-swan/saint-saens_the-swan.musicxml": { id: "X", body: "<score-partwise/>", modifiedTime: "t1" },
+  };
+  const swanLink = "https://drive.google.com/drive/folders/SWAN-folder_1";
+  type Opened = { url: string | URL | undefined; features?: string; win: { opener: unknown; location: { href: string }; closed: boolean; close(): void } };
+  const fakeOpener = (blocked = false) => {
+    const opened: Opened[] = [];
+    const opener = ((url?: string | URL, _t?: string, features?: string) => {
+      const win = { opener: {}, location: { href: String(url ?? "") }, closed: false, close() { this.closed = true; } };
+      opened.push({ url, features, win });
+      return blocked || features === "noopener" ? null : win;
+    }) as unknown as typeof window.open;
+    return { opened, opener };
+  };
+
+  it("links to the folder, and costs no Drive call once a file of the piece was opened", async () => {
+    const d = fakeDrive(files);
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", d.fetcher), new MemoryCache());
+    expect(lib.knownPieceFolderLink("saint-saens_the-swan")).toBeNull();
+    await lib.open({ id: "saint-saens_the-swan", title: "", composer: "", files: [] }, { name: "saint-saens_the-swan.musicxml", kind: "musicxml", variant: "" });
+    expect(lib.knownPieceFolderLink("saint-saens_the-swan")).toBe(swanLink);
+    const before = d.calls.length;
+    const { opened, opener } = fakeOpener();
+    expect(await openPieceFolder(lib, "saint-saens_the-swan", opener)).toBe(true);
+    expect(d.calls.length).toBe(before);
+    expect(opened).toHaveLength(1);
+    expect(opened[0].url).toBe(swanLink);
+    expect(opened[0].features).toBe("noopener");
+  });
+
+  it("opens the tab during the click and points it at the folder once Drive answers", async () => {
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", fakeDrive(files).fetcher), new MemoryCache());
+    const { opened, opener } = fakeOpener();
+    expect(await openPieceFolder(lib, "saint-saens_the-swan", opener)).toBe(true);
+    expect(opened).toHaveLength(1);
+    expect(opened[0].url).toBe("");
+    expect(opened[0].win.location.href).toBe(swanLink);
+    expect(opened[0].win.opener).toBeNull();
+  });
+
+  it("tries again with the link if the blank tab was blocked", async () => {
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", fakeDrive(files).fetcher), new MemoryCache());
+    const { opened, opener } = fakeOpener(true);
+    expect(await openPieceFolder(lib, "saint-saens_the-swan", opener)).toBe(true);
+    expect(opened.map((o) => o.url)).toEqual(["", swanLink]);
+  });
+
+  it("closes the tab and says so when the folder can't be found", async () => {
+    const lib = new DriveLibrary("ROOT", new Drive(async () => "token", fakeDrive(files).fetcher), new MemoryCache());
+    const { opened, opener } = fakeOpener();
+    expect(await openPieceFolder(lib, "no-such-piece", opener)).toBe(false);
+    expect(opened[0].win.closed).toBe(true);
   });
 });

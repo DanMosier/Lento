@@ -1,7 +1,7 @@
 /** The Library screen: browse the score library in Google Drive and open a score into Practice. */
 import { $, requestOpenScore } from "../core/app";
 import { auth, cache, findLibrary, library as connect, libraryChanged, onLibraryChanged, requestedHere as requests } from "../core/library/connection";
-import { fileKey, type DriveLibrary } from "../core/library/library";
+import { fileKey, openPieceFolder, type DriveLibrary } from "../core/library/library";
 import { store } from "../core/app";
 import { allTags, musicxmlOf, requestName, type LibraryFile, type LibraryIndex, type Piece } from "../core/library/model";
 import { timed } from "../core/perf";
@@ -341,6 +341,9 @@ function listActions(p: Piece): HTMLElement {
   const s = button(fav ? "★ Favorite" : "☆ Favorite", "lib-fav-btn", () => toggleFavorite(p), fav ? "Remove from favorites" : "Add to favorites");
   s.setAttribute("aria-pressed", String(fav));
   row.append(s);
+  row.append(
+    button("Open in Drive", "lib-drive-btn", () => void openFolder(p), "Open this piece's folder in Google Drive, to change or add its files"),
+  );
   const sets = setlists(currentLists(), "name");
   const pick = el("select", undefined, "lib-add-set");
   pick.setAttribute("aria-label", "Add to setlist");
@@ -382,6 +385,13 @@ function listActions(p: Piece): HTMLElement {
   });
   row.append(pick, make);
   return row;
+}
+
+async function openFolder(p: Piece): Promise<void> {
+  const lib = setup();
+  if (!lib) return;
+  if (await openPieceFolder(lib, p.id)) status(`${p.title}: folder opened in Google Drive.`);
+  else status(`Couldn't find the folder for ${p.title} in Drive (offline?).`, "error");
 }
 
 function item(p: Piece): HTMLLIElement {

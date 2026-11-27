@@ -3,6 +3,7 @@
  * history entries of its own) and checks that the Home button returns to the home screen each time. On the way it
  * flags a PDF for splitting and checks it moves to the bottom of the Review list, reaches the To split screen, and
  * can be marked done there. A conversion the converter flagged shows its Check badge and what the converter found.
+ * Open in Drive (in a piece's Library window, in Practice and in the review window) opens that piece's Drive folder.
  * Runs the dev server with the Drive library replaced by a stand-in. Exits 1 on a failure.  npm run e2e
  */
 import { createServer } from "vite";
@@ -16,7 +17,10 @@ await server.listen();
 const browser = await chromium.launch();
 const failures = [];
 try {
-  const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  // a piece's folder in Drive (Open in Drive), in this page or a new tab
+  await context.route("https://drive.google.com/drive/folders/**", (r) => r.fulfill({ contentType: "text/html", body: "<p>Drive folder</p>" }));
   page.on("pageerror", (e) => failures.push(`page error: ${e.message}`));
   // Drive's PDF viewer stand-in: like the real one, it adds a history entry inside the frame
   await page.route("https://drive.example/**", (r) => r.fulfill({ contentType: "text/html", body: '<p>PDF</p><script>history.pushState({}, "", location.href + "#2")</script>' }));
@@ -28,10 +32,22 @@ try {
     const P = DriveLibrary.prototype;
     P.cachedIndex = P.loadIndex = async () => index;
     P.pcStatus = async () => null;
+    P.pieceFolderLink = async (id) => `https://drive.google.com/drive/folders/folder-${id}`;
     P.readRootJson = async () => null;
     P.writeRootJson = async () => {};
     P.open = async (piece, file) => (file.kind === "pdf" ? { link: "https://drive.example/file/d/1/view", offline: false } : { data: new TextEncoder().encode(xml).buffer, offline: false });
   }, xml);
+
+  /** Presses an Open in Drive button and checks a tab opens on that piece's folder. */
+  const openInDrive = async (selector, pieceId, where) => {
+    try {
+      const [tab] = await Promise.all([context.waitForEvent("page", { timeout: 8000 }), page.click(selector, { timeout: 5000 })]);
+      await tab.waitForURL(`**/drive/folders/folder-${pieceId}`, { timeout: 8000 });
+      await tab.close();
+    } catch (e) {
+      failures.push(`Open in Drive ${where} didn't open the piece's Drive folder (${e.message.split("\n")[0]})`);
+    }
+  };
 
   const home = async (from) => {
     await page.click("#home-btn");
@@ -51,6 +67,8 @@ try {
   // where it blocked every button, Home included.
   await page.click('.home-card[data-go="library"]');
   await page.click(".lib-body .lib-row");
+  const firstPiece = (await page.textContent("#lib-detail .piece-head strong"))?.includes("Other") ? "c_d" : "a_b";
+  await openInDrive("#lib-detail .lib-drive-btn", firstPiece, "in the Library's piece window");
   await page.click('#lib-detail button:has-text("Practice")');
   await page.waitForFunction(() => performance.getEntriesByName("lento:open-score").length, null, { timeout: 15000 });
   if (await page.evaluate(() => [...document.querySelectorAll("dialog")].some((d) => d.open)))
@@ -61,6 +79,9 @@ try {
   } catch {
     failures.push("Practice buttons didn't respond after opening a score from the Library");
   }
+  if (!(await page.isVisible("#drive-btn"))) failures.push("Practice showed no Open in Drive button for a score from the Library");
+  else await openInDrive("#drive-btn", firstPiece, "in Practice");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/practice-drive.png` });
   try {
     await page.click("#home-btn", { timeout: 3000 });
     await page.click('#leave-dialog button[value="ok"]', { timeout: 3000 }); // "Close score and go home"
@@ -101,6 +122,8 @@ try {
     else if (at === "m. 1") failures.push(`Tapping the last note in the review window played from ${at}`);
     await page.click("#rv-play");
   } else failures.push("the review window drew no noteheads to tap");
+  await openInDrive("#rv-drive", "c_d", "in the review window"); // the first one is "Other Piece"
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/review-drive.png` });
   await page.waitForTimeout(500); // let the PDF frame load and add its history entry
   await page.click("#rv-split"); // flags the first one, "Other Piece"
   if ((await page.getAttribute("#rv-split", "aria-pressed")) !== "true") failures.push("Flag for splitting didn't flag the PDF");
@@ -133,4 +156,4 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen; the review window plays and stops the score, and plays from a tapped note.");
+console.log("Home works from every screen and after a review; a score opened from the Library leaves Practice usable; Flag for splitting sorts last and reaches the To split screen; the review window plays and stops the score, and plays from a tapped note; Open in Drive opens the piece's folder from the Library, Practice and the review window.");
