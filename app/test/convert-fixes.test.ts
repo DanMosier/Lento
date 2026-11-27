@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { barPage, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, unknownParts, warnings } from "../src/convert/fixes";
+import { barPage, pageXml, serialize, setClef, setInstrument, setKey, setTempo, setTime, staves, tempoAt, unknownParts, warnings } from "../src/convert/fixes";
+import { parseScore } from "../src/core/score";
 
 const note = (step: string, octave: number, extra = "", accidental = "") =>
   `<note><pitch><step>${step}</step>${extra}<octave>${octave}</octave></pitch><duration>1</duration>${accidental ? `<accidental>${accidental}</accidental>` : ""}</note>`;
@@ -130,5 +131,63 @@ describe("pageXml", () => {
   it("adds nothing to a page that starts at the first bar", () => {
     const d = parse(pageXml(parse(score(bar(1, start) + bar(2))), 1, 1));
     expect(d.querySelectorAll("attributes")).toHaveLength(1);
+  });
+});
+
+describe("tempo fix", () => {
+  const xml = (m2 = "", m3 = "") => `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Cello</part-name></score-part><score-part id="P2"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1">
+<measure number="1"><attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes>${note("C", 3)}${note("D", 3)}</measure>
+<measure number="2">${m2}${note("E", 3)}${note("F", 3)}</measure>
+<measure number="3">${m3}${note("G", 3)}${note("A", 3)}</measure>
+<measure number="4">${note("B", 3)}${note("C", 4)}</measure>
+</part>
+<part id="P2">
+<measure number="1"><attributes><divisions>1</divisions></attributes>${note("C", 4)}${note("D", 4)}</measure>
+<measure number="2">${m2}${note("E", 4)}${note("F", 4)}</measure>
+<measure number="3">${note("G", 4)}${note("A", 4)}</measure>
+<measure number="4">${note("B", 4)}${note("C", 5)}</measure>
+</part></score-partwise>`;
+  const parse = (s: string) => new DOMParser().parseFromString(s, "application/xml");
+  const words = (w: string, bpm: number) => `<direction><direction-type><words>${w}</words></direction-type><sound tempo="${bpm}"/></direction>`;
+  const metronome = (unit: string, per: number, dot = false) =>
+    `<direction><direction-type><metronome><beat-unit>${unit}</beat-unit>${dot ? "<beat-unit-dot/>" : ""}<per-minute>${per}</per-minute></metronome></direction-type></direction>`;
+
+  it("reads no tempo when the score gives none, and a set one from that measure on", () => {
+    const doc = parse(xml());
+    expect(tempoAt(doc, 1)).toBeNull();
+    expect(setTempo(doc, 1, 72)).toBe(4);
+    expect([1, 2, 3, 4].map((m) => tempoAt(doc, m))).toEqual([72, 72, 72, 72]);
+    const s = parseScore(doc, "P1");
+    expect(s.tempos).toEqual([[0, 72]]); // what Practice and playback read
+    expect(s.warnings.join(" ")).not.toMatch(/No tempo/);
+    // the mark sits after the attributes, before the first note
+    const kids = Array.from(doc.querySelector("part measure")!.children).map((c) => c.localName);
+    expect(kids.slice(0, 3)).toEqual(["attributes", "direction", "note"]);
+    expect(doc.querySelectorAll("direction").length).toBe(1); // only in the first part
+  });
+
+  it("reads printed metronome marks in other beat units", () => {
+    expect(tempoAt(parse(xml(metronome("quarter", 60, true))), 2)).toBe(90);
+    expect(tempoAt(parse(xml(metronome("half", 50))), 3)).toBe(100);
+  });
+
+  it("changes a tempo up to the next tempo mark, keeping words like Allegro", () => {
+    const doc = parse(xml(words("Allegro", 120), metronome("quarter", 60)));
+    expect([1, 2, 3, 4].map((m) => tempoAt(doc, m))).toEqual([null, 120, 60, 60]);
+    expect(setTempo(doc, 2, 100)).toBe(2);
+    expect([1, 2, 3, 4].map((m) => tempoAt(doc, m))).toEqual([null, 100, 60, 60]);
+    expect(doc.querySelector("part words")?.textContent).toBe("Allegro"); // kept, without its speed
+    expect(doc.querySelectorAll('part[id="P2"] sound[tempo]').length).toBe(0); // the second part's copy lost its speed
+    expect(parseScore(doc, "P1").tempos).toEqual([[0, 100], [2, 100], [4, 60]]);
+    // and the earlier measures can get one of their own without touching the rest
+    expect(setTempo(doc, 1, 80)).toBe(1);
+    expect([1, 2, 3, 4].map((m) => tempoAt(doc, m))).toEqual([80, 100, 60, 60]);
+  });
+
+  it("refuses a tempo out of range or a measure not in the score", () => {
+    expect(() => setTempo(parse(xml()), 1, 0)).toThrow(/between/);
+    expect(() => setTempo(parse(xml()), 9, 80)).toThrow(/not in this score/);
   });
 });

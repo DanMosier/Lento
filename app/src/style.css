@@ -424,6 +424,7 @@ body:has(#view-practice.focus:not([hidden])) .top { display: none; }
 .rv-play select, .rv-play input { min-height: 40px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
 .rv-play input { width: 4.5em; }
 .rv-play-at { color: var(--muted); font-variant-numeric: tabular-nums; }
+.rv-tempo-note { color: var(--muted); font-size: 0.85em; }
 .rv-fix { border-top: 1px solid var(--line); max-height: 40dvh; overflow: auto; padding: 0 max(10px, env(safe-area-inset-left)); }
 .rv-fix { flex: none; }
 .rv-fix summary { min-height: 44px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }

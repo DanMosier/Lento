@@ -280,6 +280,16 @@ try {
   results["review-page-ms"] = (await measure("review-draw"))[1];
   results["review-page-longest-block-ms"] = await longestTask(t);
   if (await page.isVisible("#rv-xml-msg")) errors.push(`Review: ${await page.textContent("#rv-xml-msg")}`);
+  // a new tempo on the long score: the fix, then the page drawn again with its mark
+  t = await now();
+  await page.fill("#rv-tempo", "66");
+  await page.press("#rv-tempo", "Enter");
+  await waitFor("review-draw", 3);
+  results["review-tempo-ms"] = (await now()) - t;
+  results["review-tempo-longest-block-ms"] = await longestTask(t);
+  if (!(await page.textContent("#rv-changes"))?.includes("Tempo 66 BPM")) errors.push("Review: changing the tempo added no fix");
+  await page.evaluate(() => (document.getElementById("rv-fix").open = true));
+  await page.click("#rv-undo"); // so Close needs no second press
 
   // 8. The PDF splitter: open an 80-page book (its code and pdf.js load the first time), draw the first pages, mark
   // a piece, and make the PDFs. The page must stay responsive while pages draw.
