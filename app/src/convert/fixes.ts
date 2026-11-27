@@ -346,6 +346,104 @@ export function setTime(doc: Document, from: number, beats: number, beatType: nu
   return to;
 }
 
+// ---- tempo ----
+
+/** Quarter notes per beat-unit, for reading a printed metronome mark (♩. = 60 is 90 quarter notes a minute). */
+const UNIT_QUARTERS: Record<string, number> = { whole: 4, half: 2, quarter: 1, eighth: 0.5, "16th": 0.25, "32nd": 0.125 };
+
+/** A tempo mark's speed in quarter notes per minute: its <sound tempo>, else its printed metronome mark. */
+function markTempo(el: Element): number | null {
+  if (el.localName === "sound") return Number(el.getAttribute("tempo")) || null;
+  const snd = kid(el, "sound");
+  if (snd?.hasAttribute("tempo")) return Number(snd.getAttribute("tempo")) || null;
+  for (const dt of kids(el, "direction-type")) {
+    const met = kid(dt, "metronome");
+    const per = met ? Number(text(met, "per-minute").replace(/[^0-9.]/g, "")) : 0;
+    if (met && per > 0) return per * (UNIT_QUARTERS[text(met, "beat-unit") || "quarter"] ?? 1) * (kid(met, "beat-unit-dot") ? 1.5 : 1);
+  }
+  return null;
+}
+
+/** The tempo marks written in one measure, in order, with their speed. */
+function tempoMarks(measure: Element): { el: Element; bpm: number }[] {
+  const out: { el: Element; bpm: number }[] = [];
+  for (const c of Array.from(measure.children))
+    if (c.localName === "direction" || (c.localName === "sound" && c.hasAttribute("tempo"))) {
+      const bpm = markTempo(c);
+      if (bpm) out.push({ el: c, bpm });
+    }
+  return out;
+}
+
+/**
+ * The tempo (quarter notes per minute, rounded) the score gives at measure position `at` (1-based): the first mark in
+ * that measure, else the last one before it, or null when the score gives no tempo up to there. The first part
+ * carries the tempo, as players read it.
+ */
+export function tempoAt(doc: Document, at: number): number | null {
+  const measures = kids(parts(doc)[0] ?? doc.documentElement, "measure");
+  let bpm: number | null = null;
+  for (let i = 0; i < at && i < measures.length; i++) {
+    const marks = tempoMarks(measures[i]);
+    if (marks.length) bpm = i === at - 1 ? marks[0].bpm : marks[marks.length - 1].bpm;
+  }
+  return bpm == null ? null : Math.round(bpm);
+}
+
+/**
+ * Sets the tempo to `bpm` quarter notes per minute from measure `from` up to the next measure that has a tempo mark of
+ * its own. Marks in those measures lose their speed (a word like "Allegro" stays) and one ♩ = bpm mark goes at the
+ * start of measure `from` in the first part, with the sound tempo that players follow. Returns the last measure
+ * position changed.
+ */
+export function setTempo(doc: Document, from: number, bpm: number): number {
+  if (!(bpm >= 10 && bpm <= 500)) throw new Error("Choose a tempo between 10 and 500 BPM.");
+  const all = parts(doc);
+  const first = kids(all[0] ?? doc.documentElement, "measure");
+  if (from < 1 || from > first.length) throw new Error(`Measure ${from} is not in this score.`);
+  let to = from;
+  while (to < first.length && !tempoMarks(first[to]).length) to++;
+  for (const part of all) {
+    const measures = kids(part, "measure");
+    for (let i = from - 1; i < to && i < measures.length; i++)
+      for (const { el } of tempoMarks(measures[i])) {
+        if (el.localName === "sound") {
+          el.removeAttribute("tempo");
+          if (!el.attributes.length && !el.children.length) el.remove();
+          continue;
+        }
+        for (const dt of kids(el, "direction-type")) if (kid(dt, "metronome")) dt.remove();
+        const snd = kid(el, "sound");
+        if (snd) {
+          snd.removeAttribute("tempo");
+          if (!snd.attributes.length && !snd.children.length) snd.remove();
+        }
+        if (!kids(el, "direction-type").length) el.remove();
+      }
+  }
+  const m = first[from - 1];
+  const ns = m.namespaceURI;
+  const make = (tag: string, value?: string) => {
+    const el = doc.createElementNS(ns, tag);
+    if (value != null) el.textContent = value;
+    return el;
+  };
+  const value = String(Math.round(bpm * 100) / 100);
+  const dir = make("direction");
+  dir.setAttribute("placement", "above");
+  const dt = make("direction-type");
+  const met = make("metronome");
+  met.append(make("beat-unit", "quarter"), make("per-minute", value));
+  dt.append(met);
+  const snd = make("sound");
+  snd.setAttribute("tempo", value);
+  dir.append(dt, snd);
+  // after the measure's opening print and attributes, before its first note
+  const before = Array.from(m.children).find((c) => c.localName !== "print" && c.localName !== "attributes") ?? null;
+  m.insertBefore(dir, before);
+  return to;
+}
+
 export const KEYS: { fifths: number; name: string }[] = [
   [-7, "C♭ major / A♭ minor"], [-6, "G♭ major / E♭ minor"], [-5, "D♭ major / B♭ minor"], [-4, "A♭ major / F minor"],
   [-3, "E♭ major / C minor"], [-2, "B♭ major / G minor"], [-1, "F major / D minor"], [0, "C major / A minor"],

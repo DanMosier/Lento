@@ -50,6 +50,32 @@ test("a fix in the Review window can be undone", async ({ page }) => {
   await page.click("#rv-close");
 });
 
+test("the Review window's tempo shows the default, and a new one is a fix that plays and can be undone", async ({ page }) => {
+  await page.click("#cv-tab-review");
+  await page.click(".cv-rv-open");
+  await expect(page.locator("#rv-xml svg")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("#rv-tempo")).toHaveValue("90"); // the stand-in score gives no tempo
+  await expect(page.locator("#rv-tempo-note")).toBeVisible();
+  await page.click("#rv-play");
+  await expect(page.locator("#rv-play")).toHaveAttribute("aria-pressed", "true", { timeout: 15_000 });
+  await page.fill("#rv-tempo", "66");
+  await page.press("#rv-tempo", "Enter");
+  await expect(page.locator("#rv-status")).toContainText("Tempo 66 BPM");
+  await expect(page.locator("#rv-tempo-note")).toBeHidden(); // now the score's own
+  await expect(page.locator("#rv-play")).toHaveAttribute("aria-pressed", "true", { timeout: 15_000 }); // playing on at the new tempo
+  await expect(page.locator("#rv-xml svg")).toContainText("66"); // the mark is drawn
+  await page.click("#rv-play");
+  await page.fill("#rv-tempo", "5"); // out of range: refused, nothing changes
+  await page.press("#rv-tempo", "Enter");
+  await expect(page.locator("#rv-status")).toContainText("between 10 and 500");
+  await expect(page.locator("#rv-tempo")).toHaveValue("66");
+  await page.click("#rv-fix summary");
+  await expect(page.locator("#rv-changes")).toContainText("Tempo 66 BPM");
+  await page.click("#rv-undo");
+  await expect(page.locator("#rv-tempo")).toHaveValue("90");
+  await page.click("#rv-close");
+});
+
 test("Approve takes a score off the To review list", async ({ page }) => {
   await page.click("#cv-tab-review");
   const before = await page.locator("#cv-rv-list li").count();

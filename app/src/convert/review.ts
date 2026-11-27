@@ -14,10 +14,10 @@ import type { LibraryFile, Piece } from "../core/library/model";
 import { guardRenderer, skippedNote, takeSkipped } from "../core/osmd-safety";
 import { timed } from "../core/perf";
 import { beatAt, beatPlaces, type BeatPlace } from "../core/tap";
-import { scoreText } from "../core/score";
+import { DEFAULT_TEMPO, scoreText } from "../core/score";
 import { isFlagged, setSplit } from "./split-list";
 import { changeSplit, currentSplit, onSplitChanged } from "./split-store";
-import { barPage, CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, pageXml, serialize, setClef, setInstrument, setKey, setTime, staves, unknownParts, warnings, type Clef } from "./fixes";
+import { barPage, CLEFS, INSTRUMENTS, KEYS, measureCount, measureNumber, pageXml, serialize, setClef, setInstrument, setKey, setTempo, setTime, staves, tempoAt, unknownParts, warnings, type Clef } from "./fixes";
 
 export interface ReviewItem {
   piece: Piece;
@@ -67,6 +67,8 @@ const ui = {
   playFrom: $<HTMLInputElement>("rv-play-from"),
   speed: $<HTMLSelectElement>("rv-speed"),
   playAt: $("rv-play-at"),
+  tempo: $<HTMLInputElement>("rv-tempo"),
+  tempoNote: $("rv-tempo-note"),
 };
 
 let items: ReviewItem[] = [];
@@ -176,6 +178,44 @@ function fillStaffs(): void {
   ui.changes.replaceChildren(...changes.map((c) => Object.assign(document.createElement("li"), { textContent: c })));
   ui.fixCount.textContent = changes.length ? ` (${changes.length} unsaved)` : "";
   ui.undo.disabled = !history.length;
+  showTempo();
+}
+
+/** The play row's From m., as a measure position in the score. */
+function playFromAt(): number {
+  return doc ? Math.max(1, Math.min(measureCount(doc), Math.round(Number(ui.playFrom.value) || 1))) : 1;
+}
+
+/** Shows the tempo the score gives at the play row's From m., or the default playback uses when it gives none. */
+function showTempo(): void {
+  const bpm = doc ? tempoAt(doc, playFromAt()) : null;
+  ui.tempo.value = doc ? String(bpm ?? DEFAULT_TEMPO) : "";
+  ui.tempoNote.hidden = !doc || bpm != null;
+  ui.tempo.disabled = !doc || !items[at] || !canFix(items[at]);
+}
+
+/** A new tempo typed in the play row: a fix from From m. on, which playback (restarted if it was playing) uses. */
+function changeTempo(): void {
+  if (!doc) return;
+  const bpm = Math.round(Number(ui.tempo.value));
+  const from = playFromAt();
+  const now = tempoAt(doc, from);
+  if (!(bpm >= 10 && bpm <= 500)) {
+    status("Choose a tempo between 10 and 500 BPM.", "error");
+    return showTempo();
+  }
+  if (bpm === now) return showTempo();
+  const wasPlaying = !!playback?.isPlaying();
+  const before = changes.length;
+  void timed("review-tempo", () =>
+    fix((d) => {
+      const to = setTempo(d, from, bpm);
+      return `Tempo ${bpm} BPM in measures ${measureNumber(d, from)}–${measureNumber(d, to)}`;
+    }),
+  );
+  if (changes.length === before) return showTempo(); // refused: the reason is in the status line
+  status(`${changes[changes.length - 1]}. Approve saves it; Undo is under Fix.`);
+  if (wasPlaying) void togglePlay();
 }
 
 /** Applies one fix to the score, keeping the previous version for Undo, and redraws. */
@@ -500,6 +540,8 @@ ui.edit.addEventListener("click", () => void edit());
 ui.drive.addEventListener("click", () => void openDrive());
 ui.split.addEventListener("click", toggleSplit);
 ui.play.addEventListener("click", () => void togglePlay());
+ui.tempo.addEventListener("change", changeTempo);
+ui.playFrom.addEventListener("change", showTempo);
 
 // Tap a note in the drawn MusicXML to listen from there (tapping again while it plays jumps)
 ui.xml.addEventListener("click", (e) => {
