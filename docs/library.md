@@ -155,6 +155,9 @@ folder, and press Connect in Settings. After that, **Refresh** in the Library or
   MusicXML as `<name>.marks.json`, so they follow you between PC, phone and tablet. The score file itself is never
   changed. Offline, marks are kept on the device and uploaded the next time that score opens online; if two
   devices both changed them, the most recent change wins.
+- **Open in Drive** (in a piece's Library window, in Practice for a score from the library, and in Convert PDF's
+  Review window) opens that piece's folder, `pieces/<piece_id>/`, in Google Drive in a new tab (or the Drive app),
+  where you can rename, replace or add its files. The app finds the folder itself, so library.json needs nothing new.
 - **Staying signed in.** The app remembers the sign-in on each device. Within the hour Google's access lasts, a
   reload needs nothing. After that, the next Drive action (Refresh, opening a score) asks Google again with no
   prompt and your account already chosen, so its window flashes up and closes by itself. A full sign-in comes back

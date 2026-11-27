@@ -241,6 +241,7 @@ tr.score_suspect td:last-child { color: var(--score_suspect); }
 .dot.score_suspect::before { background: var(--score_suspect); }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
+@media (max-width: 600px) { .narrow-hide { display: none; } }
 @media (max-width: 600px) {
   .controls { position: static; }
   #tempo { width: 120px; }
