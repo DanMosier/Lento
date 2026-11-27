@@ -57,7 +57,7 @@ borodin brahms breval bridge britten bruch casals cassado chopin corelli couperi
 dotzauer dukas duport dvorak einaudi elgar faure franck gabrielli gershwin glass glazunov glinka gluck goltermann
 gounod granados grieg grutzmacher handel haydn hindemith holst hummel ibert janacek kabalevsky khachaturian klengel
 kodaly kreisler kummer lalo lee liszt mahler marais marcello massenet mendelssohn monteverdi mozart mussorgsky
-offenbach paganini part pergolesi piatti piazzolla popper poulenc prokofiev puccini purcell rachmaninoff rachmaninov
+offenbach paganini pergolesi piatti piazzolla popper poulenc prokofiev puccini purcell rachmaninoff rachmaninov
 ravel respighi romberg rossini saint-saens sammartini satie scarlatti schnittke schroeder schubert schumann
 servais shostakovich sibelius smetana squire stamitz strauss stravinsky suzuki tartini telemann tchaikovsky
 trowell vaughan-williams verdi villa-lobos vivaldi wagner weber werner ysaye rimsky-korsakov speer lago
@@ -304,7 +304,7 @@ def _musicxml_root(path: Path):
 def _composer_part(text: str) -> str:
     """The composer in a credit: "Chopin arr. Austin Harning" -> "Chopin", "Ludwig van Beethoven (1770-1827)" ->
     "Ludwig van Beethoven", "W.H. Squire, arr. Daniel E." -> "W.H. Squire". "" for a placeholder or an arranger alone."""
-    text = re.split(r"\b(arr\b\.?|arranged|arrangement|transcri\w*|orch\w*\b|adapted|edited|ed\.|after)\b|/", text, flags=re.IGNORECASE)[0]
+    text = re.split(r"arr\.|\barr\b|\b(arranged|arrangement|transcri\w*|trascri\w*|orch\w*|adapted|edited|ed\.|after)\b|/", text, flags=re.IGNORECASE)[0]
     text = re.sub(r"\([^)]*\)|\b\d{3,4}\b|[–-]\s*$", " ", text)
     text = re.sub(r"^\s*(music by|by|composer:?|words and music by)\s+", "", text, flags=re.IGNORECASE)
     text = " ".join(text.replace(",", " , ").split()).strip(" ,.-–")
@@ -331,8 +331,9 @@ def embedded_composer(path: Path, known: set[str]) -> str:
                     creator = _composer_part(" ".join(el.text.split()))
                 if tag == "credit-words" and el.text:
                     texts.append(el.text)
-            if creator:
-                return creator
+            # a well-known composer in the printed credits beats the creator field, which is often the arranger
+            from_credits = _known_in(texts)
+            return from_credits or creator
         elif path.suffix.lower() == ".pdf":
             import logging
 
@@ -350,12 +351,18 @@ def embedded_composer(path: Path, known: set[str]) -> str:
                 texts.append((reader.pages[0].extract_text() or "")[:1500])
     except Exception:  # an unreadable file just has no details
         return ""
-    for text in texts:  # a known composer named in the credits, the author field or on the title page
+    return _known_in(texts)
+
+
+def _known_in(texts: list[str]) -> str:
+    """A well-known composer (the built-in list only: names from the library can be title words) named on a line
+    of credits or title-page text, without any arranger."""
+    for text in texts:
         for line in text.splitlines():
             line = _composer_part(" ".join(re.sub(r"[_+]", " ", line).split()))
-            found = find_composer(line, known) if line else None
-            if found and len(line) < 60:
-                return line.strip() if len(line.split()) <= 4 else found[0].title()
+            found = find_composer(line, COMPOSERS) if line else None
+            if found and len(line) < 60 and any(_surname(w, COMPOSERS) for w in re.split(r"[\s,]+", line)):
+                return found[0].title()  # "CAN CAN, OFFENBACH" -> "Offenbach"
     return ""
 
 
@@ -420,7 +427,8 @@ def plan(lib: Library, fresh: bool = False) -> tuple[Path, int]:
         filed = {_surname_of(r.get("composer", "")) for r in lib.catalog() if r.get("composer", "").strip()}
     except Exception:
         filed = set()
-    known = COMPOSERS | {k for k in filed if len(k) >= 3 and k not in _NOT_SURNAMES and k not in GIVEN}
+    from_lib = filed | set(prefixes)
+    known = COMPOSERS | {k for k in from_lib if len(k) >= 4 and k not in _NOT_SURNAMES and k not in GIVEN}
     names = {p: parse(p.relative_to(lib.root).parts, p.stem, known) for p in files}
     # a surname shared by composers with different first names (the Bachs, the Rombergs) gets their initials
     firsts: dict[str, set[str]] = {}
