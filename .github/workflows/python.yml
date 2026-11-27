@@ -1,0 +1,32 @@
+name: Python
+
+# The converter, library tools and practice analyzer (tests/). The GPU-only homr tests are skipped here; run them on
+# the PC with:  .\run-tests.ps1 python -Gpu
+on:
+  push:
+    branches: [main]
+    paths: ["lento_*/**", "tests/**", "pyproject.toml", ".github/workflows/python.yml"]
+  pull_request:
+    paths: ["lento_*/**", "tests/**", "pyproject.toml", ".github/workflows/python.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv venv && uv pip install -e ".[dev,practice]"
+      - run: .venv/bin/python -m pytest -m "not homr_gpu" -v --junitxml=pytest-report.xml
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: python-test-report
+          path: pytest-report.xml
+          retention-days: 14

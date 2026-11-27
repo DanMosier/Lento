@@ -92,6 +92,7 @@ step-by-step [PC setup guide](docs/pc-setup.md).
 | [docs/convertpdf.md](docs/convertpdf.md) | Lento_ConvertPDF: its window, command line, PDF splitter and tests |
 | [docs/convertpdf-accuracy.md](docs/convertpdf-accuracy.md) | How accurate the PDF conversion is, and its known mistakes |
 | [docs/practice.md](docs/practice.md) | How the practice feedback listens and judges each note |
+| [docs/TESTING.md](docs/TESTING.md) | The tests: what each checks, running them, reading the results |
 
 ## Folders in this repository
 
@@ -109,21 +110,15 @@ pyproject.toml       the Python package: its dependencies and the three commands
 
 ## Running the tests
 
-Python (from the repository folder, after the [PC setup](docs/pc-setup.md)):
+From the repository folder in PowerShell (needs [Node.js](https://nodejs.org) and the [PC setup](docs/pc-setup.md)):
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -m "not homr_gpu"     # the fast tests
+.\run-tests.ps1              # everything: unit, Python, GUI and speed tests, with a pass/fail summary
+.\run-tests.ps1 gui-watch    # watch the browser tests click through the app
 ```
 
-The app (needs Node.js):
-
-```bash
-cd app
-npm install
-npm test
-```
-
-GitHub runs the app's tests and a speed check on every pull request, and only publishes the app when both pass.
+[docs/TESTING.md](docs/TESTING.md) explains what each test checks, how to run one on its own, and how to read a
+failure. GitHub runs all of them on every pull request, and only publishes the app when they pass.
 
 ## Licence
 
