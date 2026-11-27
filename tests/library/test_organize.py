@@ -148,7 +148,7 @@ def test_names_of_downloads_without_last_first() -> None:
         return n.surname, org.title_slug(n.title), n.variant
 
     assert name("Can Can Cello") == ("unknown", "can-can", "cello")  # not composer "Can"
-    assert name("Rhapsody in Blue-Violoncello") == ("unknown", "rhapsody-in-blue", "cello")
+    assert name("Rhapsody in Blue-Violoncello") == ("gershwin", "rhapsody-in-blue", "cello")  # a famous work
     assert name("Alto Clef Major Scales")[:2] == ("exercises", "alto-clef-major-scales")  # scale sheets have no composer
     assert name("Scales, Major - 2 Octave")[0] == "exercises"
     assert name("Ani), New - lhe")[0] == "unknown"  # text read from a scan is not a composer
@@ -181,3 +181,27 @@ def test_plan_flags_copies_and_pieces_already_filed(tmp_path: Path) -> None:
     moved, problems = org.apply(Library(tmp_path), "New downloads", rebuild=False)
     assert not problems and len(moved) == 3  # the rows to check stay where they are
     assert (new / "img601.pdf").exists()
+
+
+def test_composer_from_inside_the_file(tmp_path: Path) -> None:
+    import io
+    import zipfile
+
+    new = tmp_path / "New downloads"
+    new.mkdir()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("META-INF/container.xml", "<container><rootfiles><rootfile full-path='s.xml'/></rootfiles></container>")
+        zf.writestr("s.xml", "<score-partwise><identification><creator type='composer'>Dmitri Shostakovich</creator>"
+                    "</identification></score-partwise>")
+    (new / "Symphony_No._5_1st_Movement.mxl").write_bytes(buf.getvalue())
+    (new / "Halo_Theme_for_Cello.musicxml").write_text(
+        "<score-partwise><credit><credit-words>Halo Theme</credit-words></credit>"
+        "<identification><creator type='composer'>Martin O'Donnell</creator></identification></score-partwise>")
+    (new / "Can Can Cello.pdf").write_bytes(b"not really a pdf")
+    path, _ = org.plan(Library(tmp_path))
+    rows = {r["source"].split("/")[-1]: r for r in org.read_csv(path)}
+    assert rows["Symphony_No._5_1st_Movement.mxl"]["piece_id"] == "shostakovich_symphony-no-5-1st-movement"
+    assert "inside the file" in rows["Symphony_No._5_1st_Movement.mxl"]["note"]
+    assert rows["Halo_Theme_for_Cello.musicxml"]["piece_id"].startswith("odonnell_")
+    assert rows["Can Can Cello.pdf"]["piece_id"] == "unknown_can-can"  # unreadable: no harm done
